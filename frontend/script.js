@@ -782,6 +782,7 @@ function renderPlanGuide() {
 function renderBooks() {
   const books = state.snapshot?.books || [];
   const list = $("bookList");
+  renderReaderBookSelect();
   if (!books.length) {
     list.className = "book-list empty";
     list.textContent = "暂无书籍";
@@ -804,25 +805,57 @@ function renderBooks() {
       <button class="secondary" type="button" data-action="copy-book-progress" data-id="${escapeHtml(book.bookId)}">复制进度</button>
     `;
     row.querySelector(".book-select").addEventListener("click", () => {
-      state.selectedBookId = book.bookId;
-      state.selectedChunkId = "";
-      state.currentChunk = null;
-      state.annotations = [];
-      state.userNotes = [];
-      state.submissions = [];
-      state.searchResults = [];
-      state.cardInbox = [];
-      state.cardCollection = { items: [], bookCards: [] };
-      state.selectedCard = null;
-      void loadChunks(book.bookId).then(() => {
-        return loadCards(book.bookId);
-      }).then(() => {
-        renderAll();
-        return readSelectedChunk();
-      });
+      void selectBook(book.bookId);
     });
     list.appendChild(row);
   }
+}
+
+function renderReaderBookSelect() {
+  const select = $("readerBookSelect");
+  if (!select) return;
+  const books = state.snapshot?.books || [];
+  select.innerHTML = "";
+  if (!books.length) {
+    select.disabled = true;
+    select.appendChild(new Option("暂无书籍", ""));
+    return;
+  }
+  select.disabled = false;
+  for (const book of books) {
+    select.appendChild(new Option(`${book.title || book.bookId} · ${progressPercent(book)}%`, book.bookId));
+  }
+  const selected = activeBook();
+  if (selected?.bookId) select.value = selected.bookId;
+}
+
+async function selectBook(bookId, { focusReader = true } = {}) {
+  if (!bookId || bookId === state.selectedBookId) {
+    renderReaderBookSelect();
+    if (focusReader) focusPanel(".reader-surface", "#chunkText");
+    return;
+  }
+  state.selectedBookId = bookId;
+  state.selectedChunkId = "";
+  state.currentChunk = null;
+  state.annotations = [];
+  state.userNotes = [];
+  state.submissions = [];
+  state.searchResults = [];
+  state.cardInbox = [];
+  state.cardCollection = { items: [], bookCards: [] };
+  state.selectedCard = null;
+  state.novaReply = "";
+  state.novaReplyContext = null;
+  clearReaderSelection();
+  clearEntityPeek();
+  await loadChunks(bookId);
+  await loadCards(bookId);
+  renderAll();
+  await readSelectedChunk();
+  renderReaderBookSelect();
+  if (focusReader) focusPanel(".reader-surface", "#chunkText");
+  log(`已切换书籍: ${activeBook()?.title || bookId}`);
 }
 
 function renderChunks() {
@@ -7690,6 +7723,15 @@ $("chunkSelect").addEventListener("change", (event) => {
   renderSelfCheck();
   renderAnnotations();
   renderIllustrationSuggestions();
+});
+$("readerBookSelect").addEventListener("change", (event) => {
+  const select = event.target;
+  select.disabled = true;
+  void selectBook(select.value).catch((error) => {
+    log(error.message || String(error));
+  }).finally(() => {
+    renderReaderBookSelect();
+  });
 });
 $("chunkText").addEventListener("scroll", () => {
   saveReadingSession();

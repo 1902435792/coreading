@@ -596,7 +596,7 @@ fieldset input {
 
 .reader-tools {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) repeat(7, auto);
+  grid-template-columns: minmax(180px, 1fr) auto minmax(0, 1fr) repeat(7, auto);
   gap: 8px;
   margin-bottom: 12px;
 }
@@ -1944,6 +1944,10 @@ pre {
 }
 
 @media (max-width: 680px) {
+  body {
+    overflow-x: hidden;
+  }
+
   .shell {
     display: flex;
     flex-direction: column;
@@ -1991,7 +1995,12 @@ pre {
 
   .reader-nav-tools {
     display: flex;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     overflow-x: auto;
+    overflow-y: hidden;
     gap: 6px;
     padding-bottom: 4px;
     scrollbar-width: thin;
@@ -1999,10 +2008,16 @@ pre {
 
   .reader-nav-tools select {
     flex: 0 0 180px;
+    width: auto;
+  }
+
+  .reader-nav-tools #readerBookSelect {
+    flex-basis: 240px;
   }
 
   .reader-nav-tools button {
     flex: 0 0 auto;
+    width: auto;
     white-space: nowrap;
   }
 
@@ -2012,6 +2027,16 @@ pre {
 
   .waypoint-head {
     grid-template-columns: 1fr;
+  }
+
+  .reading-map,
+  .reading-map-head,
+  .reading-map-head > div,
+  .reading-waypoints,
+  .waypoint-head,
+  .waypoint-head > div {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .reading-map-actions {
