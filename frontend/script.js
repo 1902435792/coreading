@@ -949,10 +949,19 @@ function chunkReviewSummary() {
   ].join("\n");
 }
 
+function currentChunkSinkTargets() {
+  const targets = [];
+  if ($("chunkSinkObsidian")?.checked) targets.push("obsidian");
+  if ($("chunkSinkDailyNote")?.checked) targets.push("dailyNote");
+  if ($("chunkSinkVcpMemory")?.checked) targets.push("vcpMemory");
+  return targets.length ? targets : ["obsidian"];
+}
+
 function currentChunkNotesReviewPayload() {
   const selected = activeBook();
   const chunk = state.currentChunk?.chunk || state.currentChunk || {};
   const text = currentChunkText();
+  const targets = currentChunkSinkTargets();
   if (!selected || !state.selectedChunkId || !text) throw new Error("请先读取一个段落。");
   const noteLines = (state.userNotes || []).slice(0, 8).map((item) => ({
     section: item.kind === "nova-reply" ? "nova_reply" : "user_note",
@@ -1014,9 +1023,9 @@ function currentChunkNotesReviewPayload() {
     tags: ["co-reading", "sidecar", "chunk-note-sink"],
     sinkPolicy: {
       requireApproval: true,
-      obsidian: true,
-      dailyNote: false,
-      vcpMemory: false,
+      obsidian: targets.includes("obsidian"),
+      dailyNote: targets.includes("dailyNote"),
+      vcpMemory: targets.includes("vcpMemory"),
     },
     createdBy: "CoReadingSidecar",
   };
@@ -1030,9 +1039,11 @@ async function createCurrentChunkSinkPreview() {
   const previewResult = await command({
     command: "sink_preview_create",
     reviewId,
-    targets: ["obsidian"],
+    targets: currentChunkSinkTargets(),
     requireApproval: true,
     vaultPath: $("vaultPath").value || undefined,
+    dailyNoteRoot: $("dailyNoteRoot").value || undefined,
+    vcpMemoryRoot: $("vcpMemoryRoot").value || undefined,
     createdBy: "CoReadingSidecar",
   });
   const opened = await openPreviewFromResult(previewResult, { refreshSnapshot: true });

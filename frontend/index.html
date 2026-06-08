@@ -388,6 +388,11 @@
                 <small id="chunkReviewMeta">笔记、边注、卡片和待沉淀会汇合到这里。</small>
               </div>
               <div class="chunk-review-actions">
+                <fieldset class="chunk-sink-targets" aria-label="本段沉淀目标">
+                  <label><input id="chunkSinkObsidian" type="checkbox" checked> Obsidian</label>
+                  <label><input id="chunkSinkDailyNote" type="checkbox"> DailyNote</label>
+                  <label><input id="chunkSinkVcpMemory" type="checkbox"> VCPMemory</label>
+                </fieldset>
                 <button id="copyChunkReviewBtn" class="secondary compact" type="button" data-chunk-review-action="copy-review">复制回看</button>
                 <button id="chunkReviewSinkCurrentBtn" class="primary compact" type="button" data-chunk-review-action="sink-current">沉淀本段</button>
                 <button id="chunkReviewNotesBtn" class="secondary compact" type="button" data-chunk-review-action="notes">看笔记</button>
