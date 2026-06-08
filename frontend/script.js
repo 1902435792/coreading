@@ -1445,6 +1445,7 @@ function renderSelectionDock() {
   $("selectionAskNovaBtn").disabled = !quote;
   $("selectionNoteBtn").disabled = !quote;
   $("selectionAnnotateBtn").disabled = !quote;
+  renderTrailGuide();
 }
 
 function captureReaderSelection() {
@@ -1518,6 +1519,47 @@ function currentNovaContext(selected, chunk, text, quote) {
   };
 }
 
+function trailGuideQuery() {
+  const quote = state.readerSelection?.text || selectedQuote().text || "";
+  const search = $("searchInput")?.value?.trim() || "";
+  const current = state.currentChunk?.chunk || state.currentChunk || {};
+  return (quote || search || current.title || current.sectionTitle || state.selectedChunkId || "").trim().slice(0, 120);
+}
+
+function renderTrailGuide() {
+  const step = $("trailGuideStep");
+  const title = $("trailGuideTitle");
+  const meta = $("trailGuideMeta");
+  const backtrack = $("trailGuideBacktrackBtn");
+  const open = $("trailGuideOpenBtn");
+  const plan = $("trailGuidePlanBtn");
+  const sink = $("trailGuideSinkBtn");
+  if (!step || !title || !meta || !backtrack || !open || !plan || !sink) return;
+  const evidence = state.backtrackEvidence;
+  const query = trailGuideQuery();
+  backtrack.disabled = !activeBook() || !state.selectedChunkId;
+  if (!evidence) {
+    step.textContent = "兴趣回溯";
+    title.textContent = query ? `追线索：${query}` : "追当前段落里的线索";
+    meta.textContent = "选中原文会作为线索；没有选区时使用搜索框或当前标题。";
+    open.disabled = true;
+    plan.disabled = true;
+    sink.disabled = true;
+    return;
+  }
+  const ranges = evidence.evidence?.rangeSummaries || [];
+  const anchors = evidence.evidence?.anchorSnippets || [];
+  const firstRange = ranges[0] || {};
+  step.textContent = `${anchors.length} 个锚点 · ${ranges.length} 组范围`;
+  title.textContent = evidence.evidence?.title || `兴趣点回溯: ${evidence.query || query}`;
+  meta.textContent = firstRange.label
+    ? `首个范围 ${firstRange.label} · 覆盖 ${(firstRange.chunkIds || []).length} chunks`
+    : `覆盖 ${(evidence.chunkIds || []).length} chunks`;
+  open.disabled = !firstRange.startChunkId && !(evidence.chunkIds || []).length;
+  plan.disabled = !ranges.length;
+  sink.disabled = !ranges.length;
+}
+
 function renderSearchResults() {
   const list = $("searchResults");
   if (!state.searchResults.length) {
@@ -1552,6 +1594,7 @@ function renderBacktrackEvidence() {
   if (!evidence) {
     panel.className = "backtrack-evidence empty";
     panel.textContent = "暂无回溯证据";
+    renderTrailGuide();
     return;
   }
   const ranges = evidence.evidence?.rangeSummaries || [];
@@ -1566,6 +1609,7 @@ function renderBacktrackEvidence() {
     <button class="secondary" type="button" data-action="copy-backtrack-card-decision">复制收藏决策</button>
     <button class="secondary" type="button" data-action="collect-backtrack-card">收藏回溯</button>
   `;
+  renderTrailGuide();
 }
 
 async function copyBacktrackEvidence() {
@@ -3440,6 +3484,7 @@ function renderAll() {
   renderReadingQueue();
   renderPlanGuide();
   renderSelectionDock();
+  renderTrailGuide();
   renderNovaReply();
   renderSearchResults();
   renderBacktrackEvidence();
@@ -4698,6 +4743,50 @@ $("selectionClearBtn").addEventListener("click", () => {
   clearReaderSelection();
 });
 
+$("trailGuideBacktrackBtn").addEventListener("click", async () => {
+  $("trailGuideBacktrackBtn").disabled = true;
+  try {
+    await runTrailGuideBacktrack();
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderTrailGuide();
+  }
+});
+
+$("trailGuideOpenBtn").addEventListener("click", async () => {
+  $("trailGuideOpenBtn").disabled = true;
+  try {
+    await openTrailGuideRange();
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderTrailGuide();
+  }
+});
+
+$("trailGuidePlanBtn").addEventListener("click", async () => {
+  $("trailGuidePlanBtn").disabled = true;
+  try {
+    await planTrailGuide();
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderTrailGuide();
+  }
+});
+
+$("trailGuideSinkBtn").addEventListener("click", async () => {
+  $("trailGuideSinkBtn").disabled = true;
+  try {
+    await sinkTrailGuide();
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderTrailGuide();
+  }
+});
+
 document.addEventListener("click", (event) => {
   const target = event.target.closest("button[data-shift-plan-range]");
   if (!target) return;
@@ -4735,6 +4824,65 @@ async function createBacktrackPlan(anchorChunkId) {
   } catch (error) {
     log(error.message || String(error));
   }
+}
+
+async function runTrailGuideBacktrack() {
+  const selected = activeBook();
+  if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
+  const query = trailGuideQuery();
+  if (query) $("searchInput").value = query;
+  const result = await command({
+    ...backtrackPayload(selected.bookId, state.selectedChunkId),
+    command: "interest_backtrack",
+    createPlan: false,
+    includeEvidence: true,
+  });
+  state.backtrackEvidence = result.data || result.raw || result;
+  renderBacktrackEvidence();
+  focusPanel(".trail-guide", "#trailGuideOpenBtn");
+}
+
+async function openTrailGuideRange() {
+  const evidence = state.backtrackEvidence;
+  if (!evidence) throw new Error("当前没有回溯证据。");
+  const firstRange = evidence.evidence?.rangeSummaries?.[0] || evidence.ranges?.[0] || {};
+  const targetChunkId = firstRange.startChunkId || evidence.chunkIds?.[0] || evidence.anchorChunkId;
+  if (!targetChunkId) throw new Error("回溯证据没有可打开的 chunk。");
+  await selectChunk(targetChunkId, true);
+  const startInput = document.querySelector('#planForm input[name="startChunkId"]');
+  const endInput = document.querySelector('#planForm input[name="endChunkId"]');
+  if (startInput) startInput.value = firstRange.startChunkId || targetChunkId;
+  if (endInput) endInput.value = firstRange.endChunkId || firstRange.chunkIds?.at(-1) || targetChunkId;
+  renderPlanRangeStatus();
+  focusPanel(".reader-surface", "#chunkText");
+  log(`已打开回溯范围: ${firstRange.label || targetChunkId}`);
+}
+
+async function planTrailGuide() {
+  const evidence = state.backtrackEvidence;
+  if (!evidence) throw new Error("当前没有回溯证据。");
+  await fillPlanFromBacktrack();
+  $("planReviewDrawer").open = true;
+  focusPanel("#planForm", '#planForm input[name="query"]');
+}
+
+async function sinkTrailGuide() {
+  const selected = activeBook();
+  if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
+  const evidence = state.backtrackEvidence;
+  if (!evidence) throw new Error("当前没有回溯证据。");
+  saveSinkSettings();
+  const result = await command({
+    ...backtrackPayload(selected.bookId, evidence.anchorChunkId || state.selectedChunkId),
+    command: "sink_preview_create_from_backtrack",
+    vaultPath: $("vaultPath").value || undefined,
+    requireApproval: true,
+    createdBy: "CoReadingSidecar",
+  });
+  state.backtrackEvidence = result.data?.backtrack || result.raw?.backtrack || evidence;
+  renderBacktrackEvidence();
+  const previewId = previewIdFromResult(result);
+  if (previewId) await openQueueSink(previewId);
 }
 
 function backtrackPayload(bookId, anchorChunkId) {

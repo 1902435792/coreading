@@ -921,6 +921,40 @@ fieldset input {
   padding-left: 10px;
 }
 
+.trail-guide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin: 12px 0;
+  border: 1px solid #bfd8d2;
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: #f7fbf9;
+}
+
+.trail-guide span,
+.trail-guide small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.trail-guide strong {
+  display: block;
+  overflow: hidden;
+  margin: 2px 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trail-guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 body.reading-focus .shell {
   width: min(1040px, calc(100vw - 32px));
 }
@@ -1422,21 +1456,24 @@ pre {
   .reader-progress,
   .reader-next,
   .sink-guide,
-  .plan-guide {
+  .plan-guide,
+  .trail-guide {
     grid-template-columns: 1fr;
   }
 
   .reader-header-actions,
   .reader-next-actions,
   .sink-guide-actions,
-  .plan-guide-actions {
+  .plan-guide-actions,
+  .trail-guide-actions {
     justify-content: stretch;
   }
 
   .reader-header-actions button,
   .reader-next-actions button,
   .sink-guide-actions button,
-  .plan-guide-actions button {
+  .plan-guide-actions button,
+  .trail-guide-actions button {
     flex: 1 1 42%;
   }
 
