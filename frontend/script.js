@@ -33,6 +33,7 @@ const SINK_SETTINGS_KEY = "vcp-coreading-sidecar.sinkSettings";
 const CARD_SAVE_RESULTS_KEY = "vcp-coreading-sidecar.cardSaveResults";
 const CARD_PREVIEW_RESULTS_KEY = "vcp-coreading-sidecar.cardPreviewResults";
 const READING_SESSION_KEY = "vcp-coreading-sidecar.readingSession";
+const READING_BOOKMARKS_KEY = "vcp-coreading-sidecar.readingBookmarks";
 
 function announce(text) {
   const el = $("statusAnnouncer");
@@ -108,6 +109,38 @@ function restoreSavedScroll(saved) {
 function hasSavedReadingSession() {
   const saved = readSavedReadingSession();
   return !!saved && state.snapshot?.books?.some((book) => book.bookId === saved.bookId);
+}
+
+function readBookmarks() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(READING_BOOKMARKS_KEY) || "{}");
+    return saved && typeof saved === "object" ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function bookmarksForBook(bookId = state.selectedBookId) {
+  const items = readBookmarks()[bookId] || [];
+  return Array.isArray(items) ? items : [];
+}
+
+function saveBookmarkForCurrentChunk() {
+  const selected = activeBook();
+  if (!selected || !state.selectedChunkId) return null;
+  const bookmarks = readBookmarks();
+  const current = {
+    bookId: selected.bookId,
+    bookTitle: selected.title || selected.bookId,
+    chunkId: state.selectedChunkId,
+    title: chunkTitleById(state.selectedChunkId),
+    scrollTop: Number($("chunkText")?.scrollTop || 0),
+    savedAt: new Date().toISOString(),
+  };
+  const existing = bookmarks[selected.bookId] || [];
+  bookmarks[selected.bookId] = [current, ...existing.filter((item) => item.chunkId !== current.chunkId)].slice(0, 24);
+  localStorage.setItem(READING_BOOKMARKS_KEY, JSON.stringify(bookmarks));
+  return current;
 }
 
 function setFormError(form, message) {
@@ -393,6 +426,52 @@ function renderReaderProgress() {
     : "笔记、卡片和沉淀入口会在这里提示。";
   $("focusReadingBtn").setAttribute("aria-pressed", state.readingFocus ? "true" : "false");
   $("focusReadingBtn").textContent = state.readingFocus ? "退出专注" : "专注";
+  renderReadingMap({ scrollPercent });
+}
+
+function renderReadingMap({ scrollPercent = 0 } = {}) {
+  const selected = activeBook();
+  const track = $("readingMapTrack");
+  const title = $("readingMapTitle");
+  const meta = $("readingMapMeta");
+  const bookmarkBtn = $("bookmarkChunkBtn");
+  const lastBtn = $("openLastBookmarkBtn");
+  if (!track || !title || !meta || !bookmarkBtn || !lastBtn) return;
+  const index = chunkOrder(state.selectedChunkId);
+  const bookmarks = bookmarksForBook(selected?.bookId);
+  bookmarkBtn.disabled = !selected || index === null;
+  lastBtn.disabled = !bookmarks.length;
+  if (!selected || !state.chunks.length) {
+    title.textContent = "选择书籍后显示全书位置。";
+    meta.textContent = "目录节点、当前段内位置和本地书签会在这里汇合。";
+    track.className = "reading-map-track empty";
+    track.textContent = "暂无目录";
+    return;
+  }
+  const total = state.chunks.length;
+  const chapterPercent = index === null ? 0 : Math.round(((index + 1) / total) * 100);
+  const latestBookmark = bookmarks[0];
+  title.textContent = `${selected.title || selected.bookId} · ${index === null ? "未定位" : `${index + 1}/${total}`}`;
+  meta.textContent = `全书 ${chapterPercent}% · 段内 ${Math.round(scrollPercent)}%${latestBookmark ? ` · 最近书签 ${latestBookmark.chunkId}` : " · 暂无书签"}`;
+  const bookmarkSet = new Set(bookmarks.map((item) => item.chunkId));
+  const step = Math.max(1, Math.ceil(total / 36));
+  const visibleChunks = state.chunks.filter((chunk, chunkIndex) => {
+    const id = getChunkId(chunk);
+    return chunkIndex === 0 || chunkIndex === total - 1 || chunkIndex === index || bookmarkSet.has(id) || chunkIndex % step === 0;
+  });
+  track.className = "reading-map-track";
+  track.innerHTML = visibleChunks.map((chunk) => {
+    const chunkId = getChunkId(chunk);
+    const chunkIndex = chunkOrder(chunkId);
+    const active = chunkId === state.selectedChunkId;
+    const bookmarked = bookmarkSet.has(chunkId);
+    return `
+      <button class="map-node ${active ? "active" : ""} ${bookmarked ? "bookmarked" : ""}" type="button" data-chunk-id="${escapeHtml(chunkId)}" title="${escapeHtml(chunk.title || chunk.sectionTitle || chunkId)}">
+        <span>${escapeHtml(chunkIndex === null ? "" : chunkIndex + 1)}</span>
+        <small>${escapeHtml(chunkId)}</small>
+      </button>
+    `;
+  }).join("");
 }
 
 function activePlansForBook(book = activeBook()) {
@@ -6723,6 +6802,29 @@ $("chunkSelect").addEventListener("change", (event) => {
   renderReader();
   renderAnnotations();
   renderIllustrationSuggestions();
+});
+$("chunkText").addEventListener("scroll", () => {
+  saveReadingSession();
+  renderReaderProgress();
+});
+$("readingMapTrack").addEventListener("click", async (event) => {
+  const target = event.target.closest("button[data-chunk-id]");
+  if (!target) return;
+  await selectChunk(target.dataset.chunkId, true);
+  focusPanel(".reader-surface", "#chunkText");
+});
+$("bookmarkChunkBtn").addEventListener("click", () => {
+  const bookmark = saveBookmarkForCurrentChunk();
+  renderReadingMap();
+  log(bookmark ? `已插入书签: ${bookmark.chunkId}` : "请先选择一本书和 chunk。");
+});
+$("openLastBookmarkBtn").addEventListener("click", async () => {
+  const bookmark = bookmarksForBook()[0];
+  if (!bookmark?.chunkId) return;
+  await selectChunk(bookmark.chunkId, true);
+  restoreSavedScroll(bookmark);
+  focusPanel(".reader-surface", "#chunkText");
+  log(`已打开最近书签: ${bookmark.chunkId}`);
 });
 $("setRangeStartBtn").addEventListener("click", () => setPlanRangeEdge("start"));
 $("setRangeEndBtn").addEventListener("click", () => setPlanRangeEdge("end"));

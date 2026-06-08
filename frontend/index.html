@@ -257,6 +257,20 @@
             </div>
             <div class="reader-progress-bar" aria-hidden="true"><span id="readerProgressFill"></span></div>
           </section>
+          <section class="reading-map" aria-label="长篇阅读地图">
+            <div class="reading-map-head">
+              <div>
+                <span id="readingMapLabel">阅读地图</span>
+                <strong id="readingMapTitle">选择书籍后显示全书位置。</strong>
+                <small id="readingMapMeta">目录节点、当前段内位置和本地书签会在这里汇合。</small>
+              </div>
+              <div class="reading-map-actions">
+                <button id="bookmarkChunkBtn" class="secondary compact" type="button" disabled>插书签</button>
+                <button id="openLastBookmarkBtn" class="secondary compact" type="button" disabled>最近书签</button>
+              </div>
+            </div>
+            <div id="readingMapTrack" class="reading-map-track" role="list">暂无目录</div>
+          </section>
           <article class="reader-surface">
             <header>
               <div>
