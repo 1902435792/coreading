@@ -914,6 +914,7 @@ function renderChunkReview() {
     ? `${state.selectedChunkId} · 笔记 ${state.userNotes.length} · 边注 ${state.annotations.length} · 卡片 ${cardsForCurrentChunk().length} · 沉淀 ${sinkPreviewsForCurrentChunk().length}`
     : "笔记、边注、卡片和待沉淀会汇合到这里。";
   $("copyChunkReviewBtn").disabled = !hasChunk;
+  $("chunkReviewSinkCurrentBtn").disabled = !hasChunk;
   $("chunkReviewNotesBtn").disabled = !hasChunk || !(state.userNotes.length || state.annotations.length);
   $("chunkReviewCardsBtn").disabled = !hasChunk || !cardsForCurrentChunk().length;
   $("chunkReviewSinksBtn").disabled = !hasChunk || !sinkPreviewsForCurrentChunk().length;
@@ -946,6 +947,72 @@ function chunkReviewSummary() {
     `items: ${items.length}`,
     ...items.map((item, index) => `${index + 1}. [${item.type}] ${item.title}\n   ${item.meta || ""}`)
   ].join("\n");
+}
+
+function currentChunkNotesReviewPayload() {
+  const selected = activeBook();
+  const chunk = state.currentChunk?.chunk || state.currentChunk || {};
+  const text = currentChunkText();
+  if (!selected || !state.selectedChunkId || !text) throw new Error("请先读取一个段落。");
+  const noteLines = (state.userNotes || []).slice(0, 8).map((item, index) => {
+    const label = item.kind === "nova-reply" ? "Nova回应" : "笔记";
+    return `${index + 1}. [${label}] ${item.quote || chunk.title || state.selectedChunkId}\n   ${item.note || item.text || ""}`;
+  });
+  const annotationLines = (state.annotations || []).slice(0, 8).map((item, index) =>
+    `${index + 1}. [边注] ${item.quote || ""}\n   ${item.note || ""}`
+  );
+  const cardLines = cardsForCurrentChunk().slice(0, 6).map((card, index) =>
+    `${index + 1}. [卡片] ${card.title || card.kicker || card.id || ""}\n   ${card.message || card.note || card.subtitle || ""}`
+  );
+  const observations = [
+    ...noteLines,
+    ...annotationLines,
+    ...cardLines,
+    `原文预览: ${text.slice(0, 900)}`,
+  ].filter(Boolean).map((line) => ({ text: line }));
+  const title = chunk.title || chunk.sectionTitle || state.selectedChunkId;
+  const summaryParts = [
+    `本段沉淀预览：${selected.title || selected.bookId} · ${state.selectedChunkId}`,
+    title ? `标题：${title}` : "",
+    state.userNotes.length ? `已有用户笔记 ${state.userNotes.length} 条。` : "",
+    state.annotations.length ? `已有边注 ${state.annotations.length} 条。` : "",
+    cardsForCurrentChunk().length ? `已有卡片 ${cardsForCurrentChunk().length} 张。` : "",
+  ].filter(Boolean);
+  return {
+    command: "review_create",
+    bookId: selected.bookId,
+    startChunkId: state.selectedChunkId,
+    endChunkId: state.selectedChunkId,
+    summary: summaryParts.join("\n"),
+    observations,
+    tags: ["co-reading", "sidecar", "chunk-note-sink"],
+    sinkPolicy: {
+      requireApproval: true,
+      obsidian: true,
+      dailyNote: false,
+      vcpMemory: false,
+    },
+    createdBy: "CoReadingSidecar",
+  };
+}
+
+async function createCurrentChunkSinkPreview() {
+  const reviewResult = await command(currentChunkNotesReviewPayload());
+  const review = reviewResult.data?.review || reviewResult.raw?.review || reviewResult.review || reviewResult.fullReview || null;
+  const reviewId = review?.reviewId || reviewResult.data?.reviewId || reviewResult.raw?.reviewId || reviewResult.reviewId;
+  if (!reviewId) throw new Error("已创建评价，但没有返回 reviewId。");
+  const previewResult = await command({
+    command: "sink_preview_create",
+    reviewId,
+    targets: ["obsidian"],
+    requireApproval: true,
+    vaultPath: $("vaultPath").value || undefined,
+    createdBy: "CoReadingSidecar",
+  });
+  const opened = await openPreviewFromResult(previewResult, { refreshSnapshot: true });
+  if (!opened) await loadSnapshot();
+  renderChunkReview();
+  return { reviewId, previewResult };
 }
 
 function selfCheckSeed() {
@@ -5490,6 +5557,16 @@ $("chunkReviewCard").addEventListener("click", async (event) => {
     if (action === "copy-review") {
       await copyTextToClipboard(chunkReviewSummary());
       log(`已复制段落回看: ${state.selectedChunkId || ""}`);
+      return;
+    }
+    if (action === "sink-current") {
+      target.disabled = true;
+      try {
+        const result = await createCurrentChunkSinkPreview();
+        log(`已生成本段沉淀预览: ${result.reviewId}`);
+      } finally {
+        renderChunkReview();
+      }
       return;
     }
     if (action === "notes") {
