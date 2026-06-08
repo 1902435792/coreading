@@ -120,6 +120,22 @@ function hasSavedReadingSession() {
   return !!saved && state.snapshot?.books?.some((book) => book.bookId === saved.bookId);
 }
 
+function chooseInitialBook(snapshot, saved) {
+  const books = snapshot?.books || [];
+  if (!books.length) return null;
+  const byId = new Map(books.map((book) => [book.bookId, book]));
+  if (state.selectedBookId && byId.has(state.selectedBookId)) return byId.get(state.selectedBookId);
+  if (saved?.bookId && byId.has(saved.bookId)) return byId.get(saved.bookId);
+  const recentlyRead = books
+    .filter((book) => book.lastReadAt || book.lastChunkId)
+    .sort((a, b) => (Date.parse(b.lastReadAt || "") || 0) - (Date.parse(a.lastReadAt || "") || 0))[0];
+  if (recentlyRead) return recentlyRead;
+  const activePlan = (snapshot?.plans || [])
+    .filter((plan) => plan.status === "active" && byId.has(plan.bookId))
+    .sort((a, b) => planUpdatedAt(b) - planUpdatedAt(a))[0];
+  return activePlan ? byId.get(activePlan.bookId) : books[0];
+}
+
 function readBookmarks() {
   try {
     const saved = JSON.parse(localStorage.getItem(READING_BOOKMARKS_KEY) || "{}");
@@ -4519,11 +4535,13 @@ async function loadSnapshot() {
     state.snapshot = snapshot;
     state.backgroundRunners = state.snapshot.backgroundRunners || [];
     const savedBookExists = saved?.bookId && state.snapshot.books?.some((book) => book.bookId === saved.bookId);
-    if (!state.selectedBookId && savedBookExists) state.selectedBookId = saved.bookId;
-    if (!state.selectedBookId && state.snapshot.books?.[0]) state.selectedBookId = state.snapshot.books[0].bookId;
+    const selected = chooseInitialBook(state.snapshot, saved);
+    state.selectedBookId = selected?.bookId || "";
     await loadChunks(state.selectedBookId);
     if (savedBookExists && saved.chunkId && state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)) {
       state.selectedChunkId = saved.chunkId;
+    } else if (selected?.lastChunkId && state.chunks.some((chunk) => getChunkId(chunk) === selected.lastChunkId)) {
+      state.selectedChunkId = selected.lastChunkId;
     }
     await loadCards(state.selectedBookId);
     syncCardPreviewStatusesFromSnapshot();
