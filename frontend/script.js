@@ -656,9 +656,100 @@ function renderReader() {
   const current = state.currentChunk;
   const chunk = current?.chunk || current || {};
   $("chunkTitle").textContent = chunk.title || chunk.id || state.selectedChunkId || "未选择 chunk";
-  $("chunkText").textContent = current?.text || chunk.text || "选择一本书和一个 chunk 后开始共读。";
+  renderChunkTextWithFootprints(current?.text || chunk.text || "选择一本书和一个 chunk 后开始共读。");
   renderReadingSession();
   renderReaderProgress();
+}
+
+function anchoredReadingNotes() {
+  return [
+    ...state.annotations.map((item, index) => ({ ...item, source: "annotation", index })),
+    ...state.userNotes.map((item, index) => ({ ...item, source: "user-note", index })),
+  ].filter((item) => item.quote && (item.note || item.text));
+}
+
+function noteAnchorOffset(item, text) {
+  const offset = Number(item.quoteOffset);
+  if (Number.isFinite(offset) && offset >= 0 && text.slice(offset, offset + String(item.quote).length) === item.quote) {
+    return offset;
+  }
+  return text.indexOf(String(item.quote || ""));
+}
+
+function noteFingerprint(item) {
+  return `${item.source}-${item.index}`;
+}
+
+function readingFootprintRanges(text) {
+  const ranges = [];
+  for (const item of anchoredReadingNotes()) {
+    const quote = String(item.quote || "");
+    const start = noteAnchorOffset(item, text);
+    if (!quote || start < 0) continue;
+    ranges.push({
+      id: noteFingerprint(item),
+      start,
+      end: start + quote.length,
+      item,
+    });
+  }
+  return ranges.sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+function renderChunkTextWithFootprints(text) {
+  const chunkText = $("chunkText");
+  if (!chunkText) return;
+  const source = String(text || "");
+  const ranges = readingFootprintRanges(source);
+  if (!ranges.length) {
+    chunkText.textContent = source;
+    renderReadingFootprints([]);
+    return;
+  }
+  let cursor = 0;
+  const parts = [];
+  const renderedRanges = [];
+  for (const range of ranges) {
+    if (range.start < cursor) continue;
+    parts.push(escapeHtml(source.slice(cursor, range.start)));
+    parts.push(`<mark class="reading-mark ${range.item.source === "user-note" ? "mine" : ""}" data-footprint-id="${escapeHtml(range.id)}">${escapeHtml(source.slice(range.start, range.end))}</mark>`);
+    renderedRanges.push(range);
+    cursor = range.end;
+  }
+  parts.push(escapeHtml(source.slice(cursor)));
+  chunkText.innerHTML = parts.join("");
+  renderReadingFootprints(renderedRanges);
+}
+
+function renderReadingFootprints(ranges) {
+  const rail = $("readingFootprints");
+  if (!rail) return;
+  if (!ranges.length) {
+    rail.className = "reading-footprints empty";
+    rail.textContent = "暂无高亮足迹";
+    return;
+  }
+  rail.className = "reading-footprints";
+  rail.innerHTML = ranges.map(({ id, item }, index) => {
+    const label = item.source === "user-note" ? "我的笔记" : (item.kind || "边注");
+    return `
+      <button class="footprint-card ${item.source === "user-note" ? "mine" : ""}" type="button" data-footprint-id="${escapeHtml(id)}">
+        <span>${escapeHtml(index + 1)} · ${escapeHtml(label)}</span>
+        <strong>${escapeHtml(String(item.note || item.text || "").slice(0, 80))}</strong>
+        <small>${escapeHtml(String(item.quote || "").slice(0, 90))}</small>
+      </button>
+    `;
+  }).join("");
+}
+
+function focusReadingFootprint(id) {
+  const mark = document.querySelector(`.reading-mark[data-footprint-id="${CSS.escape(id)}"]`);
+  if (!mark) return;
+  document.querySelectorAll(".reading-mark.active, .footprint-card.active").forEach((item) => item.classList.remove("active"));
+  mark.classList.add("active");
+  const card = document.querySelector(`.footprint-card[data-footprint-id="${CSS.escape(id)}"]`);
+  if (card) card.classList.add("active");
+  mark.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 function renderNovaReply() {
@@ -1366,7 +1457,8 @@ function renderAnnotations() {
   list.innerHTML = state.annotations
     .map((item, index) => {
       const quote = item.quote ? `<blockquote>${escapeHtml(item.quote)}</blockquote>` : "";
-      return `<article class="annotation-row"><strong>${escapeHtml(item.author || "reader")} · ${escapeHtml(item.kind || "annotation")}</strong>${quote}<p>${escapeHtml(item.note || "")}</p><button class="secondary" data-action="copy-annotation" data-index="${index}">复制边注</button><button class="secondary" data-action="fill-review-from-annotation" data-index="${index}">填入评价</button></article>`;
+      const footprintId = noteFingerprint({ ...item, source: "annotation", index });
+      return `<article class="annotation-row"><strong>${escapeHtml(item.author || "reader")} · ${escapeHtml(item.kind || "annotation")}</strong>${quote}<p>${escapeHtml(item.note || "")}</p><button class="secondary" type="button" data-footprint-id="${escapeHtml(footprintId)}">定位原文</button><button class="secondary" data-action="copy-annotation" data-index="${index}">复制边注</button><button class="secondary" data-action="fill-review-from-annotation" data-index="${index}">填入评价</button></article>`;
     })
     .join("");
 }
@@ -1383,7 +1475,8 @@ function renderUserNotes() {
   list.innerHTML = state.userNotes
     .map((item, index) => {
       const quote = item.quote ? `<blockquote>${escapeHtml(item.quote)}</blockquote>` : "";
-      return `<article class="annotation-row user-note"><strong>我 · ${escapeHtml(item.kind || "note")} · ${escapeHtml(item.status || "open")}</strong>${quote}<p>${escapeHtml(item.note || "")}</p><button class="secondary" data-action="copy-user-note" data-index="${index}">复制笔记</button><button class="secondary" data-action="fill-review-from-user-note" data-index="${index}">填入评价</button></article>`;
+      const footprintId = noteFingerprint({ ...item, source: "user-note", index });
+      return `<article class="annotation-row user-note"><strong>我 · ${escapeHtml(item.kind || "note")} · ${escapeHtml(item.status || "open")}</strong>${quote}<p>${escapeHtml(item.note || "")}</p><button class="secondary" type="button" data-footprint-id="${escapeHtml(footprintId)}">定位原文</button><button class="secondary" data-action="copy-user-note" data-index="${index}">复制笔记</button><button class="secondary" data-action="fill-review-from-user-note" data-index="${index}">填入评价</button></article>`;
     })
     .join("");
 }
@@ -4560,6 +4653,12 @@ document.addEventListener("click", async (event) => {
   } finally {
     target.disabled = false;
   }
+});
+
+document.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-footprint-id]");
+  if (!target) return;
+  focusReadingFootprint(target.dataset.footprintId || "");
 });
 
 document.addEventListener("click", async (event) => {

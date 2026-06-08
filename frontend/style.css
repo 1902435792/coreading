@@ -894,15 +894,90 @@ fieldset input {
   gap: 8px;
 }
 
+.reader-text-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 25%);
+  align-items: stretch;
+  border-top: 1px solid var(--line);
+  background: #fffdf8;
+}
+
 .chunk-text {
   max-height: 460px;
   border: 0;
-  border-radius: 0 0 8px 8px;
+  border-radius: 0;
   background: #fffdf8;
   color: var(--ink);
   font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
   font-size: 15px;
   line-height: 1.85;
+}
+
+.reading-mark {
+  border-radius: 4px;
+  padding: 1px 2px;
+  background: #fff0a8;
+  box-shadow: 0 0 0 1px rgba(148, 108, 0, 0.16);
+  color: inherit;
+}
+
+.reading-mark.mine {
+  background: #cdeee4;
+  box-shadow: 0 0 0 1px rgba(31, 138, 112, 0.18);
+}
+
+.reading-mark.active {
+  background: #f5c457;
+  box-shadow: 0 0 0 2px rgba(126, 88, 0, 0.35);
+}
+
+.reading-mark.mine.active {
+  background: #8fdac8;
+}
+
+.reading-footprints {
+  overflow: auto;
+  max-height: 460px;
+  border-left: 1px solid var(--line);
+  padding: 12px;
+  background: #fbfaf4;
+}
+
+.footprint-card {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+  border: 1px solid #dfd4bd;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fffaf0;
+  color: var(--ink);
+  text-align: left;
+}
+
+.footprint-card.mine {
+  border-color: #b7d8cf;
+  background: #f0fbf7;
+}
+
+.footprint-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(31, 138, 112, 0.14);
+}
+
+.footprint-card span,
+.footprint-card small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.footprint-card strong {
+  display: block;
+  margin: 3px 0;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .reader-next {
@@ -983,11 +1058,19 @@ body.reading-focus .plan-panel {
   margin: 0 auto;
 }
 
+body.reading-focus .reader-text-shell {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 22%);
+}
+
 body.reading-focus .chunk-text {
   max-height: none;
   min-height: 62vh;
   font-size: 17px;
   line-height: 1.95;
+}
+
+body.reading-focus .reading-footprints {
+  max-height: none;
 }
 
 .annotation-row strong,
@@ -1421,6 +1504,16 @@ pre {
 
   .reader-tools {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .reader-text-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .reading-footprints {
+    max-height: 220px;
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 
   .reading-session {
