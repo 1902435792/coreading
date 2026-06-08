@@ -509,6 +509,7 @@ function renderReaderProgress() {
   $("focusReadingBtn").textContent = state.readingFocus ? "退出专注" : "专注";
   renderReadingNowBar({ scrollPercent });
   renderReadingMap({ scrollPercent });
+  renderWaypoints();
 }
 
 function renderReadingMap({ scrollPercent = 0 } = {}) {
@@ -554,6 +555,52 @@ function renderReadingMap({ scrollPercent = 0 } = {}) {
       </button>
     `;
   }).join("");
+}
+
+function waypointItem(label, chunkId, meta, action = "chunk") {
+  return { label, chunkId, meta, action, title: chunkTitleById(chunkId) || chunkId };
+}
+
+function renderWaypoints() {
+  const selected = activeBook();
+  const list = $("waypointList");
+  if (!list) return;
+  const title = $("waypointTitle");
+  const meta = $("waypointMeta");
+  const bookmarkBtn = $("waypointBookmarkBtn");
+  const index = chunkOrder(state.selectedChunkId);
+  const bookmarks = bookmarksForBook(selected?.bookId);
+  bookmarkBtn.disabled = !selected || index === null;
+  if (!selected || !state.chunks.length || index === null) {
+    title.textContent = "选择书籍后显示前后段落。";
+    meta.textContent = "上一段、当前段、下一段和最近书签会在这里排好。";
+    list.className = "waypoint-list empty";
+    list.textContent = "暂无路标";
+    return;
+  }
+  const prevId = getChunkId(state.chunks[index - 1]);
+  const currentId = state.selectedChunkId;
+  const nextId = getChunkId(state.chunks[index + 1]);
+  const latestBookmark = bookmarks[0];
+  const items = [
+    prevId ? waypointItem("上一段", prevId, `${index}/${state.chunks.length}`) : null,
+    waypointItem("当前", currentId, `${index + 1}/${state.chunks.length}`, "current"),
+    nextId ? waypointItem("下一段", nextId, `${index + 2}/${state.chunks.length}`) : null,
+    latestBookmark?.chunkId ? {
+      ...waypointItem("书签", latestBookmark.chunkId, formatSavedAt(latestBookmark.savedAt) || "最近"),
+      action: "bookmark",
+    } : null,
+  ].filter(Boolean);
+  title.textContent = `${selected.title || selected.bookId} · ${currentId}`;
+  meta.textContent = `当前位置 ${index + 1}/${state.chunks.length}${latestBookmark?.chunkId ? ` · 书签 ${latestBookmark.chunkId}` : " · 暂无书签"}`;
+  list.className = "waypoint-list";
+  list.innerHTML = items.map((item) => `
+    <button class="waypoint-item ${item.action === "current" ? "active" : ""}" type="button" data-waypoint-chunk-id="${escapeHtml(item.chunkId)}">
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.chunkId)}${item.title && item.title !== item.chunkId ? ` · ${escapeHtml(item.title)}` : ""}</strong>
+      <small>${escapeHtml(item.meta || "")}</small>
+    </button>
+  `).join("");
 }
 
 function activePlansForBook(book = activeBook()) {
@@ -3969,6 +4016,7 @@ function renderAll() {
   renderReadingSession();
   renderReaderProgress();
   renderReadingNowBar();
+  renderWaypoints();
   renderReadingQueue();
   renderPlanGuide();
   renderSelectionDock();
@@ -7363,9 +7411,21 @@ $("readingMapTrack").addEventListener("click", async (event) => {
   await selectChunk(target.dataset.chunkId, true);
   focusPanel(".reader-surface", "#chunkText");
 });
+$("waypointList").addEventListener("click", async (event) => {
+  const target = event.target.closest("button[data-waypoint-chunk-id]");
+  if (!target) return;
+  await selectChunk(target.dataset.waypointChunkId, true);
+  focusPanel(".reader-surface", "#chunkText");
+  log(`已打开路标: ${target.dataset.waypointChunkId}`);
+});
 $("bookmarkChunkBtn").addEventListener("click", () => {
   const bookmark = saveBookmarkForCurrentChunk();
-  renderReadingMap();
+  renderReaderProgress();
+  log(bookmark ? `已插入书签: ${bookmark.chunkId}` : "请先选择一本书和 chunk。");
+});
+$("waypointBookmarkBtn").addEventListener("click", () => {
+  const bookmark = saveBookmarkForCurrentChunk();
+  renderReaderProgress();
   log(bookmark ? `已插入书签: ${bookmark.chunkId}` : "请先选择一本书和 chunk。");
 });
 $("openLastBookmarkBtn").addEventListener("click", async () => {

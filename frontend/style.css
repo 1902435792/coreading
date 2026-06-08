@@ -355,6 +355,7 @@ legend {
 .backtrack-evidence,
 .sink-settings,
 .reading-now-bar,
+.reading-waypoints,
 .self-check-card,
 .chunk-review-card {
   display: flex;
@@ -820,6 +821,7 @@ fieldset input {
 
 .plan-guide > div,
 .reading-now-bar > div,
+.reading-waypoints > div,
 .reader-progress > div,
 .reader-next > div,
 .trail-guide > div,
@@ -962,6 +964,64 @@ fieldset input {
 
 .map-node.active.bookmarked {
   background: #dff3ea;
+}
+
+.reading-waypoints {
+  margin-bottom: 12px;
+  border: 1px solid #cbd7d8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fbfb;
+}
+
+.waypoint-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.reading-waypoints span,
+.reading-waypoints small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.reading-waypoints strong {
+  display: block;
+  overflow: hidden;
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.waypoint-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.waypoint-list.empty {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.waypoint-item {
+  min-width: 0;
+  min-height: 78px;
+  padding: 9px 10px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.waypoint-item.active {
+  border-color: var(--accent);
+  background: #eef7f4;
 }
 
 .selection-dock {
@@ -1878,6 +1938,10 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .waypoint-head {
+    grid-template-columns: 1fr;
+  }
+
   .reading-map-actions {
     justify-content: stretch;
   }
@@ -1888,6 +1952,10 @@ pre {
 
   .reading-map-track {
     grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  }
+
+  .waypoint-list {
+    grid-template-columns: 1fr 1fr;
   }
 
   .reader-text-shell {
@@ -1976,6 +2044,7 @@ pre {
   .reader-next,
   .sink-guide,
   .plan-guide,
+  .reading-waypoints,
   .trail-guide {
     grid-template-columns: 1fr;
   }
