@@ -498,6 +498,7 @@ function renderReaderProgress() {
   const nextChunk = hasChunk ? state.chunks[index + 1] : null;
   const nextId = getChunkId(nextChunk);
   const pendingCount = pendingSinkPreviewsForBook(selected).length;
+  const currentChunkPendingSink = sinkPreviewsForCurrentChunk().find((preview) => preview.status === "pending") || null;
   const cardCountForBook = countCardsForBook(selected);
   const currentTitle = chunkTitleById(state.selectedChunkId);
   const nextTitle = chunkTitleById(nextId);
@@ -530,6 +531,8 @@ function renderReaderProgress() {
   $("readerAskNovaBtn").disabled = !selected || !state.selectedChunkId;
   $("readerOpenSinkBtn").disabled = !selected;
   $("readerOpenSinkBtn").textContent = pendingCount ? `看沉淀 ${pendingCount}` : "看沉淀";
+  $("readerApproveSinkBtn").disabled = !currentChunkPendingSink;
+  $("readerApproveSinkBtn").textContent = currentChunkPendingSink ? "批准本段" : "批准本段";
   $("readerSinkHint").textContent = selected
     ? `本书待沉淀 ${pendingCount} 条 · 卡片 ${cardCountForBook} 张 · 本段笔记 ${state.userNotes.length} 条`
     : "笔记、卡片和沉淀入口会在这里提示。";
@@ -2773,6 +2776,19 @@ async function openBestSinkPreview() {
     return;
   }
   await openQueueSink(preview.previewId);
+}
+
+async function approveCurrentChunkSinkPreview() {
+  const preview = sinkPreviewsForCurrentChunk().find((item) => item.status === "pending");
+  if (!preview?.previewId) throw new Error("当前段没有待批准沉淀。");
+  $("cardSinkDrawer").open = true;
+  state.selectedSinkPreview = await loadSinkPreview(preview.previewId);
+  state.selectedSinkDiff = null;
+  renderSinkDetail();
+  renderSinks();
+  await updateSinkPreviewContent(state.selectedSinkPreview, { status: "approved", note: "reader approve current chunk sink" });
+  focusPanel(".sink-detail", "#sinkPreviewContent");
+  log(`已批准本段沉淀: ${preview.previewId}`);
 }
 
 async function openQueuePlan(planId) {
@@ -6505,11 +6521,17 @@ $("copySinkSaveApprovePayloadBtn").addEventListener("click", async () => {
 async function updateSelectedSinkPreviewContent({ status, note }) {
   const preview = state.selectedSinkPreview;
   if (!preview) return;
+  await updateSinkPreviewContent(preview, { status, note });
+}
+
+async function updateSinkPreviewContent(preview, { status, note }) {
+  if (!preview?.previewId) return;
   try {
     await command(sinkSavePayload(preview, { status, note }));
     const result = await query({ command: "sink_preview_get", previewId: preview.previewId });
     state.selectedSinkPreview = result.preview || result;
     renderSinkDetail();
+    renderSinks();
     await loadSnapshot();
   } catch (error) {
     log(error.message || String(error));
@@ -8000,6 +8022,12 @@ $("readerOpenSinkBtn").addEventListener("click", async () => {
     renderReaderProgress();
   }
   await openBestSinkPreview();
+});
+$("readerApproveSinkBtn").addEventListener("click", () => {
+  $("readerApproveSinkBtn").disabled = true;
+  void approveCurrentChunkSinkPreview().catch((error) => {
+    log(error.message || String(error));
+  }).finally(renderReaderProgress);
 });
 $("continueReadingBtn").addEventListener("click", () => {
   $("continueReadingBtn").disabled = true;
