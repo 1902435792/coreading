@@ -23,6 +23,7 @@ const state = {
   cardDigestNotice: "",
   novaReply: "",
   readerSelection: { text: "", offset: null },
+  entityPeek: null,
   readingFocus: false,
   planNextCache: {},
   backgroundRunners: [],
@@ -1615,6 +1616,7 @@ function renderSelectionDock() {
   dock.hidden = !quote;
   $("selectionDockQuote").textContent = quote ? quote.slice(0, 180) : "未选择原文";
   $("selectionAskNovaBtn").disabled = !quote;
+  $("selectionEntityBtn").disabled = !quote;
   $("selectionNoteBtn").disabled = !quote;
   $("selectionAnnotateBtn").disabled = !quote;
   renderTrailGuide();
@@ -1633,6 +1635,11 @@ function clearReaderSelection() {
   state.readerSelection = { text: "", offset: null };
   window.getSelection?.().removeAllRanges?.();
   renderSelectionDock();
+}
+
+function clearEntityPeek() {
+  state.entityPeek = null;
+  renderEntityPeek();
 }
 
 function quotePayloadFromForm(form) {
@@ -1664,6 +1671,66 @@ function fillFormFromSelection(formId, focusName = "note") {
   if (target) {
     window.setTimeout(() => target.focus(), 120);
   }
+}
+
+function entityTermFromSelection() {
+  const raw = state.readerSelection?.text || selectedQuote().text || "";
+  return raw.replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+function contextAroundSelection(term) {
+  const text = currentChunkText();
+  if (!text || !term) return "";
+  const selected = selectedQuote();
+  const offset = selected.offset ?? text.indexOf(term);
+  const start = Math.max(0, (offset >= 0 ? offset : 0) - 180);
+  const end = Math.min(text.length, (offset >= 0 ? offset + term.length : term.length) + 220);
+  return text.slice(start, end).trim();
+}
+
+function openEntityPeek(term = entityTermFromSelection()) {
+  const selected = activeBook();
+  if (!selected || !state.selectedChunkId || !term) return false;
+  const chunk = state.currentChunk?.chunk || state.currentChunk || {};
+  state.entityPeek = {
+    term,
+    bookId: selected.bookId,
+    bookTitle: selected.title || selected.bookId,
+    chunkId: state.selectedChunkId,
+    chunkTitle: chunk.title || chunk.sectionTitle || state.selectedChunkId,
+    context: contextAroundSelection(term),
+  };
+  renderEntityPeek();
+  return true;
+}
+
+function renderEntityPeek() {
+  const panel = $("entityPeek");
+  if (!panel) return;
+  const peek = state.entityPeek;
+  panel.hidden = !peek;
+  if (!peek) return;
+  $("entityPeekTerm").textContent = peek.term;
+  $("entityPeekMeta").textContent = `${peek.chunkId} · ${peek.chunkTitle || "当前段落"}`;
+  $("entityPeekContext").textContent = peek.context || "当前段落里没有找到更长上下文。";
+}
+
+function closeEntityPeek() {
+  state.entityPeek = null;
+  renderEntityPeek();
+}
+
+function entityNovaPrompt() {
+  const peek = state.entityPeek || {};
+  return [
+    `请只基于当前段落速查“${peek.term || entityTermFromSelection()}”。`,
+    "按三行回答：",
+    "1. 它在此处可能是谁/什么；",
+    "2. 本段给出的直接证据；",
+    "3. 如果要继续读，下一步该追哪条线索。",
+    "",
+    "不要使用未给出的后文信息。"
+  ].join("\n");
 }
 
 function buildNovaPromptFromSelection() {
@@ -3656,6 +3723,7 @@ function renderAll() {
   renderReadingQueue();
   renderPlanGuide();
   renderSelectionDock();
+  renderEntityPeek();
   renderTrailGuide();
   renderNovaReply();
   renderSearchResults();
@@ -3750,6 +3818,7 @@ async function readSelectedChunk() {
 
 async function selectChunk(chunkId, autoRead = true) {
   clearReaderSelection();
+  clearEntityPeek();
   state.selectedChunkId = chunkId;
   saveReadingSession({ chunkId, scrollTop: 0 });
   $("chunkSelect").value = chunkId;
@@ -3771,6 +3840,7 @@ async function continueReading() {
   const selected = activeBook();
   if (!selected) return;
   clearReaderSelection();
+  clearEntityPeek();
   const result = await query({ command: "continue", bookId: selected.bookId });
   if (result?.completed) {
     log(result.message || "这本书已经读完。");
@@ -4907,6 +4977,14 @@ $("selectionAskNovaBtn").addEventListener("click", () => {
   focusPanel(".nova-reading-box", "#novaPrompt");
   $("askNovaBtn").click();
 });
+$("selectionEntityBtn").addEventListener("click", () => {
+  if (!state.readerSelection?.text) captureReaderSelection();
+  if (!openEntityPeek()) {
+    log("请先选中一个人物、地点、设定或关键词。");
+    return;
+  }
+  focusPanel("#entityPeek", "#entityAskNovaBtn");
+});
 $("selectionNoteBtn").addEventListener("click", () => {
   if (!state.readerSelection?.text) captureReaderSelection();
   fillFormFromSelection("userNoteForm");
@@ -4919,6 +4997,52 @@ $("selectionAnnotateBtn").addEventListener("click", () => {
 });
 $("selectionClearBtn").addEventListener("click", () => {
   clearReaderSelection();
+});
+
+$("entityAskNovaBtn").addEventListener("click", () => {
+  if (!state.entityPeek && !openEntityPeek()) return;
+  $("novaPrompt").value = entityNovaPrompt();
+  focusPanel(".nova-reading-box", "#novaPrompt");
+  $("askNovaBtn").click();
+});
+
+$("entityBacktrackBtn").addEventListener("click", async () => {
+  try {
+    if (!state.entityPeek && !openEntityPeek()) return;
+    $("searchInput").value = state.entityPeek.term;
+    await runTrailGuideBacktrack();
+  } catch (error) {
+    log(error.message || String(error));
+  }
+});
+
+$("entityCollectCardBtn").addEventListener("click", async () => {
+  try {
+    if (!state.entityPeek && !openEntityPeek()) return;
+    const selected = activeBook();
+    const peek = state.entityPeek;
+    if (!selected || !peek) return;
+    const result = await command({
+      command: "collect_card",
+      bookId: selected.bookId,
+      chunkId: state.selectedChunkId,
+      quote: state.readerSelection?.text || peek.term,
+      quoteOffset: state.readerSelection?.offset ?? undefined,
+      note: peek.context || `速查词条: ${peek.term}`,
+      title: peek.term,
+      kicker: "人物与设定速查",
+      art: "ripple",
+    });
+    await loadCards(selected.bookId);
+    renderCards();
+    log(result.raw || result.data || result);
+  } catch (error) {
+    log(error.message || String(error));
+  }
+});
+
+$("entityCloseBtn").addEventListener("click", () => {
+  clearEntityPeek();
 });
 
 $("trailGuideBacktrackBtn").addEventListener("click", async () => {

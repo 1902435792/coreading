@@ -306,11 +306,27 @@
             </div>
             <div class="selection-actions">
               <button id="selectionAskNovaBtn" class="primary compact" type="button">问 Nova</button>
+              <button id="selectionEntityBtn" class="secondary compact" type="button">查词条</button>
               <button id="selectionNoteBtn" class="secondary compact" type="button">记笔记</button>
               <button id="selectionAnnotateBtn" class="secondary compact" type="button">写边注</button>
               <button id="selectionClearBtn" class="secondary compact" type="button">清除</button>
             </div>
           </div>
+
+          <section id="entityPeek" class="entity-peek" aria-label="人物与设定速查" hidden>
+            <div>
+              <span id="entityPeekLabel">速查</span>
+              <strong id="entityPeekTerm">未选择词条</strong>
+              <small id="entityPeekMeta">当前段落</small>
+              <p id="entityPeekContext"></p>
+            </div>
+            <div class="entity-peek-actions">
+              <button id="entityAskNovaBtn" class="primary compact" type="button">问 Nova</button>
+              <button id="entityBacktrackBtn" class="secondary compact" type="button">追线索</button>
+              <button id="entityCollectCardBtn" class="secondary compact" type="button">收卡片</button>
+              <button id="entityCloseBtn" class="secondary compact" type="button">关闭</button>
+            </div>
+          </section>
 
           <section class="nova-reading-box" aria-labelledby="novaReadingTitle">
             <div class="panel-head">

@@ -754,6 +754,16 @@ fieldset input {
   gap: 8px;
 }
 
+.plan-guide > div,
+.reader-progress > div,
+.reader-next > div,
+.trail-guide > div,
+.sink-guide > div,
+.selection-dock > div,
+.entity-peek > div {
+  min-width: 0;
+}
+
 .chunk-position {
   margin: -4px 0 10px;
   color: var(--muted);
@@ -921,6 +931,55 @@ fieldset input {
 }
 
 .selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.entity-peek {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin: 10px 0 14px;
+  border: 1px solid #c9d6a8;
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: #fbfcf1;
+}
+
+.entity-peek[hidden] {
+  display: none;
+}
+
+.entity-peek span,
+.entity-peek small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.entity-peek strong {
+  display: block;
+  overflow: hidden;
+  margin: 2px 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-peek p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.entity-peek-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -1534,8 +1593,18 @@ pre {
 }
 
 @media (max-width: 1120px) {
+  .shell {
+    width: min(100% - 20px, 1040px);
+  }
+
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .library-panel,
+  .plan-panel,
+  .sink-panel {
+    min-width: 0;
   }
 }
 
@@ -1641,6 +1710,10 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .entity-peek {
+    grid-template-columns: 1fr;
+  }
+
   .reader-progress,
   .reader-next,
   .sink-guide,
@@ -1654,7 +1727,10 @@ pre {
   .sink-guide-actions,
   .plan-guide-actions,
   .trail-guide-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     justify-content: stretch;
+    min-width: 0;
   }
 
   .reader-header-actions button,
@@ -1662,14 +1738,17 @@ pre {
   .sink-guide-actions button,
   .plan-guide-actions button,
   .trail-guide-actions button {
-    flex: 1 1 42%;
+    width: 100%;
+    min-width: 0;
   }
 
   .selection-actions {
     justify-content: stretch;
   }
 
-  .selection-actions button {
+  .selection-actions button,
+  .entity-peek-actions button {
+    min-width: 0;
     flex: 1 1 42%;
   }
 
