@@ -202,6 +202,19 @@
             <h2>原文范围</h2>
             <span id="chunkCount">0 chunks</span>
           </div>
+          <section class="reading-session" aria-label="当前阅读会话">
+            <div>
+              <span id="sessionKicker">当前阅读</span>
+              <strong id="sessionTitle">还没有选书</strong>
+              <small id="sessionMeta">导入或选择一本书开始。</small>
+            </div>
+            <div class="session-actions">
+              <button id="sessionResumeBtn" class="secondary compact" type="button">回现场</button>
+              <button id="sessionContinueBtn" class="primary compact" type="button">继续读</button>
+              <button id="sessionAskNovaBtn" class="secondary compact" type="button">问 Nova</button>
+              <button id="sessionNoteBtn" class="secondary compact" type="button">记一笔</button>
+            </div>
+          </section>
           <div class="reader-tools">
             <button id="prevChunkBtn" class="secondary compact" type="button">上一段</button>
             <select id="chunkSelect" aria-label="选择 chunk"></select>
@@ -221,6 +234,18 @@
             </header>
             <pre id="chunkText" class="chunk-text">选择一本书和一个 chunk 后开始共读。</pre>
           </article>
+          <div id="selectionDock" class="selection-dock" hidden>
+            <div>
+              <span>选区</span>
+              <strong id="selectionDockQuote">未选择原文</strong>
+            </div>
+            <div class="selection-actions">
+              <button id="selectionAskNovaBtn" class="primary compact" type="button">问 Nova</button>
+              <button id="selectionNoteBtn" class="secondary compact" type="button">记笔记</button>
+              <button id="selectionAnnotateBtn" class="secondary compact" type="button">写边注</button>
+              <button id="selectionClearBtn" class="secondary compact" type="button">清除</button>
+            </div>
+          </div>
 
           <section class="nova-reading-box" aria-labelledby="novaReadingTitle">
             <div class="panel-head">

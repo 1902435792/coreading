@@ -592,10 +592,84 @@ fieldset input {
   padding-left: 10px;
 }
 
+.reading-session {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fbfa;
+}
+
+.reading-session span,
+.reading-session small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.reading-session strong {
+  display: block;
+  overflow: hidden;
+  margin: 2px 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .chunk-position {
   margin: -4px 0 10px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.selection-dock {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0 14px;
+  border: 1px solid #9ad7c8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f0fbf7;
+}
+
+.selection-dock[hidden] {
+  display: none;
+}
+
+.selection-dock span {
+  display: block;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.selection-dock strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .range-tools {
@@ -1022,6 +1096,31 @@ pre {
 
   .reader-tools {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .reading-session {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .session-actions {
+    justify-content: stretch;
+  }
+
+  .session-actions button {
+    flex: 1 1 30%;
+  }
+
+  .selection-dock {
+    grid-template-columns: 1fr;
+  }
+
+  .selection-actions {
+    justify-content: stretch;
+  }
+
+  .selection-actions button {
+    flex: 1 1 42%;
   }
 
   .reader-tools select,

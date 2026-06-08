@@ -469,3 +469,7 @@ D:\VCP\VCPToolBox\Plugin\CoReadingMCP\prompts\nova-reader-vcp-bridge.txt
 `nova-co-reading-reader.txt` 面向普通 OpenAI 兼容前端和 MCP 工具前端，不要求 `始/末` 工具语法。
 
 `nova-reader-vcp-bridge.txt` 是 VCPBridgeServer 的备选读书模式 prompt，可按需手动复制或引用；本仓库不会覆盖用户本地 `VCPBridgeServer\nova.txt`。
+
+默认产品链路采用解耦上下文包：前端/sidecar 显式传入 `bookId`、`chunkId`、原文、选区、offset 和 `contextMode`，Nova 不需要依赖 VCB 工具占位符也能完成当前段落共读。
+
+如果读书效果不顺、工具调用不到、或占位符没有展开，只调整 `prompts\nova-reader-vcp-bridge.txt` 这份读书专用 prompt；不要覆盖主题人格 prompt 或用户本地 `VCPBridgeServer\nova.txt`。

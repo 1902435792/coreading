@@ -296,6 +296,9 @@ async function askNova(body) {
         `bookId: ${context.bookId || ""}`,
         `chunkId: ${context.chunkId || ""}`,
         `标题: ${context.chunkTitle || ""}`,
+        `上下文模式: ${context.contextMode || "chunk"}`,
+        `选区 offset: ${context.selectionOffset ?? ""}`,
+        `协议: ${context.coReadingContextVersion || "inline"}`,
         "",
         "当前原文:",
         compactText(context.text || "", 6000),
@@ -304,7 +307,10 @@ async function askNova(body) {
         compactText(context.selection || "", 1200),
         "",
         "用户问题/笔记:",
-        compactText(body.prompt || "", 1800)
+        compactText(body.prompt || "", 1800),
+        "",
+        "边界:",
+        context.instructionBoundary || "只基于当前传入文本回应。"
       ].join("\n")
     }
   ];
