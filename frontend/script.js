@@ -611,6 +611,10 @@ function activePlansForBook(book = activeBook()) {
   return (state.snapshot?.plans || []).filter((plan) => !book || plan.bookId === book.bookId);
 }
 
+function planUpdatedAt(plan) {
+  return Date.parse(plan?.updatedAt || plan?.createdAt || "") || 0;
+}
+
 function pendingSinkPreviewsForBook(book = activeBook()) {
   return (state.snapshot?.sinkPreviews || []).filter((preview) => {
     if (preview.status !== "pending") return false;
@@ -635,7 +639,7 @@ function firstCardForBook(book = activeBook()) {
 }
 
 function activePlanForBook(book = activeBook()) {
-  const plans = activePlansForBook(book);
+  const plans = activePlansForBook(book).slice().sort((a, b) => planUpdatedAt(b) - planUpdatedAt(a));
   return plans.find((item) => item.status === "active") || plans[0] || null;
 }
 
@@ -750,9 +754,10 @@ function renderPlanGuide() {
   const titleEl = $("planGuideTitle");
   const metaEl = $("planGuideMeta");
   const openBtn = $("planGuideOpenRangeBtn");
+  const executeBtn = $("planGuideExecuteBtn");
   const reviewBtn = $("planGuideReviewBtn");
   const fullBtn = $("planGuideFullBtn");
-  if (!guide || !stepEl || !titleEl || !metaEl || !openBtn || !reviewBtn || !fullBtn) return;
+  if (!guide || !stepEl || !titleEl || !metaEl || !openBtn || !executeBtn || !reviewBtn || !fullBtn) return;
   const { plan, nextStep } = planGuideSelection();
   if (!plan) {
     guide.className = "plan-guide empty";
@@ -760,6 +765,7 @@ function renderPlanGuide() {
     titleEl.textContent = "暂无活跃计划";
     metaEl.textContent = "创建计划后会在这里显示下一步阅读范围。";
     openBtn.disabled = true;
+    executeBtn.disabled = true;
     reviewBtn.disabled = true;
     fullBtn.disabled = true;
     return;
@@ -775,6 +781,7 @@ function renderPlanGuide() {
     ? `${nextStep.type || "step"} · ${chunkLabel || "未给出范围"} · ${nextStep.intent || "按计划继续阅读。"}`
     : `${plan.status || ""} · 正在读取下一步。`;
   openBtn.disabled = !nextStep || !(nextStep.chunkIds?.length || nextStep.range?.startChunkId || nextStep.startChunkId);
+  executeBtn.disabled = !nextStep || plan.status === "completed" || plan.status === "paused";
   reviewBtn.disabled = !nextStep;
   fullBtn.disabled = false;
 }
@@ -2772,6 +2779,48 @@ async function reviewPlanGuideStep() {
   $("planReviewDrawer").open = true;
   await fillReviewFromPlanNextStep(plan.planId);
   focusPanel("#reviewForm", '#reviewForm textarea[name="summary"]');
+}
+
+function executedPlanStepFromResult(result) {
+  const data = result?.data || result?.raw || result || {};
+  return data.executedStep || data.recorded?.recordedStep || data.execution?.recordedStep || null;
+}
+
+async function openExecutedPlanRange(result, fallbackStep) {
+  const step = executedPlanStepFromResult(result) || fallbackStep;
+  const targetChunkId = step?.chunkIds?.[0] || step?.range?.startChunkId || step?.startChunkId;
+  if (!targetChunkId) return false;
+  await selectChunk(targetChunkId, true);
+  return true;
+}
+
+async function executePlanGuideStep() {
+  const { plan, nextStep } = planGuideSelection();
+  if (!plan) throw new Error("当前没有活跃计划。");
+  if (!nextStep) throw new Error("当前没有可执行的计划下一步。");
+  setStatus("执行计划中", "busy");
+  const result = await api("/api/command", {
+    method: "POST",
+    body: JSON.stringify({ command: "plan_execute_step", planId: plan.planId }),
+  });
+  delete state.planNextCache[plan.planId];
+  const openedPreview = await openPreviewFromResult(result, { refreshSnapshot: false });
+  await loadSnapshot();
+  const openedRange = await openExecutedPlanRange(result, nextStep);
+  try {
+    await copyPlanExecutionArtifacts(plan.planId, result);
+  } catch (error) {
+    log(`计划已执行，但复制工件失败: ${error.message || String(error)}`);
+  }
+  renderReadingQueue();
+  renderReadingNowBar();
+  renderPlanGuide();
+  if (openedPreview) {
+    focusPanel(".sink-panel", "#sinkDetail");
+  } else {
+    focusPanel(".reader-surface", "#chunkText");
+  }
+  log(`已执行计划一步: ${nextStep.title || nextStep.stepId || plan.planId}${openedRange ? "，已打开范围" : ""}`);
 }
 
 async function openPlanGuideFull() {
@@ -5548,6 +5597,18 @@ $("planGuideOpenRangeBtn").addEventListener("click", async () => {
   } catch (error) {
     log(error.message || String(error));
   } finally {
+    renderPlanGuide();
+  }
+});
+
+$("planGuideExecuteBtn").addEventListener("click", async () => {
+  $("planGuideExecuteBtn").disabled = true;
+  try {
+    await executePlanGuideStep();
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderReadingNowBar();
     renderPlanGuide();
   }
 });
