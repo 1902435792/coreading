@@ -27,6 +27,7 @@ const state = {
   entityPeek: null,
   selfCheck: { variant: 0, hintVisible: false },
   readingFocus: false,
+  lastCompletedChunk: null,
   planNextCache: {},
   backgroundRunners: [],
   snapshotLoadId: 0,
@@ -519,6 +520,8 @@ function renderReaderProgress() {
     : "选择书籍后继续。";
   $("readerNextBtn").textContent = nextId ? "读完并下一段" : "标记读完";
   $("readerNextBtn").disabled = !selected || !state.selectedChunkId;
+  $("readerReviewLastBtn").disabled = !state.lastCompletedChunk?.chunkId || state.lastCompletedChunk?.bookId !== selected?.bookId;
+  $("readerReviewLastBtn").textContent = state.lastCompletedChunk?.chunkId ? `回看 ${state.lastCompletedChunk.chunkId}` : "回看刚读";
   $("readerAskNovaBtn").disabled = !selected || !state.selectedChunkId;
   $("readerOpenSinkBtn").disabled = !selected;
   $("readerOpenSinkBtn").textContent = pendingCount ? `看沉淀 ${pendingCount}` : "看沉淀";
@@ -870,6 +873,7 @@ async function selectBook(bookId, { focusReader = true } = {}) {
   state.selectedCard = null;
   state.novaReply = "";
   state.novaReplyContext = null;
+  state.lastCompletedChunk = null;
   clearReaderSelection();
   clearEntityPeek();
   await loadChunks(bookId);
@@ -4494,18 +4498,38 @@ async function continueReading() {
 async function markReadAndMaybeAdvance({ advance = false } = {}) {
   const selected = activeBook();
   if (!selected || !state.selectedChunkId) return;
+  const completedChunkId = state.selectedChunkId;
+  const completedTitle = chunkTitleById(completedChunkId);
   const currentIndex = chunkOrder(state.selectedChunkId);
   const nextId = currentIndex === null ? "" : getChunkId(state.chunks[currentIndex + 1]);
+  const nextTitle = chunkTitleById(nextId);
   await command({ command: "mark_read", bookId: selected.bookId, chunkId: state.selectedChunkId });
+  state.lastCompletedChunk = {
+    bookId: selected.bookId,
+    bookTitle: selected.title || selected.bookId,
+    chunkId: completedChunkId,
+    title: completedTitle,
+    nextChunkId: nextId,
+    nextTitle,
+    completedAt: new Date().toISOString(),
+  };
   await loadSnapshot();
   if (advance && nextId) {
     await selectChunk(nextId, true);
     focusPanel(".reader-surface", "#chunkText");
-    log(`已读完并进入下一段: ${nextId}`);
+    log(`已读完 ${completedChunkId}，进入 ${nextId}。可点“回看 ${completedChunkId}”整理刚读内容。`);
     return;
   }
   await readSelectedChunk();
   log(nextId ? `已标记读完，下一段是 ${nextId}。` : "已标记读完，本书到达最后一段。");
+}
+
+async function openLastCompletedChunkReview() {
+  const last = state.lastCompletedChunk;
+  if (!last?.chunkId || last.bookId !== state.selectedBookId) throw new Error("还没有可回看的刚读段落。");
+  await selectChunk(last.chunkId, true);
+  focusPanel("#chunkReviewCard", "#copyChunkReviewBtn");
+  log(`已回看刚读: ${last.chunkId}${last.title ? ` · ${last.title}` : ""}`);
 }
 
 function focusPanel(selector, focusSelector) {
@@ -7938,6 +7962,12 @@ $("focusReadingBtn").addEventListener("click", () => {
 $("readerNextBtn").addEventListener("click", () => {
   $("readerNextBtn").disabled = true;
   void markReadAndMaybeAdvance({ advance: true }).catch((error) => {
+    log(error.message || String(error));
+  }).finally(renderReaderProgress);
+});
+$("readerReviewLastBtn").addEventListener("click", () => {
+  $("readerReviewLastBtn").disabled = true;
+  void openLastCompletedChunkReview().catch((error) => {
     log(error.message || String(error));
   }).finally(renderReaderProgress);
 });
