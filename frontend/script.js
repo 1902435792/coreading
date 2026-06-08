@@ -1060,6 +1060,7 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
   const selectedText = String(quote?.text || "").trim();
   const sourceQuote = selectedText || text.slice(0, 900);
   const sourceTitle = selectedText ? `选区 @ ${state.selectedChunkId}` : (chunk.title || chunk.sectionTitle || state.selectedChunkId);
+  const novaReplyForChunk = optionsNovaReplyObservation({ quote });
   const noteLines = (state.userNotes || []).slice(0, 8).map((item) => ({
     section: item.kind === "nova-reply" ? "nova_reply" : "user_note",
     source: "user-note",
@@ -1099,15 +1100,17 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
       text: sourceQuote,
       quoteOffset: quote?.offset ?? null,
     },
+    novaReplyForChunk,
     ...noteLines,
     ...annotationLines,
     ...cardLines,
-  ].filter((item) => item.text || item.quote || item.note || item.title);
+  ].filter(Boolean).filter((item) => item.text || item.quote || item.note || item.title);
   const title = chunk.title || chunk.sectionTitle || state.selectedChunkId;
   const summaryParts = [
     `${selectedText ? "选区" : "本段"}沉淀预览：${selected.title || selected.bookId} · ${state.selectedChunkId}`,
     title ? `标题：${title}` : "",
     selectedText ? `选区：${selectedText.slice(0, 160)}` : "",
+    novaReplyForChunk ? "包含当前 Nova 回复。" : "",
     state.userNotes.length ? `已有用户笔记 ${state.userNotes.length} 条。` : "",
     state.annotations.length ? `已有边注 ${state.annotations.length} 条。` : "",
     cardsForCurrentChunk().length ? `已有卡片 ${cardsForCurrentChunk().length} 张。` : "",
@@ -1128,6 +1131,38 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
     },
     createdBy: "CoReadingSidecar",
   };
+}
+
+function optionsNovaReplyObservation({ quote = null } = {}) {
+  if (!novaReplyBelongsToCurrentChunk()) return null;
+  const context = state.novaReplyContext || {};
+  const replyQuote = quote?.text ? quote : novaReplyContextQuote();
+  return {
+    section: "nova_reply",
+    source: "nova-reply-current",
+    kind: "nova-reply",
+    chunkId: state.selectedChunkId,
+    quote: replyQuote?.text || context.prompt || state.selectedChunkId,
+    quoteOffset: replyQuote?.offset ?? null,
+    prompt: context.prompt || String($("novaPrompt")?.value || "").trim(),
+    note: state.novaReply,
+    text: state.novaReply,
+  };
+}
+
+function novaReplyContextQuote() {
+  const context = state.novaReplyContext || {};
+  return context.selection
+    ? { text: context.selection, offset: context.selectionOffset ?? null }
+    : null;
+}
+
+async function createNovaReplySinkPreview() {
+  if (!novaReplyBelongsToCurrentChunk()) throw new Error("请先在当前段向 Nova 提问。");
+  const quote = novaReplyContextQuote() || selectedQuote();
+  const result = await createCurrentChunkSinkPreview({ quote });
+  focusPanel(".sink-detail", "#sinkPreviewContent");
+  return result;
 }
 
 async function createCurrentChunkSinkPreview(options = {}) {
@@ -1238,7 +1273,7 @@ function novaReplyNotePayload() {
   const selected = activeBook();
   if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
   if (!state.novaReply) throw new Error("请先向 Nova 提问。");
-  const quote = selectedQuote();
+  const quote = novaReplyContextQuote() || selectedQuote();
   const chunk = state.currentChunk?.chunk || state.currentChunk || {};
   const fallbackQuote = chunk.title || chunk.sectionTitle || state.selectedChunkId;
   const prompt = String($("novaPrompt").value || "").trim();
@@ -1432,13 +1467,15 @@ function renderNovaReply() {
   const status = $("novaAskStatus");
   const copyButton = $("copyNovaReplyBtn");
   const saveButton = $("saveNovaReplyNoteBtn");
-  if (!reply || !status || !copyButton || !saveButton) return;
+  const sinkButton = $("sinkNovaReplyBtn");
+  if (!reply || !status || !copyButton || !saveButton || !sinkButton) return;
   if (!state.novaReply) {
     reply.className = "nova-reply empty";
     reply.textContent = "Nova 的回应会出现在这里。";
     status.textContent = "待提问";
     copyButton.disabled = true;
     saveButton.disabled = true;
+    sinkButton.disabled = true;
     return;
   }
   reply.className = "nova-reply";
@@ -1446,6 +1483,7 @@ function renderNovaReply() {
   status.textContent = novaReplyBelongsToCurrentChunk() ? "已回应" : "上一段回应";
   copyButton.disabled = false;
   saveButton.disabled = !activeBook() || !state.selectedChunkId || !novaReplyBelongsToCurrentChunk();
+  sinkButton.disabled = !activeBook() || !state.selectedChunkId || !novaReplyBelongsToCurrentChunk();
 }
 
 function planFormChunkValue(name) {
@@ -8334,6 +8372,8 @@ $("askNovaBtn").addEventListener("click", async () => {
       bookId: selected.bookId,
       chunkId: state.selectedChunkId,
       prompt,
+      selection: quote.text || "",
+      selectionOffset: quote.offset ?? null,
       answeredAt: new Date().toISOString(),
     };
     renderNovaReply();
@@ -8368,6 +8408,18 @@ $("saveNovaReplyNoteBtn").addEventListener("click", async () => {
     log(error.message || String(error));
   } finally {
     renderNovaReply();
+  }
+});
+$("sinkNovaReplyBtn").addEventListener("click", async () => {
+  $("sinkNovaReplyBtn").disabled = true;
+  try {
+    const result = await createNovaReplySinkPreview();
+    log(`已生成 Nova 回复沉淀预览: ${result.reviewId}`);
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderNovaReply();
+    renderChunkReview();
   }
 });
 $("readChunkBtn").addEventListener("click", () => {
