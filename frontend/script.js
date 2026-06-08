@@ -957,12 +957,15 @@ function currentChunkSinkTargets() {
   return targets.length ? targets : ["obsidian"];
 }
 
-function currentChunkNotesReviewPayload() {
+function currentChunkNotesReviewPayload({ quote = null } = {}) {
   const selected = activeBook();
   const chunk = state.currentChunk?.chunk || state.currentChunk || {};
   const text = currentChunkText();
   const targets = currentChunkSinkTargets();
   if (!selected || !state.selectedChunkId || !text) throw new Error("请先读取一个段落。");
+  const selectedText = String(quote?.text || "").trim();
+  const sourceQuote = selectedText || text.slice(0, 900);
+  const sourceTitle = selectedText ? `选区 @ ${state.selectedChunkId}` : (chunk.title || chunk.sectionTitle || state.selectedChunkId);
   const noteLines = (state.userNotes || []).slice(0, 8).map((item) => ({
     section: item.kind === "nova-reply" ? "nova_reply" : "user_note",
     source: "user-note",
@@ -995,11 +998,12 @@ function currentChunkNotesReviewPayload() {
   const observations = [
     {
       section: "source_quote",
-      source: "current-chunk",
+      source: selectedText ? "reader-selection" : "current-chunk",
       chunkId: state.selectedChunkId,
-      title: chunk.title || chunk.sectionTitle || state.selectedChunkId,
-      quote: text.slice(0, 900),
-      text: text.slice(0, 900),
+      title: sourceTitle,
+      quote: sourceQuote,
+      text: sourceQuote,
+      quoteOffset: quote?.offset ?? null,
     },
     ...noteLines,
     ...annotationLines,
@@ -1007,8 +1011,9 @@ function currentChunkNotesReviewPayload() {
   ].filter((item) => item.text || item.quote || item.note || item.title);
   const title = chunk.title || chunk.sectionTitle || state.selectedChunkId;
   const summaryParts = [
-    `本段沉淀预览：${selected.title || selected.bookId} · ${state.selectedChunkId}`,
+    `${selectedText ? "选区" : "本段"}沉淀预览：${selected.title || selected.bookId} · ${state.selectedChunkId}`,
     title ? `标题：${title}` : "",
+    selectedText ? `选区：${selectedText.slice(0, 160)}` : "",
     state.userNotes.length ? `已有用户笔记 ${state.userNotes.length} 条。` : "",
     state.annotations.length ? `已有边注 ${state.annotations.length} 条。` : "",
     cardsForCurrentChunk().length ? `已有卡片 ${cardsForCurrentChunk().length} 张。` : "",
@@ -1031,8 +1036,8 @@ function currentChunkNotesReviewPayload() {
   };
 }
 
-async function createCurrentChunkSinkPreview() {
-  const reviewResult = await command(currentChunkNotesReviewPayload());
+async function createCurrentChunkSinkPreview(options = {}) {
+  const reviewResult = await command(currentChunkNotesReviewPayload(options));
   const review = reviewResult.data?.review || reviewResult.raw?.review || reviewResult.review || reviewResult.fullReview || null;
   const reviewId = review?.reviewId || reviewResult.data?.reviewId || reviewResult.raw?.reviewId || reviewResult.reviewId;
   if (!reviewId) throw new Error("已创建评价，但没有返回 reviewId。");
@@ -1050,6 +1055,13 @@ async function createCurrentChunkSinkPreview() {
   if (!opened) await loadSnapshot();
   renderChunkReview();
   return { reviewId, previewResult };
+}
+
+async function createSelectionSinkPreview() {
+  if (!state.readerSelection?.text) captureReaderSelection();
+  const quote = state.readerSelection?.text ? state.readerSelection : selectedQuote();
+  if (!quote?.text) throw new Error("请先在原文里选中要沉淀的范围。");
+  return createCurrentChunkSinkPreview({ quote });
 }
 
 function selfCheckSeed() {
@@ -2033,6 +2045,7 @@ function renderSelectionDock() {
   $("selectionDockQuote").textContent = quote ? quote.slice(0, 180) : "未选择原文";
   $("selectionAskNovaBtn").disabled = !quote;
   $("selectionBacktrackBtn").disabled = !quote;
+  $("selectionSinkBtn").disabled = !quote;
   $("selectionEntityBtn").disabled = !quote;
   $("selectionNoteBtn").disabled = !quote;
   $("selectionAnnotateBtn").disabled = !quote;
@@ -5463,6 +5476,24 @@ $("selectionBacktrackBtn").addEventListener("click", async () => {
   } finally {
     renderSelectionDock();
     renderTrailGuide();
+  }
+});
+$("selectionSinkBtn").addEventListener("click", async () => {
+  const button = $("selectionSinkBtn");
+  if (!state.readerSelection?.text) captureReaderSelection();
+  if (!state.readerSelection?.text) {
+    log("请先在原文里选中要沉淀的范围。");
+    return;
+  }
+  button.disabled = true;
+  try {
+    const result = await createSelectionSinkPreview();
+    log(`已生成选区沉淀预览: ${result.reviewId}`);
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderSelectionDock();
+    renderChunkReview();
   }
 });
 $("selectionEntityBtn").addEventListener("click", () => {
