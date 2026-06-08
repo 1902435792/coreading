@@ -1024,6 +1024,32 @@ function selfCheckNovaPrompt(answer) {
   ].join("\n");
 }
 
+function novaReplyNotePayload() {
+  const selected = activeBook();
+  if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
+  if (!state.novaReply) throw new Error("请先向 Nova 提问。");
+  const quote = selectedQuote();
+  const chunk = state.currentChunk?.chunk || state.currentChunk || {};
+  const fallbackQuote = chunk.title || chunk.sectionTitle || state.selectedChunkId;
+  const prompt = String($("novaPrompt").value || "").trim();
+  return {
+    command: "user_note_create",
+    bookId: selected.bookId,
+    chunkId: state.selectedChunkId,
+    quote: quote.text || fallbackQuote,
+    quoteOffset: quote.offset ?? null,
+    note: [
+      "Nova 共读回应",
+      prompt ? `问题: ${prompt}` : "",
+      "",
+      state.novaReply
+    ].filter(Boolean).join("\n"),
+    kind: "nova-reply",
+    status: "open",
+    tags: ["co-reading", "sidecar", "nova-reply"],
+  };
+}
+
 function anchoredReadingNotes() {
   return [
     ...state.annotations.map((item, index) => ({ ...item, source: "annotation", index })),
@@ -1119,18 +1145,21 @@ function renderNovaReply() {
   const reply = $("novaReply");
   const status = $("novaAskStatus");
   const copyButton = $("copyNovaReplyBtn");
-  if (!reply || !status || !copyButton) return;
+  const saveButton = $("saveNovaReplyNoteBtn");
+  if (!reply || !status || !copyButton || !saveButton) return;
   if (!state.novaReply) {
     reply.className = "nova-reply empty";
     reply.textContent = "Nova 的回应会出现在这里。";
     status.textContent = "待提问";
     copyButton.disabled = true;
+    saveButton.disabled = true;
     return;
   }
   reply.className = "nova-reply";
   reply.textContent = state.novaReply;
   status.textContent = "已回应";
   copyButton.disabled = false;
+  saveButton.disabled = !activeBook() || !state.selectedChunkId;
 }
 
 function planFormChunkValue(name) {
@@ -7785,6 +7814,18 @@ $("copyNovaReplyBtn").addEventListener("click", async () => {
     log("已复制 Nova 回复。");
   } catch (error) {
     log(error.message || String(error));
+  }
+});
+$("saveNovaReplyNoteBtn").addEventListener("click", async () => {
+  $("saveNovaReplyNoteBtn").disabled = true;
+  try {
+    const result = await command(novaReplyNotePayload());
+    await readSelectedChunk();
+    log(`已把 Nova 回复存成笔记: ${result.data?.noteId || state.selectedChunkId}`);
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderNovaReply();
   }
 });
 $("readChunkBtn").addEventListener("click", () => {
