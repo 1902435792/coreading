@@ -2032,6 +2032,7 @@ function renderSelectionDock() {
   dock.hidden = !quote;
   $("selectionDockQuote").textContent = quote ? quote.slice(0, 180) : "未选择原文";
   $("selectionAskNovaBtn").disabled = !quote;
+  $("selectionBacktrackBtn").disabled = !quote;
   $("selectionEntityBtn").disabled = !quote;
   $("selectionNoteBtn").disabled = !quote;
   $("selectionAnnotateBtn").disabled = !quote;
@@ -5445,6 +5446,24 @@ $("selectionAskNovaBtn").addEventListener("click", () => {
   $("novaPrompt").value = buildNovaPromptFromSelection();
   focusPanel(".nova-reading-box", "#novaPrompt");
   $("askNovaBtn").click();
+});
+$("selectionBacktrackBtn").addEventListener("click", async () => {
+  const button = $("selectionBacktrackBtn");
+  if (!state.readerSelection?.text) captureReaderSelection();
+  if (!state.readerSelection?.text) {
+    log("请先在原文里选中一段线索。");
+    return;
+  }
+  button.disabled = true;
+  try {
+    await runTrailGuideBacktrack();
+    log(`已按选区追线索: ${trailGuideQuery()}`);
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderSelectionDock();
+    renderTrailGuide();
+  }
 });
 $("selectionEntityBtn").addEventListener("click", () => {
   if (!state.readerSelection?.text) captureReaderSelection();
