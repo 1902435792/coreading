@@ -2339,6 +2339,27 @@ function buildNovaPromptFromSelection() {
   return `请解释这段选区，并告诉我它和当前段落的关系：\n\n${quote.text}`;
 }
 
+function prepareNovaPromptFromCurrentReading() {
+  if (!state.readerSelection?.text) captureReaderSelection();
+  const quote = selectedQuote();
+  if (quote.text) {
+    $("novaPrompt").value = buildNovaPromptFromSelection();
+    log("已把选区带入 Nova 提问。");
+  } else if (!$("novaPrompt").value.trim()) {
+    $("novaPrompt").value = "请陪我继续读当前段落：先定位这一段，再指出一句值得停留的话，最后给一个下一步。";
+  }
+  focusPanel(".nova-reading-box", "#novaPrompt");
+}
+
+function prepareNoteFromCurrentReading() {
+  if (!state.readerSelection?.text) captureReaderSelection();
+  if (state.readerSelection?.text || selectedQuote().text) {
+    fillFormFromSelection("userNoteForm");
+    log("已把选区带入我的笔记。");
+  }
+  focusPanel("#userNoteForm", '#userNoteForm textarea[name="note"]');
+}
+
 function currentNovaContext(selected, chunk, text, quote) {
   const index = chunkOrder(state.selectedChunkId);
   return {
@@ -8054,7 +8075,7 @@ $("readerResumeNextBtn").addEventListener("click", () => {
   }).finally(renderReaderProgress);
 });
 $("readerAskNovaBtn").addEventListener("click", () => {
-  $("sessionAskNovaBtn").click();
+  prepareNovaPromptFromCurrentReading();
 });
 $("readerOpenSinkBtn").addEventListener("click", async () => {
   if (state.readingFocus) {
@@ -8101,13 +8122,10 @@ $("sessionResumeBtn").addEventListener("click", async () => {
   log(`已回到阅读现场: ${saved.bookTitle || saved.bookId} · ${saved.chunkId}`);
 });
 $("sessionAskNovaBtn").addEventListener("click", () => {
-  if (!$("novaPrompt").value.trim()) {
-    $("novaPrompt").value = "请陪我继续读当前段落：先定位这一段，再指出一句值得停留的话，最后给一个下一步。";
-  }
-  focusPanel(".nova-reading-box", "#novaPrompt");
+  prepareNovaPromptFromCurrentReading();
 });
 $("sessionNoteBtn").addEventListener("click", () => {
-  focusPanel("#userNoteForm", '#userNoteForm textarea[name="note"]');
+  prepareNoteFromCurrentReading();
 });
 $("readingNowFocusBtn").addEventListener("click", () => {
   focusPanel(".reader-surface", "#chunkText");
@@ -8132,10 +8150,10 @@ $("readingNowPlanBtn").addEventListener("click", async () => {
   }
 });
 $("readingNowAskBtn").addEventListener("click", () => {
-  $("sessionAskNovaBtn").click();
+  prepareNovaPromptFromCurrentReading();
 });
 $("readingNowNoteBtn").addEventListener("click", () => {
-  $("sessionNoteBtn").click();
+  prepareNoteFromCurrentReading();
 });
 $("copyChunkIndexBtn").addEventListener("click", async () => {
   $("copyChunkIndexBtn").disabled = true;
