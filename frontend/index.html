@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Nova 共读驾驶舱</title>
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#mainContent">跳到主内容</a>
+    <div id="statusAnnouncer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">CoReadingMCP Sidecar</p>
+          <h1>Nova 共读驾驶舱</h1>
+        </div>
+        <div class="top-actions">
+          <span id="statusPill" class="status-pill">未同步</span>
+          <button id="refreshBtn" type="button">刷新</button>
+        </div>
+      </header>
+
+      <section class="metrics" aria-label="共读统计">
+        <div><span>书籍</span><strong id="bookCount">0</strong></div>
+        <div><span>计划</span><strong id="planCount">0</strong></div>
+        <div><span>评价</span><strong id="reviewCount">0</strong></div>
+        <div><span>插图</span><strong id="illustrationCount">0</strong></div>
+        <div><span>卡片</span><strong id="cardCount">0</strong></div>
+        <div><span>待沉淀</span><strong id="previewCount">0</strong></div>
+      </section>
+
+      <section id="mainContent" class="workspace" tabindex="-1">
+        <aside class="panel library-panel">
+          <div class="panel-head">
+            <h2>书库</h2>
+            <span id="activeBookLabel">未选择</span>
+          </div>
+          <div id="bookList" class="book-list empty" role="list">暂无书籍</div>
+
+          <form id="importForm" class="import-form">
+            <h3>导入书籍</h3>
+            <p class="form-hint">适合小型 TXT/Markdown/EPUB；大书请用命令行导入或调大 sidecar 请求上限。</p>
+            <label>
+              <span>文件</span>
+              <input name="file" type="file" accept=".txt,.text,.md,.markdown,.epub">
+            </label>
+            <div class="two">
+              <label>
+                <span>书名</span>
+                <input name="title" placeholder="默认使用文件名">
+              </label>
+              <label>
+                <span>作者</span>
+                <input name="author" placeholder="可选">
+              </label>
+            </div>
+            <label>
+              <span>章节正则</span>
+              <input name="headingRegex" placeholder="TXT 可选，如 ^第.+章">
+            </label>
+            <div class="two">
+              <label>
+                <span>每块字数</span>
+                <input name="maxChars" type="number" min="1000" max="50000" value="12000">
+              </label>
+              <label class="inline-check">
+                <span>覆盖同名书</span>
+                <input name="overwrite" type="checkbox">
+              </label>
+            </div>
+            <button type="submit">导入</button>
+          </form>
+
+          <details class="tool-drawer">
+            <summary>分计划与插图工具</summary>
+          <form id="planForm" class="plan-form">
+            <h3>新计划</h3>
+            <label>
+              <span>模式</span>
+              <select name="mode">
+                <option value="range">范围</option>
+                <option value="full_book">全书</option>
+                <option value="interest_trail">兴趣线索</option>
+                <option value="free">自由共读</option>
+              </select>
+            </label>
+            <div class="two">
+              <label>
+                <span>起点</span>
+                <input name="startChunkId" value="ch00">
+              </label>
+              <label>
+                <span>终点</span>
+                <input name="endChunkId" value="ch03">
+              </label>
+            </div>
+            <div class="range-tools">
+              <button id="setRangeStartBtn" class="secondary" type="button">设为起点</button>
+              <button id="setRangeEndBtn" class="secondary" type="button">设为终点</button>
+              <button class="secondary" type="button" data-shift-plan-range="start:-1">扩前</button>
+              <button class="secondary" type="button" data-shift-plan-range="start:1">收前</button>
+              <button class="secondary" type="button" data-shift-plan-range="end:-1">收后</button>
+              <button class="secondary" type="button" data-shift-plan-range="end:1">扩后</button>
+              <button id="copyPlanRangeBtn" class="secondary" type="button">复制范围</button>
+              <button id="copyReviewRangeToPlanSummaryBtn" class="secondary" type="button">复制评价计划范围</button>
+              <span id="planRangeStatus">范围 ch00 -> ch03</span>
+            </div>
+            <label>
+              <span>线索</span>
+              <input name="query" placeholder="人物、意象、冲突">
+            </label>
+            <div class="two">
+              <label>
+                <span>步长</span>
+                <input name="maxChunksPerStep" type="number" min="1" max="20" value="2">
+              </label>
+              <label>
+                <span>密度</span>
+                <select name="annotationDensity">
+                  <option value="medium">medium</option>
+                  <option value="light">light</option>
+                  <option value="dense">dense</option>
+                  <option value="none">none</option>
+                </select>
+              </label>
+            </div>
+            <fieldset>
+              <legend>沉淀目标</legend>
+              <label><input name="obsidian" type="checkbox" checked> Obsidian</label>
+              <label><input name="dailyNote" type="checkbox"> DailyNote</label>
+              <label><input name="vcpMemory" type="checkbox"> VCPMemory</label>
+            </fieldset>
+            <button id="copyReadingDecisionPacketBtn" class="secondary" type="button">复制阅读决策包</button>
+            <button id="copyPlanDecisionPacketBtn" class="secondary" type="button">复制计划决策包</button>
+            <button id="copyPlanParamsBtn" class="secondary" type="button">复制计划参数</button>
+            <button type="submit">创建计划</button>
+          </form>
+
+          <form id="illustrationForm" class="illustration-form">
+            <h3>插图请求</h3>
+            <label>
+              <span>位置</span>
+              <select name="position">
+                <option value="chapter_end">章末</option>
+                <option value="after_chunk">当前 chunk 后</option>
+                <option value="before_chunk">当前 chunk 前</option>
+                <option value="inline">段内</option>
+                <option value="cover">封面</option>
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+            <div class="two">
+              <label>
+                <span>来源</span>
+                <select name="sourceType">
+                  <option value="ai">AI</option>
+                  <option value="library">图库</option>
+                  <option value="manual">手动</option>
+                </select>
+              </label>
+              <label>
+                <span>图层</span>
+                <select name="layer">
+                  <option value="chapter">chapter</option>
+                  <option value="inline">inline</option>
+                  <option value="margin">margin</option>
+                  <option value="cover">cover</option>
+                  <option value="gallery">gallery</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              <span>提示词</span>
+              <textarea name="prompt" rows="4" placeholder="安静、低饱和、无剧透的章节氛围图"></textarea>
+            </label>
+            <label>
+              <span>图片 URI</span>
+              <input name="assetUri" placeholder="file:///D:/Images/book/ch00.png">
+            </label>
+            <div class="two">
+              <label>
+                <span>风格</span>
+                <input name="stylePreset" value="quiet editorial watercolor">
+              </label>
+              <label>
+                <span>比例</span>
+                <input name="aspectRatio" value="16:9">
+              </label>
+            </div>
+            <div class="illustration-actions">
+              <button type="button" id="suggestIllustrationBtn" class="secondary">建议提示词</button>
+              <button type="submit">创建插图</button>
+            </div>
+            <div id="illustrationSuggestions" class="illustration-suggestions empty">先选择 chunk 后生成建议。</div>
+          </form>
+          </details>
+        </aside>
+
+        <section class="panel plan-panel">
+          <div class="panel-head">
+            <h2>原文范围</h2>
+            <span id="chunkCount">0 chunks</span>
+          </div>
+          <div class="reader-tools">
+            <button id="prevChunkBtn" class="secondary compact" type="button">上一段</button>
+            <select id="chunkSelect" aria-label="选择 chunk"></select>
+            <button id="continueReadingBtn" class="primary compact" type="button">继续读</button>
+            <button id="readChunkBtn" type="button">读取</button>
+            <button id="copyChunkIndexBtn" class="secondary compact" type="button" disabled>复制目录</button>
+            <button id="copyChunkTextBtn" class="secondary compact" type="button">复制原文</button>
+            <button id="copySelectionBtn" class="secondary compact" type="button">复制选区</button>
+            <button id="copyReadingContextBtn" class="secondary compact" type="button">复制现场</button>
+            <button id="nextChunkBtn" class="secondary compact" type="button">下一段</button>
+          </div>
+          <div id="chunkPosition" class="chunk-position">未选择位置</div>
+          <article class="reader-surface">
+            <header>
+              <strong id="chunkTitle">未选择 chunk</strong>
+              <button id="markReadBtn" class="secondary" type="button">标记已读</button>
+            </header>
+            <pre id="chunkText" class="chunk-text">选择一本书和一个 chunk 后开始共读。</pre>
+          </article>
+
+          <section class="nova-reading-box" aria-labelledby="novaReadingTitle">
+            <div class="panel-head">
+              <h2 id="novaReadingTitle">问 Nova</h2>
+              <span id="novaAskStatus">待提问</span>
+            </div>
+            <textarea id="novaPrompt" rows="3" placeholder="写下你想问 Nova 的问题，或选中原文后请她解释、追问、陪你继续读。"></textarea>
+            <div class="nova-actions">
+              <button id="askNovaBtn" type="button">发送给 Nova</button>
+              <button id="askNovaSelectionBtn" class="secondary" type="button">用选区提问</button>
+              <button id="copyNovaReplyBtn" class="secondary" type="button" disabled>复制回复</button>
+            </div>
+            <div id="novaReply" class="nova-reply empty">Nova 的回应会出现在这里。</div>
+          </section>
+
+          <div class="reader-tools">
+            <input id="searchInput" placeholder="搜索兴趣点">
+            <button id="searchBtn" type="button">搜索</button>
+            <button id="backtrackCurrentBtn" class="secondary" type="button">回溯当前</button>
+            <button id="sinkBacktrackBtn" class="secondary" type="button">沉淀回溯</button>
+          </div>
+          <div class="backtrack-controls" aria-label="兴趣点回溯参数">
+            <label>
+              <span>前文</span>
+              <input id="backtrackBefore" type="number" min="0" max="20" value="2">
+            </label>
+            <label>
+              <span>后文</span>
+              <input id="backtrackAfter" type="number" min="0" max="20" value="2">
+            </label>
+            <label>
+              <span>范围</span>
+              <input id="backtrackMaxRanges" type="number" min="1" max="20" value="4">
+            </label>
+            <label>
+              <span>合并</span>
+              <input id="backtrackMergeGap" type="number" min="0" max="10" value="1">
+            </label>
+            <button id="copySearchResultsBtn" class="secondary" type="button" disabled>复制搜索</button>
+            <span id="backtrackStatus">以当前 chunk 和搜索词为锚点。</span>
+          </div>
+          <div id="searchResults" class="search-results empty" role="list">暂无搜索结果</div>
+          <div id="backtrackEvidence" class="backtrack-evidence empty">暂无回溯证据</div>
+
+          <div class="panel-head spaced">
+            <h2>边注</h2>
+            <span id="annotationCount">0</span>
+          </div>
+          <form id="annotationForm" class="annotation-form">
+            <label>
+              <span>引用</span>
+              <textarea name="quote" rows="2" placeholder="选一小段原文作为锚点"></textarea>
+            </label>
+            <button class="secondary quote-fill" type="button" data-fill-quote="annotationForm">取选区</button>
+            <label>
+              <span>边注</span>
+              <textarea name="note" rows="3" placeholder="Nova 或用户在这里留下短评、疑问或共鸣"></textarea>
+            </label>
+            <label>
+              <span>类型</span>
+              <select name="kind">
+                <option value="annotation">annotation</option>
+                <option value="question">question</option>
+                <option value="summary">summary</option>
+                <option value="resonance">resonance</option>
+                <option value="feeling">feeling</option>
+              </select>
+            </label>
+            <button type="submit">写入边注</button>
+          </form>
+          <div id="annotationList" class="annotation-list empty" role="list">暂无边注</div>
+
+          <div class="panel-head spaced">
+            <h2>我的笔记</h2>
+            <span id="userNoteCount">0</span>
+          </div>
+          <form id="userNoteForm" class="annotation-form">
+            <label>
+              <span>引用</span>
+              <textarea name="quote" rows="2" placeholder="选中原文后可自动带入"></textarea>
+            </label>
+            <button class="secondary quote-fill" type="button" data-fill-quote="userNoteForm">取选区</button>
+            <label>
+              <span>笔记</span>
+              <textarea name="note" rows="3" placeholder="先写给自己，提交后再交给 Nova 回应"></textarea>
+            </label>
+            <label>
+              <span>状态</span>
+              <select name="status">
+                <option value="open">open</option>
+                <option value="private">private</option>
+                <option value="draft">draft</option>
+              </select>
+            </label>
+            <button type="submit">保存笔记</button>
+          </form>
+          <div class="note-actions">
+            <button id="submitUserNotesBtn" type="button">提交给 Nova</button>
+          </div>
+          <div id="userNoteList" class="annotation-list empty" role="list">暂无用户笔记</div>
+          <div id="submissionList" class="submission-list empty" role="list">暂无提交批次</div>
+
+          <details class="tool-drawer">
+            <summary>计划、评价与插图</summary>
+          <div class="panel-head spaced">
+            <h2>计划轨道</h2>
+            <span id="activePlanCount">0 active</span>
+          </div>
+          <div id="planList" class="plan-list empty" role="list">暂无计划</div>
+          <div id="runnerList" class="runner-list empty" role="list">暂无后台 runner</div>
+
+          <div class="panel-head">
+            <h2>范围评价</h2>
+            <span id="activeReviewCount">0</span>
+          </div>
+          <form id="reviewForm" class="review-form">
+            <div class="two">
+              <label>
+                <span>起点</span>
+                <input name="startChunkId" placeholder="当前 chunk">
+              </label>
+              <label>
+                <span>终点</span>
+                <input name="endChunkId" placeholder="当前 chunk">
+              </label>
+            </div>
+            <div class="range-tools">
+              <button id="copyPlanRangeToReviewBtn" class="secondary" type="button">使用计划范围</button>
+              <button id="copyPlanRangeToReviewSummaryBtn" class="secondary" type="button">复制计划评价范围</button>
+              <button class="secondary" type="button" data-shift-review-range="start:-1">扩前</button>
+              <button class="secondary" type="button" data-shift-review-range="start:1">收前</button>
+              <button class="secondary" type="button" data-shift-review-range="end:-1">收后</button>
+              <button class="secondary" type="button" data-shift-review-range="end:1">扩后</button>
+              <button id="copyReviewRangeBtn" class="secondary" type="button">复制范围</button>
+              <span id="reviewRangeStatus">默认使用当前 chunk</span>
+            </div>
+            <label>
+              <span>评价</span>
+              <textarea name="summary" rows="3" placeholder="这段值得沉淀的判断、问题或阶段小结"></textarea>
+            </label>
+            <label>
+              <span>观察</span>
+              <textarea name="observations" rows="2" placeholder="每行一条，可留空"></textarea>
+            </label>
+            <fieldset>
+              <legend>生成预览</legend>
+              <label><input name="obsidian" type="checkbox" checked> Obsidian</label>
+              <label><input name="dailyNote" type="checkbox"> DailyNote</label>
+              <label><input name="vcpMemory" type="checkbox"> VCPMemory</label>
+            </fieldset>
+            <button id="copyReviewDecisionPacketBtn" class="secondary" type="button">复制评价决策包</button>
+            <button id="copyReviewParamsBtn" class="secondary" type="button">复制评价参数</button>
+            <button type="submit">生成评价预览</button>
+          </form>
+          <div id="reviewList" class="review-list empty" role="list">暂无评价</div>
+
+          <div class="panel-head spaced">
+            <h2>插图库</h2>
+            <span id="activeIllustrationCount">0</span>
+          </div>
+          <div id="illustrationList" class="illustration-list empty" role="list">暂无插图</div>
+          <article class="illustration-detail">
+            <div id="illustrationPreview" class="illustration-preview">选择或创建一张插图后预览。</div>
+            <div id="illustrationMeta" class="illustration-meta">暂无锚点。</div>
+            <button id="copyIllustrationBtn" class="secondary" type="button" disabled>复制插图</button>
+          </article>
+          </details>
+        </section>
+
+        <aside class="panel sink-panel">
+          <details class="tool-drawer sink-drawer">
+            <summary>卡片与沉淀队列</summary>
+          <div class="panel-head">
+            <h2>阅读卡片</h2>
+            <div class="panel-actions">
+              <span id="cardInboxCount">0</span>
+              <button id="cardDigestBtn" class="secondary" type="button" disabled>生成 digest</button>
+              <button id="copyCardDigestBtn" class="secondary" type="button" disabled>复制 digest</button>
+            </div>
+          </div>
+          <form id="cardForm" class="card-form">
+            <label>
+              <span>标题</span>
+              <input name="title" placeholder="默认使用当前 chunk">
+            </label>
+            <label>
+              <span>引用</span>
+              <textarea name="quote" rows="2" placeholder="选中原文后可自动带入"></textarea>
+            </label>
+            <button class="secondary quote-fill" type="button" data-fill-quote="cardForm">取选区</button>
+            <label>
+              <span>注记</span>
+              <textarea name="note" rows="2" placeholder="为什么这段值得回访"></textarea>
+            </label>
+            <div class="two">
+              <label>
+                <span>题签</span>
+                <input name="kicker" value="收获了一枚回声书签">
+              </label>
+              <label>
+                <span>样式</span>
+                <select name="art">
+                  <option value="fold">fold</option>
+                  <option value="ripple">ripple</option>
+                  <option value="stardust">stardust</option>
+                </select>
+              </label>
+            </div>
+            <button type="submit">收为卡片</button>
+          </form>
+          <div id="cardInboxList" class="card-list empty" role="list">暂无新卡片</div>
+          <div id="cardCollectionList" class="card-list empty" role="list">暂无收藏卡片</div>
+          <p id="cardDigestStatus" class="muted-line">收集卡片后可生成 Obsidian digest 预览。</p>
+          <article class="card-detail">
+            <div class="panel-head">
+              <h2>卡片预览</h2>
+              <span id="cardDetailStatus">未选择</span>
+            </div>
+            <div id="cardPreview" class="card-preview empty">选择卡片后预览。</div>
+            <div class="card-actions">
+              <button id="saveCardBtn" type="button" disabled>保存图片</button>
+              <button id="dismissCardBtn" class="secondary" type="button" disabled>移出收件箱</button>
+            </div>
+          </article>
+
+          <div class="panel-head spaced">
+            <h2>沉淀队列</h2>
+            <span id="sinkCount">0</span>
+          </div>
+          <div class="sink-settings" aria-labelledby="sinkSettingsTitle">
+            <div class="settings-head">
+              <strong id="sinkSettingsTitle">沉淀路径</strong>
+              <button id="copySinkSettingsBtn" class="secondary" type="button">复制路径</button>
+              <button id="clearSinkSettingsBtn" class="secondary" type="button">清空路径</button>
+            </div>
+            <label>
+              <span>Vault</span>
+              <input id="vaultPath" placeholder="D:\ObsidianVault">
+            </label>
+            <label>
+              <span>DailyNote</span>
+              <input id="dailyNoteRoot" placeholder="D:\VCP\VCPToolBox\dailynote">
+            </label>
+            <label>
+              <span>MemoryRoot</span>
+              <input id="vcpMemoryRoot" placeholder="D:\VCP\VCPToolBox\data\vcp-memory">
+            </label>
+          </div>
+          <div id="sinkList" class="sink-list empty" role="list">暂无沉淀预览</div>
+          <article class="sink-detail">
+            <div class="panel-head">
+              <h2>预览正文</h2>
+              <span id="sinkDetailStatus">未选择</span>
+            </div>
+            <div id="sinkDetailMeta" class="sink-detail-meta">选择一条沉淀预览后查看将写入的内容。</div>
+            <textarea id="sinkPreviewContent" class="sink-preview-content" aria-label="沉淀预览正文">暂无预览。</textarea>
+            <div class="sink-detail-actions">
+              <button id="copySinkContextBtn" class="secondary" type="button" disabled>复制上下文</button>
+              <button id="copySinkSourceBtn" class="secondary" type="button" disabled>复制来源</button>
+              <button id="fillSinkSourceBtn" class="secondary" type="button" disabled>填入来源</button>
+              <button id="copySinkContentBtn" class="secondary" type="button" disabled>复制当前正文</button>
+              <button id="copySinkReviewPacketBtn" class="secondary" type="button" disabled>复制审稿</button>
+              <button id="copySinkAuditContextBtn" class="secondary" type="button" disabled>复制审阅上下文</button>
+              <button id="copySinkDecisionPacketBtn" class="secondary" type="button" disabled>复制决策包</button>
+              <button id="copySinkSavePayloadBtn" class="secondary" type="button" disabled>复制保存参数</button>
+              <button id="saveSinkContentBtn" type="button" disabled>保存正文</button>
+              <button id="copySinkSaveApprovePayloadBtn" class="secondary" type="button" disabled>复制批准参数</button>
+              <button id="saveApproveSinkPreviewBtn" type="button" disabled>保存并批准</button>
+              <button id="copySinkExecutePayloadBtn" class="secondary" type="button" disabled>复制执行参数</button>
+              <button id="executeSinkPreviewBtn" type="button" disabled>执行写入</button>
+              <button id="readObsidianBtn" class="secondary" type="button" disabled>回读</button>
+              <button id="copyObsidianReadBtn" class="secondary" type="button" disabled>复制回读</button>
+              <button id="copyObsidianReadSummaryBtn" class="secondary" type="button" disabled>复制摘要</button>
+              <button id="diffObsidianBtn" class="secondary" type="button" disabled>差异</button>
+              <button id="copyObsidianDiffBtn" class="secondary" type="button" disabled>复制差异</button>
+              <button id="mergeObsidianBtn" class="secondary" type="button" disabled>追加提案</button>
+              <button id="suggestIntegrateObsidianBtn" class="secondary" type="button" disabled>整合建议</button>
+              <button id="copyIntegrateSuggestionBtn" class="secondary" type="button" disabled>复制建议</button>
+              <button id="previewReplaceRangeObsidianBtn" class="secondary" type="button" disabled>替换预览</button>
+              <button id="copyReplacePreviewBtn" class="secondary" type="button" disabled>复制替换</button>
+              <button id="copyConfirmReplacePayloadBtn" class="secondary" type="button" disabled>复制替换参数</button>
+              <button id="confirmReplaceRangeObsidianBtn" class="secondary" type="button" disabled>确认替换</button>
+              <button id="copyConfirmReplaceBtn" class="secondary" type="button" disabled>复制结果</button>
+              <button id="copyApplyIntegratePayloadBtn" class="secondary" type="button" disabled>复制应用参数</button>
+              <button id="applyIntegrateChoiceObsidianBtn" class="secondary" type="button" disabled>应用建议</button>
+              <button id="copyIntegratePayloadBtn" class="secondary" type="button" disabled>复制集成参数</button>
+              <button id="integrateObsidianBtn" class="secondary" type="button" disabled>集成正文</button>
+              <button id="copyIntegrateResultBtn" class="secondary" type="button" disabled>复制整理</button>
+              <button id="statusObsidianBtn" class="secondary" type="button" disabled>状态</button>
+              <button id="copyObsidianStatusBtn" class="secondary" type="button" disabled>复制状态</button>
+              <button id="copyVaultStatusPayloadBtn" class="secondary" type="button">复制全库参数</button>
+              <button id="vaultStatusObsidianBtn" class="secondary" type="button">全库状态</button>
+              <button id="copyVaultStatusBtn" class="secondary" type="button" disabled>复制全库</button>
+              <button id="copyVaultAuditBtn" class="secondary" type="button" disabled>复制巡检</button>
+              <button id="copyVaultSyncPlanBtn" class="secondary" type="button" disabled>复制同步计划</button>
+              <button id="copyVaultSyncActionPayloadBtn" class="secondary" type="button" disabled>复制同步参数</button>
+              <button id="copyVaultSnapshotPayloadBtn" class="secondary" type="button">复制快照参数</button>
+              <button id="vaultSnapshotObsidianBtn" class="secondary" type="button">保存快照</button>
+              <button id="copyVaultSnapshotListPayloadBtn" class="secondary" type="button">复制快照列表参数</button>
+              <button id="vaultSnapshotListObsidianBtn" class="secondary" type="button">快照列表</button>
+              <button id="copyVaultSnapshotDiffPayloadBtn" class="secondary" type="button">复制快照差异参数</button>
+              <button id="vaultSnapshotDiffObsidianBtn" class="secondary" type="button">快照差异</button>
+              <button id="copyVaultSnapshotPendingDiffPayloadBtn" class="secondary" type="button">复制待整理变化参数</button>
+              <button id="vaultSnapshotPendingDiffObsidianBtn" class="secondary" type="button">待整理变化</button>
+              <button id="copyVaultIndexBuildPayloadBtn" class="secondary" type="button">复制建索引参数</button>
+              <button id="vaultIndexBuildObsidianBtn" class="secondary" type="button">建立索引</button>
+              <button id="copyVaultIndexListPayloadBtn" class="secondary" type="button">复制索引列表参数</button>
+              <button id="vaultIndexListObsidianBtn" class="secondary" type="button">索引列表</button>
+              <button id="copyVaultIndexPendingPayloadBtn" class="secondary" type="button">复制待整理索引参数</button>
+              <button id="vaultIndexPendingObsidianBtn" class="secondary" type="button">待整理索引</button>
+              <button id="copyVaultIndexRefreshCheckPayloadBtn" class="secondary" type="button">复制检查索引参数</button>
+              <button id="vaultIndexRefreshCheckObsidianBtn" class="secondary" type="button">检查索引</button>
+              <button id="copyVaultSyncPlanPayloadBtn" class="secondary" type="button">复制同步计划参数</button>
+              <button id="vaultSyncPlanObsidianBtn" class="secondary" type="button">同步计划</button>
+              <button id="copyVaultIndexRefreshPayloadBtn" class="secondary" type="button">复制重建参数</button>
+              <button id="vaultIndexRefreshObsidianBtn" class="secondary" type="button">重建索引</button>
+              <button id="copyResolvePayloadBtn" class="secondary" type="button" disabled>复制整理参数</button>
+              <button id="resolveObsidianBtn" class="secondary" type="button" disabled>标记已整理</button>
+              <button id="copyRejectSinkPreviewBtn" class="secondary" type="button" disabled>复制驳回</button>
+              <button id="rejectSinkPreviewBtn" class="secondary" type="button" disabled>驳回</button>
+            </div>
+            <div id="obsidianDiffPanel" class="obsidian-diff-panel empty">暂无 vault 差异。</div>
+          </article>
+          </details>
+        </aside>
+      </section>
+
+      <section class="panel command-panel">
+        <div class="panel-head">
+          <h2>回执</h2>
+          <button id="clearLogBtn" type="button">清空</button>
+        </div>
+        <pre id="logOutput" aria-live="polite" aria-atomic="false">等待共读操作。</pre>
+      </section>
+    </main>
+    <script src="./script.js"></script>
+  </body>
+</html>

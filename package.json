@@ -1,0 +1,19 @@
+{
+  "name": "vcp-coreadingmcp-wrapper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VCP stdio wrapper for idleprocesscc/co-reading-mcp.",
+  "main": "CoReadingMCP.cjs",
+  "scripts": {
+    "check": "node --check CoReadingMCP.cjs && node --check CoReadingSidecar.cjs && node --check frontend/script.js",
+    "sidecar": "node CoReadingSidecar.cjs",
+    "sidecar:pm2:start": "pm2 start ecosystem.config.cjs --only vcp-coreading-sidecar",
+    "sidecar:pm2:restart": "pm2 restart vcp-coreading-sidecar --update-env",
+    "sidecar:pm2:stop": "pm2 stop vcp-coreading-sidecar",
+    "sidecar:pm2:delete": "pm2 delete vcp-coreading-sidecar",
+    "sidecar:autostart:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-autostart.ps1 -Status",
+    "sidecar:autostart:enable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-autostart.ps1 -Enable",
+    "sidecar:autostart:disable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-autostart.ps1 -Disable",
+    "smoke": "node CoReadingMCP.cjs"
+  }
+}

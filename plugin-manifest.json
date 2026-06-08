@@ -1,0 +1,395 @@
+{
+  "manifestVersion": "1.0.0",
+  "name": "CoReadingMCP",
+  "version": "0.1.0",
+  "displayName": "Co-Reading 共同阅读插件",
+  "description": "把 idleprocesscc/co-reading-mcp 包装为 VCP 同步插件，用于导入 EPUB/TXT/Markdown、分块阅读、搜索、批注、提交用户笔记、回复边注、管理阅读进度、维护并执行 Nova 共读计划、生成章节/范围评价和沉淀预览。",
+  "author": "idleprocesscc / VCP local wrapper",
+  "pluginType": "synchronous",
+  "entryPoint": {
+    "type": "nodejs",
+    "command": "node CoReadingMCP.cjs"
+  },
+  "communication": {
+    "protocol": "stdio",
+    "timeout": 180000
+  },
+  "configSchema": {
+    "CO_READING_DATA_DIR": {
+      "type": "string",
+      "description": "阅读数据目录。留空时默认使用 D:\\VCP\\VCPToolBox\\data\\co-reading-mcp。"
+    },
+    "CO_READING_VENDOR_DIR": {
+      "type": "string",
+      "description": "co-reading-mcp 源码目录。留空时使用本插件 vendor\\co-reading-mcp。"
+    },
+    "CO_READING_MAX_RESULT_CHARS": {
+      "type": "integer",
+      "description": "单次 VCP 返回文本最大字符数，默认 80000。"
+    },
+    "CO_READING_OBSIDIAN_VAULT_DIR": {
+      "type": "string",
+      "description": "执行 obsidian 沉淀预览时的本地 vault 根目录。未配置时 sink_execute 需显式传 vaultPath。"
+    },
+    "CO_READING_DAILY_NOTE_ROOT": {
+      "type": "string",
+      "description": "执行 dailyNote 沉淀预览时的日记根目录。未配置时可使用 KNOWLEDGEBASE_ROOT_PATH 或显式传 dailyNoteRoot。"
+    },
+    "CO_READING_VCP_MEMORY_ROOT": {
+      "type": "string",
+      "description": "执行 vcpMemory 沉淀预览时的 VCPMemory 提案目录。未配置时使用 VCPMemory 默认 data/vcp-memory。"
+    },
+    "CO_READING_SIDECAR_HOST": {
+      "type": "string",
+      "description": "独立共读 sidecar 监听地址，默认 127.0.0.1。"
+    },
+    "CO_READING_SIDECAR_PORT": {
+      "type": "integer",
+      "description": "独立共读 sidecar 监听端口，默认 8791。"
+    }
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "commandIdentifier": "list_tools",
+        "command": "list_tools",
+        "description": "列出 CoReadingMCP 当前包装的全部 reading_* 工具及参数 schema。适合首次接入或忘记参数时调用。"
+      },
+      {
+        "commandIdentifier": "list_books",
+        "command": "list_books",
+        "description": "列出已导入书籍、阅读进度和批注数量。等价 MCP 工具 reading_list_books。无需参数。"
+      },
+      {
+        "commandIdentifier": "continue",
+        "command": "continue",
+        "description": "继续阅读下一段。参数：bookId 可选；不传时使用最近阅读的书。等价 MCP 工具 reading_continue。"
+      },
+      {
+        "commandIdentifier": "read_chunk",
+        "command": "read_chunk",
+        "description": "读取指定书籍分块。参数：bookId 必需，chunkId 必需。等价 MCP 工具 reading_read_chunk。"
+      },
+      {
+        "commandIdentifier": "search",
+        "command": "search",
+        "description": "在书籍分块中搜索关键词。参数：query 必需，bookId 可选，limit 可选。等价 MCP 工具 reading_search_chunks。"
+      },
+      {
+        "commandIdentifier": "annotate",
+        "command": "annotate",
+        "description": "写入 Nova/AI 边注。参数：bookId、chunkId、quote、note 必需；quoteOffset、kind、mood、tags 可选。等价 MCP 工具 reading_annotate_passage。"
+      },
+      {
+        "commandIdentifier": "user_note_create",
+        "command": "user_note_create",
+        "description": "创建用户私有/open 笔记。参数：bookId、chunkId、quote、note 必需；quoteOffset、kind、mood、tags、status(open/private/draft) 可选。该命令不会发布为 Nova 边注。"
+      },
+      {
+        "commandIdentifier": "user_note_list",
+        "command": "user_note_list",
+        "description": "列出可信本地 sidecar 可见的用户笔记。参数：bookId、chunkId、kind、status、limit 可选；包含 open/private/draft/submitted 用户笔记。"
+      },
+      {
+        "commandIdentifier": "submit_notes",
+        "command": "submit_notes",
+        "description": "提交 user_note_create 创建的用户笔记供 Nova 回复。参数：bookId 可选，chunkId 可选，sessionId 建议传当前会话 id，contextMode 可选。等价 MCP 工具 reading_submit_user_notes。"
+      },
+      {
+        "commandIdentifier": "list_submissions",
+        "command": "list_submissions",
+        "description": "列出用户笔记提交批次。参数：bookId、chunkId、sessionId、limit 可选。等价 MCP 工具 reading_list_submissions。"
+      },
+      {
+        "commandIdentifier": "read_submission",
+        "command": "read_submission",
+        "description": "读取一个用户笔记提交批次及其上下文。参数：submissionId 必需。等价 MCP 工具 reading_read_submission。"
+      },
+      {
+        "commandIdentifier": "reply",
+        "command": "reply",
+        "description": "在某条边注下回复。参数：parentId、note 必需；kind、mood、tags 可选。等价 MCP 工具 reading_reply_to_annotation。"
+      },
+      {
+        "commandIdentifier": "mark_read",
+        "command": "mark_read",
+        "description": "标记分块已读并更新进度。参数：bookId、chunkId 必需。读完最后一段时会返回收束仪式提示。"
+      },
+      {
+        "commandIdentifier": "card_inbox",
+        "command": "card_inbox",
+        "description": "查看未移出的阅读卡片收件箱。参数：bookId、limit 可选。等价 MCP 工具 reading_card_inbox。"
+      },
+      {
+        "commandIdentifier": "card_collection",
+        "command": "card_collection",
+        "description": "分页浏览已收集阅读卡片。参数：bookId、limit、offset 可选。等价 MCP 工具 reading_card_collection。"
+      },
+      {
+        "commandIdentifier": "open_card",
+        "command": "open_card",
+        "description": "打开指定阅读卡片并返回图片内容。参数：cardId 必需。等价 MCP 工具 reading_open_card。"
+      },
+      {
+        "commandIdentifier": "save_card",
+        "command": "save_card",
+        "description": "把指定阅读卡片渲染为本地图片文件。参数：cardId 必需。等价 MCP 工具 reading_save_card。"
+      },
+      {
+        "commandIdentifier": "dismiss_card",
+        "command": "dismiss_card",
+        "description": "把指定阅读卡片移出收件箱但不删除。参数：cardId 必需。等价 MCP 工具 reading_dismiss_card。"
+      },
+      {
+        "commandIdentifier": "list_cards",
+        "command": "list_cards",
+        "description": "列出已收集阅读卡片原始摘要。参数：bookId、chunkId、source、scope、limit 可选。等价 MCP 工具 reading_list_cards。"
+      },
+      {
+        "commandIdentifier": "collect_card",
+        "command": "collect_card",
+        "description": "把当前段落、共享边注或阶段收束收为轻量阅读卡片。参数：bookId、chunkId、title、quote、note、kicker、art 可选。等价 MCP 工具 reading_collect_card。"
+      },
+      {
+        "commandIdentifier": "progress",
+        "command": "progress",
+        "description": "查看一本书或全部书的阅读进度。参数：bookId 可选。等价 MCP 工具 reading_get_progress。"
+      },
+      {
+        "commandIdentifier": "plan_create",
+        "command": "plan_create",
+        "description": "创建 Nova 共读计划。参数：bookId 必需；mode 可为 full_book/range/interest_trail/free；scope、startChunkId、endChunkId、chunkIds、query、budget、annotationDensity、sinkPolicy 可选。"
+      },
+      {
+        "commandIdentifier": "interest_backtrack",
+        "command": "interest_backtrack",
+        "description": "围绕兴趣点或当前 chunk 回溯前后文范围。参数：bookId 必需；query 或 anchorChunkId 至少一个；before、after、limit、maxRanges、mergeGap、includeEvidence 可选；默认返回 evidence/evidenceMarkdown，createPlan=true 时直接生成可执行共读计划。"
+      },
+      {
+        "commandIdentifier": "plan_list",
+        "command": "plan_list",
+        "description": "列出本地阅读计划。参数：bookId、status 可选。计划默认保存在阅读数据目录的 reading_plans.json。"
+      },
+      {
+        "commandIdentifier": "plan_get",
+        "command": "plan_get",
+        "description": "读取指定阅读计划详情。参数：planId 必需。返回计划、下一步和建议调用。"
+      },
+      {
+        "commandIdentifier": "plan_update",
+        "command": "plan_update",
+        "description": "更新阅读计划元信息。参数：planId 必需；patch 或 title/status/budget/scope/annotationDensity/sinkPolicy 可选。"
+      },
+      {
+        "commandIdentifier": "plan_next_step",
+        "command": "plan_next_step",
+        "description": "获取计划的下一步阅读动作。参数：planId 必需；claim=true 时会把 pending 步骤标记为 in_progress。"
+      },
+      {
+        "commandIdentifier": "plan_execute_step",
+        "command": "plan_execute_step",
+        "description": "自动执行计划中的一个 bounded step。参数：planId 必需；stepId/index 可选；read_range 会读取 chunk、标记进度、生成保守 review 草稿和沉淀预览；review_range 会生成 review/previews；search_interest 会记录命中和候选 chunk，但不自动扩展计划。"
+      },
+      {
+        "commandIdentifier": "plan_run",
+        "command": "plan_run",
+        "description": "按 ledger 连续推进多个 bounded step，适合长篇阅读的可恢复批量执行。参数：planId 必需；maxSteps 默认 3；遇到 paused/completed/error 会停止；内置 runner lock，必要时可传 forceLock 或 lockTtlMs。"
+      },
+      {
+        "commandIdentifier": "plan_record_step",
+        "command": "plan_record_step",
+        "description": "记录某个计划步骤的执行结果并推进计划。参数：planId 必需；stepId 或 index 必需；status、note、result、artifacts 可选。"
+      },
+      {
+        "commandIdentifier": "review_create",
+        "command": "review_create",
+        "description": "创建章节/范围评价 artifact。参数：bookId、summary 必需；planId、stepId、scope、startChunkId、endChunkId、chunkIds、observations、questions、quotes、nextActions、tags 可选。"
+      },
+      {
+        "commandIdentifier": "review_list",
+        "command": "review_list",
+        "description": "列出章节/范围评价。参数：bookId、planId、status 可选。评价默认保存在阅读数据目录的 reading_reviews.json。"
+      },
+      {
+        "commandIdentifier": "review_get",
+        "command": "review_get",
+        "description": "读取指定章节/范围评价。参数：reviewId 必需。返回结构化评价和可用于 Obsidian 的 Markdown。"
+      },
+      {
+        "commandIdentifier": "sink_preview_create",
+        "command": "sink_preview_create",
+        "description": "基于 curated review 创建沉淀预览，不直接写外部系统。参数：reviewId 必需；targets 可选 obsidian/dailyNote/vcpMemory；requireApproval 默认 true；illustrationIds 可指定要嵌入的插图。"
+      },
+      {
+        "commandIdentifier": "sink_preview_create_from_cards",
+        "command": "sink_preview_create_from_cards",
+        "description": "基于已收集阅读卡片创建 Obsidian digest 沉淀预览，不直接写 vault。参数：bookId 必需；cardIds 可选，用于只沉淀指定卡片；chunkId/source/scope/limit/offset/title/requireApproval/vaultPath/notePath/createdBy 可选。"
+      },
+      {
+        "commandIdentifier": "sink_preview_create_from_backtrack",
+        "command": "sink_preview_create_from_backtrack",
+        "description": "基于兴趣点回溯 evidenceMarkdown 创建 Obsidian 沉淀预览，不直接写外部系统。参数：bookId 必需；query 或 anchorChunkId 至少一个；before、after、limit、maxRanges、mergeGap、requireApproval、vaultPath、notePath、createdBy 可选。预览仍需批准后执行。"
+      },
+      {
+        "commandIdentifier": "sink_preview_list",
+        "command": "sink_preview_list",
+        "description": "列出沉淀预览。参数：reviewId、target、status 可选。预览默认保存在阅读数据目录的 sink_previews.json。"
+      },
+      {
+        "commandIdentifier": "sink_preview_get",
+        "command": "sink_preview_get",
+        "description": "读取指定沉淀预览。参数：previewId 必需。"
+      },
+      {
+        "commandIdentifier": "sink_preview_update",
+        "command": "sink_preview_update",
+        "description": "更新沉淀预览状态或正文但不执行外部写入。参数：previewId、status 必需；status 可为 pending/approved/rejected/exported；content、note、updatedBy 可选。"
+      },
+      {
+        "commandIdentifier": "sink_execute",
+        "command": "sink_execute",
+        "description": "执行已 approved 的沉淀预览。参数：previewId 必需；force、overwrite、overwriteAssets、vaultPath、assetFolder、dailyNoteRoot、vcpMemoryRoot、targetFolder、reviewer 可选。obsidian 写入 Markdown 文件并可复制本地插图附件，dailyNote 调用 DailyNoteWrite，vcpMemory 调用 ProposeMemory。"
+      },
+      {
+        "commandIdentifier": "obsidian_note_read",
+        "command": "obsidian_note_read",
+        "description": "回读 vault 内 Obsidian 笔记。参数：previewId 或 notePath；vaultPath 可选；includeContent=false 时只返回元信息。"
+      },
+      {
+        "commandIdentifier": "obsidian_note_diff",
+        "command": "obsidian_note_diff",
+        "description": "比较当前 Obsidian 笔记和沉淀预览正文，不写入文件。参数：previewId 或 notePath/content；vaultPath 可选。返回新增/移除行摘要。"
+      },
+      {
+        "commandIdentifier": "obsidian_note_merge",
+        "command": "obsidian_note_merge",
+        "description": "保守合并沉淀预览到 Obsidian 笔记。参数：previewId 或 notePath/content；vaultPath 可选。默认在文件末尾追加 CoReading proposed update 区块，不自动覆盖原文。"
+      },
+      {
+        "commandIdentifier": "obsidian_note_suggest_integration",
+        "command": "obsidian_note_suggest_integration",
+        "description": "只读分析当前 Obsidian 笔记与 CoReading proposed update，返回保守整合建议、结构化分支、理由、证据和可审阅草稿。参数：previewId 或 notePath；vaultPath、blockPreviewId、content、includeDraft 可选。不写入文件。"
+      },
+      {
+        "commandIdentifier": "obsidian_note_preview_replace_range",
+        "command": "obsidian_note_preview_replace_range",
+        "description": "只读预览 Obsidian 笔记中适合用整合草稿替换的段落范围。参数：previewId 或 notePath；vaultPath、blockPreviewId、content、draft、maxCandidates 可选。返回候选行号、评分、原文预览和草稿预览；不写入文件，不允许自动替换。"
+      },
+      {
+        "commandIdentifier": "obsidian_note_confirm_replace_range",
+        "command": "obsidian_note_confirm_replace_range",
+        "description": "人工确认后替换 Obsidian 笔记指定行范围。参数：confirmReplace=true、expectedDraftHash 必需；startLine/endLine 或 selectedRanges 必需；previewId 或 notePath、vaultPath、blockPreviewId、draft、content、replacedBy、resolutionNote 可选。写入前校验草稿哈希和候选范围，多个 selectedRanges 会按非重叠行段分别替换，返回 replacementMode 与写入后 appliedRanges，并把关联 proposed update 标记 resolved。"
+      },
+      {
+        "commandIdentifier": "obsidian_note_apply_integration_choice",
+        "command": "obsidian_note_apply_integration_choice",
+        "description": "安全执行整合建议分支。参数：choiceId 必需；previewId 或 notePath、vaultPath、blockPreviewId 可选。只允许 append_integrated_update 自动追加；keep_current 仅标记 resolved；replace_with_draft/manual_review 不写入并返回人工处理原因。"
+      },
+      {
+        "commandIdentifier": "obsidian_note_integrate",
+        "command": "obsidian_note_integrate",
+        "description": "把整理后的正文追加为 CoReading integrated update，并把关联 proposed update 标记为已整理。参数：previewId 或 notePath；vaultPath、blockPreviewId、integratedContent/content、integratedBy、resolutionNote 可选。不覆盖用户原文。"
+      },
+      {
+        "commandIdentifier": "obsidian_note_status",
+        "command": "obsidian_note_status",
+        "description": "只读汇总目标 Obsidian 笔记中的 CoReading proposed update 状态。参数：previewId 或 notePath；vaultPath、includeContentPreview 可选。返回 proposed/resolved 数量、marker 和行号。"
+      },
+      {
+        "commandIdentifier": "obsidian_vault_status",
+        "command": "obsidian_vault_status",
+        "description": "只读扫描 Obsidian vault 中的 Markdown 笔记，汇总 CoReading proposed update 待整理/已整理状态。参数：vaultPath 必需；folder、status、limit/offset、maxFiles、maxBytesPerFile、includeContentPreview 可选。返回 hasMore、nextOffset 和 skippedFiles。"
+      },
+      {
+        "commandIdentifier": "obsidian_vault_snapshot",
+        "command": "obsidian_vault_snapshot",
+        "description": "保存一次 Obsidian vault proposed/resolved 状态快照到 CoReadingMCP 数据目录，不写入 vault。参数：vaultPath 必需；folder、status、limit/offset、maxFiles、maxBytesPerFile、includeContentPreview、label、createdBy、maxSnapshots 可选。"
+      },
+      {
+        "commandIdentifier": "obsidian_vault_snapshot_list",
+        "command": "obsidian_vault_snapshot_list",
+        "description": "回看 CoReadingMCP 保存的 Obsidian vault 状态快照。参数：vaultPath、folder、limit、offset、includeNotes 可选。"
+      },
+      {
+        "commandIdentifier": "obsidian_vault_snapshot_diff",
+        "command": "obsidian_vault_snapshot_diff",
+        "description": "比较两次 Obsidian vault 状态快照，不读写 vault。参数：beforeSnapshotId、afterSnapshotId、changeStatus(all/proposed/resolved)、includeBlocks 可选；不传 id 时默认比较最近两次快照。"
+      },
+      {
+        "commandIdentifier": "obsidian_vault_index_build",
+        "command": "obsidian_vault_index_build",
+        "description": "扫描 Obsidian vault 并保存一份本地 proposed/resolved block 索引，不写入 vault。参数：vaultPath 必需；folder、limit/maxFiles、maxBytesPerFile、label、createdBy、maxIndexes 可选。"
+      },
+      {
+        "commandIdentifier": "obsidian_vault_index_list",
+        "command": "obsidian_vault_index_list",
+        "description": "列出已保存的 Obsidian vault 本地索引摘要。参数：vaultPath、folder、limit、offset 可选。"
+      },
+      {
+        "commandIdentifier": "obsidian_vault_index_get",
+        "command": "obsidian_vault_index_get",
+        "description": "分页读取已保存的 Obsidian vault block 索引。参数：indexId 可选；status(all/proposed/resolved)、previewId/blockPreviewId、notePath、limit、offset 可选。"
+      },
+      {
+        "commandIdentifier": "obsidian_vault_index_refresh_check",
+        "command": "obsidian_vault_index_refresh_check",
+        "description": "只读比较已保存索引与当前 Obsidian vault 扫描，判断索引是否过期。参数：indexId、vaultPath、folder、limit/maxFiles、maxBytesPerFile、includeBlocks 可选；不写入 vault。"
+      },
+      {
+        "commandIdentifier": "obsidian_vault_index_refresh",
+        "command": "obsidian_vault_index_refresh",
+        "description": "经用户确认后重建 Obsidian vault 本地索引，只写 CoReadingMCP 索引数据，不写 vault。参数：confirmRefresh=true 必需；indexId、vaultPath、folder、limit/maxFiles、maxBytesPerFile、label、createdBy、force 可选。"
+      },
+      {
+        "commandIdentifier": "obsidian_vault_sync_plan_create",
+        "command": "obsidian_vault_sync_plan_create",
+        "description": "基于本地索引与当前 vault 扫描差异生成只读同步审阅计划，不写 vault、不重建索引。参数：indexId、vaultPath、folder、limit/maxFiles、maxBytesPerFile、includeBlocks、reviewer 可选。"
+      },
+      {
+        "commandIdentifier": "obsidian_vault_sync_action_apply",
+        "command": "obsidian_vault_sync_action_apply",
+        "description": "执行一个已确认的 Obsidian 同步审阅动作。参数：action、confirmApply=true 必需；支持把 proposed block 标记 resolved，或在 confirmRefresh=true 时重建本地索引；不做自动语义合并。"
+      },
+      {
+        "commandIdentifier": "obsidian_note_resolve",
+        "command": "obsidian_note_resolve",
+        "description": "把目标 Obsidian 笔记中的某个 CoReading proposed update 标记为已整理。参数：previewId 或 notePath；vaultPath、blockPreviewId、resolvedBy、resolutionNote 可选。不删除正文内容。"
+      },
+      {
+        "commandIdentifier": "illustration_create",
+        "command": "illustration_create",
+        "description": "创建共读插图请求或图库资产占位，不直接调用生图接口。参数：bookId 必需；prompt、sourceType、stylePreset、assetUri、placement、chunkId、position、layer 可选。"
+      },
+      {
+        "commandIdentifier": "illustration_list",
+        "command": "illustration_list",
+        "description": "列出插图请求/资产。参数：bookId、status、sourceType、layer 可选。默认保存在 illustrations.json。"
+      },
+      {
+        "commandIdentifier": "illustration_get",
+        "command": "illustration_get",
+        "description": "读取指定插图请求/资产。参数：illustrationId 必需。"
+      },
+      {
+        "commandIdentifier": "illustration_update",
+        "command": "illustration_update",
+        "description": "更新插图请求状态、prompt、插入锚点或生成/图库图片 URI。参数：illustrationId 必需；status、assetUri、thumbnailUri、placement、note 可选。"
+      },
+      {
+        "commandIdentifier": "illustration_suggest",
+        "command": "illustration_suggest",
+        "description": "基于书籍 chunk/range 元数据生成无剧透插图提示词建议，不调用生图接口。参数：bookId 必需；chunkId 或范围可选；stylePreset、aspectRatio、position、layer 可选。"
+      }
+    ]
+  },
+  "dependencies": {
+    "npm": [],
+    "system": [
+      "Node.js >= 18",
+      "Python 3.10+ only required for EPUB/TXT import scripts"
+    ]
+  },
+  "compatibility": {
+    "nodeVersion": ">=18.0.0"
+  }
+}
