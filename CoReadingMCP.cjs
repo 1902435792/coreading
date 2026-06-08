@@ -2743,6 +2743,33 @@ function listLines(items, formatter) {
   return items.map(formatter).join("\n");
 }
 
+function markdownBlockquote(text) {
+  const value = String(text || "").trim();
+  if (!value) return "> 暂无";
+  return value.split(/\r?\n/u).map((line) => `> ${line}`).join("\n");
+}
+
+function reviewObservationSection(observations, sections) {
+  return observations.filter((item) => [item.section, item.source, item.kind].some((value) => sections.includes(value)));
+}
+
+function observationMatches(item, sections) {
+  return [item.section, item.source, item.kind].some((value) => sections.includes(value));
+}
+
+function observationText(item) {
+  return item.text || item.note || item.observation || item.summary || JSON.stringify(item);
+}
+
+function renderStructuredObservation(item) {
+  const title = item.title || item.kind || item.source || item.chunkId || "条目";
+  const chunk = item.chunkId ? ` · \`${item.chunkId}\`` : "";
+  const quote = item.quote ? `\n\n${markdownBlockquote(item.quote)}` : "";
+  const note = item.note || (item.quote && item.text === item.quote ? "" : item.text);
+  const noteLine = note ? `\n\n${note}` : "";
+  return `- ${title}${chunk}${quote}${noteLine}`;
+}
+
 function reviewRangeLabel(review) {
   const anchors = review.sourceAnchors;
   if (!anchors) return "未绑定来源";
@@ -2774,6 +2801,16 @@ function renderIllustrationMarkdown(illustrations) {
 function renderReviewMarkdown(review, options = {}) {
   const tags = normalizeArray(review.tags);
   const observations = normalizeObjectArray(review.observations);
+  const sourceObservations = reviewObservationSection(observations, ["source_quote", "current-chunk"]);
+  const novaObservations = observations.filter((item) => observationMatches(item, ["nova_reply", "nova-reply"]));
+  const cardObservations = observations.filter((item) => observationMatches(item, ["reading_card", "reading-card"]));
+  const readerObservations = observations.filter((item) =>
+    !novaObservations.includes(item)
+    && !cardObservations.includes(item)
+    && observationMatches(item, ["user_note", "annotation", "user-note"])
+  );
+  const structuredObservations = new Set([...sourceObservations, ...readerObservations, ...novaObservations, ...cardObservations]);
+  const otherObservations = observations.filter((item) => !structuredObservations.has(item));
   const questions = normalizeObjectArray(review.questions);
   const quotes = normalizeObjectArray(review.quotes, "quote");
   const nextActions = normalizeObjectArray(review.nextActions);
@@ -2804,9 +2841,25 @@ function renderReviewMarkdown(review, options = {}) {
     "",
     review.stance || "暂无",
     "",
-    "## 观察",
+    "## 来源原文",
     "",
-    listLines(observations, (item) => `- ${item.text || item.observation || JSON.stringify(item)}`),
+    listLines(sourceObservations, (item) => `- ${item.title || item.chunkId || "当前段"} · \`${item.chunkId || review.sourceAnchors.startChunkId}\`\n\n${markdownBlockquote(item.quote || item.text)}`),
+    "",
+    "## 我的笔记与边注",
+    "",
+    listLines(readerObservations, renderStructuredObservation),
+    "",
+    "## Nova 回应",
+    "",
+    listLines(novaObservations, renderStructuredObservation),
+    "",
+    "## 阅读卡片",
+    "",
+    listLines(cardObservations, renderStructuredObservation),
+    "",
+    "## 其他观察",
+    "",
+    listLines(otherObservations, (item) => `- ${observationText(item)}`),
     "",
     "## 引文与锚点",
     "",

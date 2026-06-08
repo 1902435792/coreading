@@ -954,22 +954,48 @@ function currentChunkNotesReviewPayload() {
   const chunk = state.currentChunk?.chunk || state.currentChunk || {};
   const text = currentChunkText();
   if (!selected || !state.selectedChunkId || !text) throw new Error("请先读取一个段落。");
-  const noteLines = (state.userNotes || []).slice(0, 8).map((item, index) => {
-    const label = item.kind === "nova-reply" ? "Nova回应" : "笔记";
-    return `${index + 1}. [${label}] ${item.quote || chunk.title || state.selectedChunkId}\n   ${item.note || item.text || ""}`;
-  });
-  const annotationLines = (state.annotations || []).slice(0, 8).map((item, index) =>
-    `${index + 1}. [边注] ${item.quote || ""}\n   ${item.note || ""}`
-  );
-  const cardLines = cardsForCurrentChunk().slice(0, 6).map((card, index) =>
-    `${index + 1}. [卡片] ${card.title || card.kicker || card.id || ""}\n   ${card.message || card.note || card.subtitle || ""}`
-  );
+  const noteLines = (state.userNotes || []).slice(0, 8).map((item) => ({
+    section: item.kind === "nova-reply" ? "nova_reply" : "user_note",
+    source: "user-note",
+    kind: item.kind || "note",
+    chunkId: item.chunkId || state.selectedChunkId,
+    quote: item.quote || chunk.title || state.selectedChunkId,
+    note: item.note || item.text || "",
+    text: item.note || item.text || "",
+  }));
+  const annotationLines = (state.annotations || []).slice(0, 8).map((item) => ({
+    section: "annotation",
+    source: "annotation",
+    kind: item.kind || "annotation",
+    author: item.author || "reader",
+    chunkId: item.chunkId || state.selectedChunkId,
+    quote: item.quote || "",
+    note: item.note || "",
+    text: item.note || "",
+  }));
+  const cardLines = cardsForCurrentChunk().slice(0, 6).map((card) => ({
+    section: "reading_card",
+    source: "reading-card",
+    cardId: card.id || "",
+    chunkId: card.chunkId || state.selectedChunkId,
+    title: card.title || card.kicker || card.id || "",
+    note: card.message || card.note || card.subtitle || "",
+    quote: card.quote || "",
+    text: card.message || card.note || card.subtitle || card.title || "",
+  }));
   const observations = [
+    {
+      section: "source_quote",
+      source: "current-chunk",
+      chunkId: state.selectedChunkId,
+      title: chunk.title || chunk.sectionTitle || state.selectedChunkId,
+      quote: text.slice(0, 900),
+      text: text.slice(0, 900),
+    },
     ...noteLines,
     ...annotationLines,
     ...cardLines,
-    `原文预览: ${text.slice(0, 900)}`,
-  ].filter(Boolean).map((line) => ({ text: line }));
+  ].filter((item) => item.text || item.quote || item.note || item.title);
   const title = chunk.title || chunk.sectionTitle || state.selectedChunkId;
   const summaryParts = [
     `本段沉淀预览：${selected.title || selected.bookId} · ${state.selectedChunkId}`,
