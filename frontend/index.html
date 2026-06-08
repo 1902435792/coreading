@@ -225,7 +225,7 @@
             </div>
             <div id="readingQueueList" class="queue-list empty">选择一本书后显示继续读、计划下一步、卡片和待沉淀。</div>
           </section>
-          <div class="reader-tools">
+          <div class="reader-tools reader-nav-tools">
             <button id="prevChunkBtn" class="secondary compact" type="button">上一段</button>
             <select id="chunkSelect" aria-label="选择 chunk"></select>
             <button id="continueReadingBtn" class="primary compact" type="button">继续读</button>
@@ -237,12 +237,38 @@
             <button id="nextChunkBtn" class="secondary compact" type="button">下一段</button>
           </div>
           <div id="chunkPosition" class="chunk-position">未选择位置</div>
+          <section class="reader-progress" aria-label="阅读进度">
+            <div>
+              <span id="readerProgressLabel">阅读进度</span>
+              <strong id="readerProgressValue">未开始</strong>
+              <small id="readerResumeHint">选择书籍后显示当前断点。</small>
+            </div>
+            <div class="reader-progress-bar" aria-hidden="true"><span id="readerProgressFill"></span></div>
+          </section>
           <article class="reader-surface">
             <header>
-              <strong id="chunkTitle">未选择 chunk</strong>
-              <button id="markReadBtn" class="secondary" type="button">标记已读</button>
+              <div>
+                <strong id="chunkTitle">未选择 chunk</strong>
+                <small id="readerChunkMeta">还没有阅读现场。</small>
+              </div>
+              <div class="reader-header-actions">
+                <button id="focusReadingBtn" class="secondary" type="button" aria-pressed="false">专注</button>
+                <button id="markReadBtn" class="secondary" type="button">标记已读</button>
+              </div>
             </header>
             <pre id="chunkText" class="chunk-text">选择一本书和一个 chunk 后开始共读。</pre>
+            <footer class="reader-next">
+              <div>
+                <span id="readerNextKicker">下一步</span>
+                <strong id="readerNextTitle">选择书籍后继续。</strong>
+                <small id="readerSinkHint">笔记、卡片和沉淀入口会在这里提示。</small>
+              </div>
+              <div class="reader-next-actions">
+                <button id="readerNextBtn" class="primary compact" type="button">读完并下一段</button>
+                <button id="readerAskNovaBtn" class="secondary compact" type="button">问 Nova</button>
+                <button id="readerOpenSinkBtn" class="secondary compact" type="button">看沉淀</button>
+              </div>
+            </footer>
           </article>
           <div id="selectionDock" class="selection-dock" hidden>
             <div>
@@ -271,7 +297,7 @@
             <div id="novaReply" class="nova-reply empty">Nova 的回应会出现在这里。</div>
           </section>
 
-          <div class="reader-tools">
+          <div class="reader-tools reader-search-tools">
             <input id="searchInput" placeholder="搜索兴趣点">
             <button id="searchBtn" type="button">搜索</button>
             <button id="backtrackCurrentBtn" class="secondary" type="button">回溯当前</button>

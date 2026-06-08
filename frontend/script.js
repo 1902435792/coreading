@@ -23,6 +23,7 @@ const state = {
   cardDigestNotice: "",
   novaReply: "",
   readerSelection: { text: "", offset: null },
+  readingFocus: false,
   planNextCache: {},
   backgroundRunners: [],
 };
@@ -295,6 +296,17 @@ function progressPercent(book) {
   return Math.round((Number(book.chunksRead || 0) / Number(book.chunkCount)) * 100);
 }
 
+function clampPercent(value) {
+  return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+}
+
+function formatSavedAt(savedAt) {
+  if (!savedAt) return "";
+  const date = new Date(savedAt);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function chunkTitleById(chunkId) {
   const chunk = state.chunks.find((item) => getChunkId(item) === chunkId);
   return chunk?.title || chunk?.sectionTitle || chunkId || "";
@@ -336,6 +348,51 @@ function renderReadingSession() {
   meta.textContent = nextId
     ? `下一段 ${nextId}${nextTitle ? ` · ${nextTitle}` : ""}`
     : "这本书暂时没有可继续的段落。";
+}
+
+function countCardsForBook(book = activeBook()) {
+  return [...state.cardInbox, ...cardCollectionItems()].filter((card) => !book || !card.bookId || card.bookId === book.bookId).length;
+}
+
+function renderReaderProgress() {
+  const selected = activeBook();
+  const index = chunkOrder(state.selectedChunkId);
+  const hasChunk = !!selected && index !== null;
+  const percent = progressPercent(selected);
+  const saved = readSavedReadingSession();
+  const nextChunk = hasChunk ? state.chunks[index + 1] : null;
+  const nextId = getChunkId(nextChunk);
+  const pendingCount = pendingSinkPreviewsForBook(selected).length;
+  const cardCountForBook = countCardsForBook(selected);
+  const currentTitle = chunkTitleById(state.selectedChunkId);
+  const nextTitle = chunkTitleById(nextId);
+  const scrollEl = $("chunkText");
+  const scrollMax = Math.max(0, Number(scrollEl?.scrollHeight || 0) - Number(scrollEl?.clientHeight || 0));
+  const scrollPercent = scrollMax ? clampPercent((Number(scrollEl?.scrollTop || 0) / scrollMax) * 100) : 0;
+
+  $("readerProgressValue").textContent = selected
+    ? `${percent}% · ${selected.chunksRead || 0}/${selected.chunkCount || state.chunks.length || 0} chunks`
+    : "未开始";
+  $("readerProgressFill").style.width = `${clampPercent(percent)}%`;
+  $("readerResumeHint").textContent = selected
+    ? `${hasChunk ? `当前 ${index + 1}/${state.chunks.length} · ${state.selectedChunkId}` : "未选择段落"}${saved?.bookId === selected.bookId ? ` · 现场 ${saved.chunkId}${formatSavedAt(saved.savedAt) ? ` · ${formatSavedAt(saved.savedAt)}` : ""}` : ""}`
+    : "选择书籍后显示当前断点。";
+  $("readerChunkMeta").textContent = hasChunk
+    ? `${selected.title || selected.bookId} · ${index + 1}/${state.chunks.length} · ${state.selectedChunkId}${currentTitle && currentTitle !== state.selectedChunkId ? ` · ${currentTitle}` : ""}${scrollPercent ? ` · 段内 ${scrollPercent}%` : ""}`
+    : "还没有阅读现场。";
+  $("readerNextTitle").textContent = selected
+    ? (nextId ? `下一段 ${nextId}${nextTitle ? ` · ${nextTitle}` : ""}` : "已经到最后一段。")
+    : "选择书籍后继续。";
+  $("readerNextBtn").textContent = nextId ? "读完并下一段" : "标记读完";
+  $("readerNextBtn").disabled = !selected || !state.selectedChunkId;
+  $("readerAskNovaBtn").disabled = !selected || !state.selectedChunkId;
+  $("readerOpenSinkBtn").disabled = !selected;
+  $("readerOpenSinkBtn").textContent = pendingCount ? `看沉淀 ${pendingCount}` : "看沉淀";
+  $("readerSinkHint").textContent = selected
+    ? `本书待沉淀 ${pendingCount} 条 · 卡片 ${cardCountForBook} 张 · 本段笔记 ${state.userNotes.length} 条`
+    : "笔记、卡片和沉淀入口会在这里提示。";
+  $("focusReadingBtn").setAttribute("aria-pressed", state.readingFocus ? "true" : "false");
+  $("focusReadingBtn").textContent = state.readingFocus ? "退出专注" : "专注";
 }
 
 function activePlansForBook(book = activeBook()) {
@@ -533,6 +590,7 @@ function renderReader() {
   $("chunkTitle").textContent = chunk.title || chunk.id || state.selectedChunkId || "未选择 chunk";
   $("chunkText").textContent = current?.text || chunk.text || "选择一本书和一个 chunk 后开始共读。";
   renderReadingSession();
+  renderReaderProgress();
 }
 
 function renderNovaReply() {
@@ -3219,6 +3277,7 @@ function renderAll() {
   renderChunks();
   renderReader();
   renderReadingSession();
+  renderReaderProgress();
   renderReadingQueue();
   renderSelectionDock();
   renderNovaReply();
@@ -3309,6 +3368,7 @@ async function readSelectedChunk() {
   renderSubmissions();
   if (saved?.bookId === state.selectedBookId && saved?.chunkId === state.selectedChunkId) restoreSavedScroll(saved);
   else saveReadingSession();
+  renderReaderProgress();
 }
 
 async function selectChunk(chunkId, autoRead = true) {
@@ -3318,6 +3378,7 @@ async function selectChunk(chunkId, autoRead = true) {
   $("chunkSelect").value = chunkId;
   renderChunks();
   if (autoRead) await readSelectedChunk();
+  renderReaderProgress();
 }
 
 async function moveChunk(delta) {
@@ -3352,6 +3413,23 @@ async function continueReading() {
   renderReader();
   await readSelectedChunk();
   log(result.message || `继续阅读 ${selected.title || selected.bookId} · ${state.selectedChunkId}`);
+}
+
+async function markReadAndMaybeAdvance({ advance = false } = {}) {
+  const selected = activeBook();
+  if (!selected || !state.selectedChunkId) return;
+  const currentIndex = chunkOrder(state.selectedChunkId);
+  const nextId = currentIndex === null ? "" : getChunkId(state.chunks[currentIndex + 1]);
+  await command({ command: "mark_read", bookId: selected.bookId, chunkId: state.selectedChunkId });
+  await loadSnapshot();
+  if (advance && nextId) {
+    await selectChunk(nextId, true);
+    focusPanel(".reader-surface", "#chunkText");
+    log(`已读完并进入下一段: ${nextId}`);
+    return;
+  }
+  await readSelectedChunk();
+  log(nextId ? `已标记读完，下一段是 ${nextId}。` : "已标记读完，本书到达最后一段。");
 }
 
 function focusPanel(selector, focusSelector) {
@@ -6279,6 +6357,35 @@ $("prevChunkBtn").addEventListener("click", () => {
 $("nextChunkBtn").addEventListener("click", () => {
   void moveChunk(1);
 });
+$("focusReadingBtn").addEventListener("click", () => {
+  state.readingFocus = !state.readingFocus;
+  document.body.classList.toggle("reading-focus", state.readingFocus);
+  renderReaderProgress();
+  focusPanel(".reader-surface", "#chunkText");
+});
+$("readerNextBtn").addEventListener("click", () => {
+  $("readerNextBtn").disabled = true;
+  void markReadAndMaybeAdvance({ advance: true }).catch((error) => {
+    log(error.message || String(error));
+  }).finally(renderReaderProgress);
+});
+$("readerAskNovaBtn").addEventListener("click", () => {
+  $("sessionAskNovaBtn").click();
+});
+$("readerOpenSinkBtn").addEventListener("click", async () => {
+  if (state.readingFocus) {
+    state.readingFocus = false;
+    document.body.classList.remove("reading-focus");
+    renderReaderProgress();
+  }
+  const pending = pendingSinkPreviewsForBook(activeBook())[0];
+  if (pending?.previewId) {
+    await openQueueSink(pending.previewId);
+    return;
+  }
+  $("cardSinkDrawer").open = true;
+  focusPanel(".sink-panel", "#sinkList");
+});
 $("continueReadingBtn").addEventListener("click", () => {
   $("continueReadingBtn").disabled = true;
   void continueReading().finally(() => {
@@ -6606,12 +6713,8 @@ $("copyReadingContextBtn").addEventListener("click", async () => {
   }
 });
 $("markReadBtn").addEventListener("click", async () => {
-  const selected = activeBook();
-  if (!selected || !state.selectedChunkId) return;
   try {
-    await command({ command: "mark_read", bookId: selected.bookId, chunkId: state.selectedChunkId });
-    await loadSnapshot();
-    await readSelectedChunk();
+    await markReadAndMaybeAdvance();
   } catch (error) {
     log(error.message || String(error));
   }
@@ -6741,6 +6844,7 @@ $("copySinkSettingsBtn").addEventListener("click", async () => {
 $("clearSinkSettingsBtn").addEventListener("click", clearSinkSettings);
 $("chunkText").addEventListener("scroll", () => {
   saveReadingSession();
+  renderReaderProgress();
 }, { passive: true });
 
 void loadSinkDefaults().finally(loadSnapshot);
