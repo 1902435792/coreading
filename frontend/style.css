@@ -348,7 +348,8 @@ legend {
 .illustration-form,
 .illustration-suggestions,
 .backtrack-evidence,
-.sink-settings {
+.sink-settings,
+.self-check-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -760,6 +761,7 @@ fieldset input {
 .trail-guide > div,
 .sink-guide > div,
 .selection-dock > div,
+.self-check-card > div,
 .entity-peek > div {
   min-width: 0;
 }
@@ -1132,6 +1134,65 @@ fieldset input {
   min-width: 82px;
   padding-right: 10px;
   padding-left: 10px;
+}
+
+.self-check-card {
+  margin: 12px 0 14px;
+  border: 1px solid #d6c99c;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fffaf0;
+}
+
+.self-check-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.self-check-card span,
+.self-check-card small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.self-check-card h2 {
+  margin: 2px 0;
+  font-size: 16px;
+}
+
+.self-check-question {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 700;
+  line-height: 1.65;
+}
+
+.self-check-hint {
+  margin: 0;
+  border-left: 3px solid #bd8b22;
+  padding: 8px 10px;
+  background: #fff5d6;
+  color: #634611;
+  line-height: 1.65;
+}
+
+.self-check-card textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
+.self-check-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.self-check-actions.lower {
+  justify-content: flex-start;
 }
 
 .trail-guide {
@@ -1710,6 +1771,10 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .self-check-head {
+    grid-template-columns: 1fr;
+  }
+
   .entity-peek {
     grid-template-columns: 1fr;
   }
@@ -1747,6 +1812,7 @@ pre {
   }
 
   .selection-actions button,
+  .self-check-actions button,
   .entity-peek-actions button {
     min-width: 0;
     flex: 1 1 42%;

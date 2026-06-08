@@ -299,6 +299,27 @@
               </div>
             </footer>
           </article>
+          <section id="selfCheckCard" class="self-check-card" aria-labelledby="selfCheckTitle">
+            <div class="self-check-head">
+              <div>
+                <span id="selfCheckKicker">读后自测</span>
+                <h2 id="selfCheckTitle">先用自己的话说一遍</h2>
+                <small id="selfCheckMeta">每段一个问题，一个隐藏提示。</small>
+              </div>
+              <div class="self-check-actions">
+                <button id="selfCheckRefreshBtn" class="secondary compact" type="button">换问题</button>
+                <button id="selfCheckHintBtn" class="secondary compact" type="button" aria-expanded="false">看提示</button>
+              </div>
+            </div>
+            <p id="selfCheckQuestion" class="self-check-question">读取当前段落后生成自测问题。</p>
+            <p id="selfCheckHint" class="self-check-hint" hidden>提示会在这里显示。</p>
+            <textarea id="selfCheckAnswer" rows="3" placeholder="不求标准答案，先写下你现在真的理解了什么。"></textarea>
+            <div class="self-check-actions lower">
+              <button id="selfCheckAskNovaBtn" class="primary compact" type="button">让 Nova 点评</button>
+              <button id="selfCheckSaveNoteBtn" class="secondary compact" type="button">存成笔记</button>
+              <button id="selfCheckClearBtn" class="secondary compact" type="button">清空</button>
+            </div>
+          </section>
           <div id="selectionDock" class="selection-dock" hidden>
             <div>
               <span>选区</span>

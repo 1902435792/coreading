@@ -24,6 +24,7 @@ const state = {
   novaReply: "",
   readerSelection: { text: "", offset: null },
   entityPeek: null,
+  selfCheck: { variant: 0, hintVisible: false },
   readingFocus: false,
   planNextCache: {},
   backgroundRunners: [],
@@ -35,6 +36,7 @@ const CARD_SAVE_RESULTS_KEY = "vcp-coreading-sidecar.cardSaveResults";
 const CARD_PREVIEW_RESULTS_KEY = "vcp-coreading-sidecar.cardPreviewResults";
 const READING_SESSION_KEY = "vcp-coreading-sidecar.readingSession";
 const READING_BOOKMARKS_KEY = "vcp-coreading-sidecar.readingBookmarks";
+const SELF_CHECK_DRAFTS_KEY = "vcp-coreading-sidecar.selfCheckDrafts";
 
 function announce(text) {
   const el = $("statusAnnouncer");
@@ -124,6 +126,34 @@ function readBookmarks() {
 function bookmarksForBook(bookId = state.selectedBookId) {
   const items = readBookmarks()[bookId] || [];
   return Array.isArray(items) ? items : [];
+}
+
+function readSelfCheckDrafts() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SELF_CHECK_DRAFTS_KEY) || "{}");
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function selfCheckKey(bookId = state.selectedBookId, chunkId = state.selectedChunkId) {
+  return bookId && chunkId ? `${bookId}::${chunkId}` : "";
+}
+
+function saveSelfCheckDraft(value = $("selfCheckAnswer")?.value || "") {
+  const key = selfCheckKey();
+  if (!key) return;
+  const drafts = readSelfCheckDrafts();
+  const text = String(value || "").trim();
+  if (text) drafts[key] = { text, savedAt: new Date().toISOString() };
+  else delete drafts[key];
+  localStorage.setItem(SELF_CHECK_DRAFTS_KEY, JSON.stringify(drafts));
+}
+
+function loadSelfCheckDraft() {
+  const key = selfCheckKey();
+  return key ? readSelfCheckDrafts()[key]?.text || "" : "";
 }
 
 function saveBookmarkForCurrentChunk() {
@@ -737,8 +767,85 @@ function renderReader() {
   const chunk = current?.chunk || current || {};
   $("chunkTitle").textContent = chunk.title || chunk.id || state.selectedChunkId || "未选择 chunk";
   renderChunkTextWithFootprints(current?.text || chunk.text || "选择一本书和一个 chunk 后开始共读。");
+  renderSelfCheck();
   renderReadingSession();
   renderReaderProgress();
+}
+
+function selfCheckSeed() {
+  return Array.from(`${state.selectedBookId}:${state.selectedChunkId}`).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+}
+
+function selfCheckQuestionSet() {
+  const selected = activeBook();
+  const chunk = state.currentChunk?.chunk || state.currentChunk || {};
+  const title = chunk.title || chunk.sectionTitle || state.selectedChunkId || "这一段";
+  const index = chunkOrder(state.selectedChunkId);
+  const position = index === null ? "" : `${index + 1}/${state.chunks.length}`;
+  const bookTitle = selected?.title || selected?.bookId || "当前书";
+  return [
+    {
+      question: `如果只能用两句话复述「${title}」，你会怎么说？`,
+      hint: `先写这段“发生/主张了什么”，再写它为什么会被放在 ${bookTitle}${position ? ` 的 ${position}` : ""}。`
+    },
+    {
+      question: "这一段里哪一个判断最值得你停一下？为什么？",
+      hint: "找一个带有因果、转折、定义、目标或价值判断的句子，不用追求完整。"
+    },
+    {
+      question: "读到这里，你下一段最想验证什么？",
+      hint: "把问题写成一句可继续追踪的线索，例如人物动机、概念定义、冲突、证据或伏笔。"
+    }
+  ];
+}
+
+function currentSelfCheck() {
+  const items = selfCheckQuestionSet();
+  const index = Math.abs((selfCheckSeed() + Number(state.selfCheck.variant || 0)) % items.length);
+  return items[index];
+}
+
+function renderSelfCheck() {
+  const panel = $("selfCheckCard");
+  if (!panel) return;
+  const selected = activeBook();
+  const hasChunk = !!selected && !!state.selectedChunkId && !!currentChunkText();
+  panel.classList.toggle("empty", !hasChunk);
+  const check = currentSelfCheck();
+  $("selfCheckKicker").textContent = hasChunk ? "读后自测" : "读后自测";
+  $("selfCheckTitle").textContent = hasChunk ? "先用自己的话说一遍" : "读取段落后再自测";
+  $("selfCheckMeta").textContent = hasChunk ? `${state.selectedChunkId} · ${chunkTitleById(state.selectedChunkId) || "当前段落"}` : "每段一个问题，一个隐藏提示。";
+  $("selfCheckQuestion").textContent = hasChunk ? check.question : "读取当前段落后生成自测问题。";
+  $("selfCheckHint").textContent = hasChunk ? check.hint : "提示会在这里显示。";
+  $("selfCheckHint").hidden = !hasChunk || !state.selfCheck.hintVisible;
+  $("selfCheckHintBtn").setAttribute("aria-expanded", state.selfCheck.hintVisible ? "true" : "false");
+  $("selfCheckHintBtn").textContent = state.selfCheck.hintVisible ? "收起提示" : "看提示";
+  $("selfCheckAnswer").disabled = !hasChunk;
+  $("selfCheckRefreshBtn").disabled = !hasChunk;
+  $("selfCheckHintBtn").disabled = !hasChunk;
+  $("selfCheckAskNovaBtn").disabled = !hasChunk;
+  $("selfCheckSaveNoteBtn").disabled = !hasChunk;
+  $("selfCheckClearBtn").disabled = !hasChunk;
+  const answer = $("selfCheckAnswer");
+  const draft = hasChunk ? loadSelfCheckDraft() : "";
+  if (document.activeElement !== answer && answer.value !== draft) answer.value = draft;
+}
+
+function selfCheckNovaPrompt(answer) {
+  const check = currentSelfCheck();
+  return [
+    "请只基于当前段落点评我的读后自测。",
+    "",
+    `自测问题: ${check.question}`,
+    `我的回答: ${answer}`,
+    "",
+    "请按三行回答：",
+    "1. 我抓住了什么；",
+    "2. 我漏掉或误读了什么；",
+    "3. 下一段阅读时只带一个问题，应该是什么。",
+    "",
+    "不要替我重写完整答案。"
+  ].join("\n");
 }
 
 function anchoredReadingNotes() {
@@ -3724,6 +3831,7 @@ function renderAll() {
   renderPlanGuide();
   renderSelectionDock();
   renderEntityPeek();
+  renderSelfCheck();
   renderTrailGuide();
   renderNovaReply();
   renderSearchResults();
@@ -3819,6 +3927,7 @@ async function readSelectedChunk() {
 async function selectChunk(chunkId, autoRead = true) {
   clearReaderSelection();
   clearEntityPeek();
+  state.selfCheck.hintVisible = false;
   state.selectedChunkId = chunkId;
   saveReadingSession({ chunkId, scrollTop: 0 });
   $("chunkSelect").value = chunkId;
@@ -3841,6 +3950,7 @@ async function continueReading() {
   if (!selected) return;
   clearReaderSelection();
   clearEntityPeek();
+  state.selfCheck.hintVisible = false;
   const result = await query({ command: "continue", bookId: selected.bookId });
   if (result?.completed) {
     log(result.message || "这本书已经读完。");
@@ -5043,6 +5153,75 @@ $("entityCollectCardBtn").addEventListener("click", async () => {
 
 $("entityCloseBtn").addEventListener("click", () => {
   clearEntityPeek();
+});
+
+$("selfCheckAnswer").addEventListener("input", () => {
+  saveSelfCheckDraft();
+});
+
+$("selfCheckRefreshBtn").addEventListener("click", () => {
+  state.selfCheck.variant += 1;
+  state.selfCheck.hintVisible = false;
+  renderSelfCheck();
+  $("selfCheckAnswer").focus();
+});
+
+$("selfCheckHintBtn").addEventListener("click", () => {
+  state.selfCheck.hintVisible = !state.selfCheck.hintVisible;
+  renderSelfCheck();
+});
+
+$("selfCheckAskNovaBtn").addEventListener("click", () => {
+  const answer = String($("selfCheckAnswer").value || "").trim();
+  if (!answer) {
+    log("先写下你的自测回答，再让 Nova 点评。");
+    $("selfCheckAnswer").focus();
+    return;
+  }
+  saveSelfCheckDraft(answer);
+  $("novaPrompt").value = selfCheckNovaPrompt(answer);
+  focusPanel(".nova-reading-box", "#novaPrompt");
+  $("askNovaBtn").click();
+});
+
+$("selfCheckSaveNoteBtn").addEventListener("click", async () => {
+  const button = $("selfCheckSaveNoteBtn");
+  button.disabled = true;
+  try {
+    const selected = activeBook();
+    const answer = String($("selfCheckAnswer").value || "").trim();
+    if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
+    if (!answer) throw new Error("先写下你的自测回答。");
+    const check = currentSelfCheck();
+    const text = currentChunkText();
+    const quote = text.slice(0, Math.min(180, text.length)).trim() || state.selectedChunkId;
+    await command({
+      command: "user_note_create",
+      bookId: selected.bookId,
+      chunkId: state.selectedChunkId,
+      quote,
+      quoteOffset: 0,
+      note: `读后自测：${check.question}\n\n我的回答：${answer}`,
+      kind: "self-check",
+      tags: ["co-reading", "self-check"],
+      status: "open"
+    });
+    saveSelfCheckDraft("");
+    $("selfCheckAnswer").value = "";
+    await readSelectedChunk();
+    log("已把自测回答存成用户笔记。");
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    button.disabled = false;
+    renderSelfCheck();
+  }
+});
+
+$("selfCheckClearBtn").addEventListener("click", () => {
+  $("selfCheckAnswer").value = "";
+  saveSelfCheckDraft("");
+  $("selfCheckAnswer").focus();
 });
 
 $("trailGuideBacktrackBtn").addEventListener("click", async () => {
@@ -6915,6 +7094,8 @@ $("illustrationSuggestions").addEventListener("click", (event) => {
 });
 $("chunkSelect").addEventListener("change", (event) => {
   clearReaderSelection();
+  clearEntityPeek();
+  state.selfCheck.hintVisible = false;
   state.selectedChunkId = event.target.value;
   state.currentChunk = null;
   state.annotations = [];
@@ -6924,6 +7105,7 @@ $("chunkSelect").addEventListener("change", (event) => {
   renderReviewRangeStatus();
   renderChunkNavigation();
   renderReader();
+  renderSelfCheck();
   renderAnnotations();
   renderIllustrationSuggestions();
 });
@@ -7497,6 +7679,7 @@ $("reviewForm").addEventListener("submit", async (event) => {
 loadCardSaveResults();
 loadCardPreviewResults();
 loadSinkSettings();
+renderSelfCheck();
 for (const input of sinkSettingInputs()) {
   input.addEventListener("input", saveSinkSettings);
   input.addEventListener("change", saveSinkSettings);
