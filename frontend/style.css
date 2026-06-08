@@ -1014,6 +1014,38 @@ blockquote {
   padding-top: 14px;
 }
 
+.sink-guide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0 12px;
+  border: 1px solid #9ad7c8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f0fbf7;
+}
+
+.sink-guide span,
+.sink-guide small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.sink-guide strong {
+  display: block;
+  overflow-wrap: anywhere;
+  margin: 2px 0;
+}
+
+.sink-guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .settings-head {
   display: flex;
   align-items: center;
@@ -1143,6 +1175,19 @@ blockquote {
   justify-content: space-between;
   gap: 10px;
   align-items: flex-start;
+}
+
+.sink-row.active {
+  border-color: #1f8a70;
+  background: #f3fbf7;
+}
+
+.sink-row > strong {
+  display: block;
+  overflow-wrap: anywhere;
+  margin: 6px 0 2px;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .plan-actions,
@@ -1337,17 +1382,20 @@ pre {
   }
 
   .reader-progress,
-  .reader-next {
+  .reader-next,
+  .sink-guide {
     grid-template-columns: 1fr;
   }
 
   .reader-header-actions,
-  .reader-next-actions {
+  .reader-next-actions,
+  .sink-guide-actions {
     justify-content: stretch;
   }
 
   .reader-header-actions button,
-  .reader-next-actions button {
+  .reader-next-actions button,
+  .sink-guide-actions button {
     flex: 1 1 42%;
   }
 

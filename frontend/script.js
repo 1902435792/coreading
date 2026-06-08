@@ -407,6 +407,17 @@ function pendingSinkPreviewsForBook(book = activeBook()) {
   });
 }
 
+function visibleSinkPreviewsForBook(book = activeBook()) {
+  return (state.snapshot?.sinkPreviews || [])
+    .filter((preview) => !book || !preview.bookId || preview.bookId === book.bookId)
+    .sort((a, b) => {
+      const order = { pending: 0, approved: 1, rejected: 2, exported: 3 };
+      const byStatus = (order[a.status] ?? 9) - (order[b.status] ?? 9);
+      if (byStatus) return byStatus;
+      return String(b.createdAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.updatedAt || ""));
+    });
+}
+
 function firstCardForBook(book = activeBook()) {
   return [...state.cardInbox, ...cardCollectionItems()].find((card) => !book || !card.bookId || card.bookId === book.bookId) || null;
 }
@@ -1816,8 +1827,23 @@ async function openQueueSink(previewId) {
   state.selectedSinkPreview = await loadSinkPreview(previewId);
   state.selectedSinkDiff = null;
   renderSinkDetail();
+  renderSinks();
   focusPanel(".sink-detail", "#sinkPreviewContent");
   log(`已打开待沉淀预览: ${previewId}`);
+}
+
+async function openBestSinkPreview() {
+  const preview = visibleSinkPreviewsForBook(activeBook())[0] || null;
+  if (!preview?.previewId) {
+    $("cardSinkDrawer").open = true;
+    state.selectedSinkPreview = null;
+    renderSinkDetail();
+    renderSinks();
+    focusPanel(".sink-panel", "#sinkList");
+    log("当前书暂无沉淀预览。");
+    return;
+  }
+  await openQueueSink(preview.previewId);
 }
 
 async function openQueuePlan(planId) {
@@ -2258,7 +2284,7 @@ function renderReviews() {
 }
 
 function renderSinks() {
-  const previews = state.snapshot?.sinkPreviews || [];
+  const previews = visibleSinkPreviewsForBook(activeBook());
   $("sinkCount").textContent = String(previews.length);
   const list = $("sinkList");
   if (!previews.length) {
@@ -2270,13 +2296,16 @@ function renderSinks() {
   list.innerHTML = "";
   for (const preview of previews) {
     const row = document.createElement("article");
-    row.className = "sink-row";
+    row.className = `sink-row ${state.selectedSinkPreview?.previewId === preview.previewId ? "active" : ""}`.trim();
+    const destination = preview.destination || {};
+    const notePath = destination.notePath || destination.path || preview.notePath || "";
     row.innerHTML = `
       <header>
         <span class="target">${escapeHtml(preview.target)}</span>
         <b class="status-${escapeHtml(preview.status)}">${escapeHtml(preview.status)}</b>
       </header>
-      <small>${escapeHtml(preview.sourceType || "review")} · ${escapeHtml(preview.previewId)}</small>
+      <strong>${escapeHtml(notePath || preview.title || preview.previewId)}</strong>
+      <small>${escapeHtml(preview.sourceType || "review")} · ${escapeHtml(preview.bookId || "")}</small>
       <div class="sink-actions">
         <button class="secondary" data-action="preview" data-id="${escapeHtml(preview.previewId)}">查看</button>
         <button class="secondary" data-action="copy-sink-preview" data-id="${escapeHtml(preview.previewId)}">复制预览</button>
@@ -2288,6 +2317,7 @@ function renderSinks() {
     `;
     list.appendChild(row);
   }
+  renderSinkGuide();
 }
 
 function canRenderImage(uri) {
@@ -2610,6 +2640,7 @@ function renderCardDetail() {
 function renderSinkDetail() {
   const preview = state.selectedSinkPreview;
   if (!preview) {
+    renderSinkGuide();
     $("sinkDetailStatus").textContent = "未选择";
     $("sinkDetailMeta").textContent = "选择一条沉淀预览后查看将写入的内容。";
     $("sinkPreviewContent").value = "暂无预览。";
@@ -2725,6 +2756,44 @@ function renderSinkDetail() {
   $("copyRejectSinkPreviewBtn").disabled = !editable || preview.status === "rejected";
   $("rejectSinkPreviewBtn").disabled = !editable || preview.status === "rejected";
   renderObsidianDiffPanel();
+  renderSinkGuide();
+}
+
+function renderSinkGuide() {
+  const preview = state.selectedSinkPreview;
+  const step = $("sinkGuideStep");
+  const title = $("sinkGuideTitle");
+  const meta = $("sinkGuideMeta");
+  const approve = $("sinkGuideApproveBtn");
+  const execute = $("sinkGuideExecuteBtn");
+  if (!step || !title || !meta || !approve || !execute) return;
+  if (!preview) {
+    const pendingCount = pendingSinkPreviewsForBook(activeBook()).length;
+    step.textContent = pendingCount ? `${pendingCount} 条待预览` : "先预览";
+    title.textContent = pendingCount ? "点击“看沉淀”会打开第一条待处理预览" : "选择一条沉淀预览";
+    meta.textContent = "沉淀不会自动写入，必须先看正文并批准。";
+    approve.disabled = true;
+    execute.disabled = true;
+    return;
+  }
+  const destination = preview.destination || {};
+  const notePath = destination.notePath || destination.path || preview.notePath || "";
+  const status = preview.status || "pending";
+  const target = preview.target || "target";
+  const actionText = status === "pending"
+    ? "下一步：看完正文后批准"
+    : status === "approved"
+      ? "下一步：确认路径后执行写入"
+      : status === "exported"
+        ? "已写入，可回读或查看差异"
+        : status === "rejected"
+          ? "已驳回，可另建预览"
+          : "检查当前状态";
+  step.textContent = `${target} · ${status}`;
+  title.textContent = notePath || preview.title || preview.previewId || "沉淀预览";
+  meta.textContent = `${actionText} · 来源 ${preview.sourceType || "review"} · ${preview.rawTextIncluded === false ? "不含完整原文" : "含预览正文"}`;
+  approve.disabled = status !== "pending";
+  execute.disabled = status !== "approved";
 }
 
 function previewIdFromResult(result) {
@@ -4259,6 +4328,7 @@ document.addEventListener("click", async (event) => {
       state.selectedSinkPreview = result.preview || result;
       state.selectedSinkDiff = null;
       renderSinkDetail();
+      renderSinks();
       return;
     }
     if (action === "copy-sink-preview") {
@@ -4302,6 +4372,8 @@ document.addEventListener("click", async (event) => {
     if (action === "approve") {
       await command({ command: "sink_preview_update", previewId: id, status: "approved", updatedBy: "CoReadingSidecar" });
       await refreshSelectedSinkPreview(id);
+      await loadSnapshot();
+      renderSinks();
     }
     if (action === "submission") {
       const result = await query({ command: "read_submission", submissionId: id });
@@ -4780,7 +4852,13 @@ $("saveSinkContentBtn").addEventListener("click", async () => {
 $("saveApproveSinkPreviewBtn").addEventListener("click", async () => {
   await updateSelectedSinkPreviewContent({ status: "approved", note: "sidecar content edit and approve" });
 });
+$("sinkGuideApproveBtn").addEventListener("click", async () => {
+  await updateSelectedSinkPreviewContent({ status: "approved", note: "sink guide approve after preview" });
+});
 $("executeSinkPreviewBtn").addEventListener("click", async () => {
+  await executeSelectedSinkPreview();
+});
+$("sinkGuideExecuteBtn").addEventListener("click", async () => {
   await executeSelectedSinkPreview();
 });
 $("copySinkContextBtn").addEventListener("click", async () => {
@@ -6378,13 +6456,7 @@ $("readerOpenSinkBtn").addEventListener("click", async () => {
     document.body.classList.remove("reading-focus");
     renderReaderProgress();
   }
-  const pending = pendingSinkPreviewsForBook(activeBook())[0];
-  if (pending?.previewId) {
-    await openQueueSink(pending.previewId);
-    return;
-  }
-  $("cardSinkDrawer").open = true;
-  focusPanel(".sink-panel", "#sinkList");
+  await openBestSinkPreview();
 });
 $("continueReadingBtn").addEventListener("click", () => {
   $("continueReadingBtn").disabled = true;
