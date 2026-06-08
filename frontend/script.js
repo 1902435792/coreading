@@ -520,8 +520,13 @@ function renderReaderProgress() {
     : "选择书籍后继续。";
   $("readerNextBtn").textContent = nextId ? "读完并下一段" : "标记读完";
   $("readerNextBtn").disabled = !selected || !state.selectedChunkId;
-  $("readerReviewLastBtn").disabled = !state.lastCompletedChunk?.chunkId || state.lastCompletedChunk?.bookId !== selected?.bookId;
-  $("readerReviewLastBtn").textContent = state.lastCompletedChunk?.chunkId ? `回看 ${state.lastCompletedChunk.chunkId}` : "回看刚读";
+  const lastCompleted = state.lastCompletedChunk;
+  const canReviewLast = !!lastCompleted?.chunkId && lastCompleted.bookId === selected?.bookId;
+  const canResumeNext = canReviewLast && state.selectedChunkId === lastCompleted.chunkId && !!lastCompleted.nextChunkId;
+  $("readerReviewLastBtn").disabled = !canReviewLast || state.selectedChunkId === lastCompleted.chunkId;
+  $("readerReviewLastBtn").textContent = canReviewLast ? `回看 ${lastCompleted.chunkId}` : "回看刚读";
+  $("readerResumeNextBtn").disabled = !canResumeNext;
+  $("readerResumeNextBtn").textContent = canResumeNext ? `回到 ${lastCompleted.nextChunkId}` : "回到继续读";
   $("readerAskNovaBtn").disabled = !selected || !state.selectedChunkId;
   $("readerOpenSinkBtn").disabled = !selected;
   $("readerOpenSinkBtn").textContent = pendingCount ? `看沉淀 ${pendingCount}` : "看沉淀";
@@ -4532,6 +4537,14 @@ async function openLastCompletedChunkReview() {
   log(`已回看刚读: ${last.chunkId}${last.title ? ` · ${last.title}` : ""}`);
 }
 
+async function resumeAfterLastCompletedReview() {
+  const last = state.lastCompletedChunk;
+  if (!last?.nextChunkId || last.bookId !== state.selectedBookId) throw new Error("还没有可回到的继续阅读位置。");
+  await selectChunk(last.nextChunkId, true);
+  focusPanel(".reader-surface", "#chunkText");
+  log(`已回到继续读: ${last.nextChunkId}${last.nextTitle ? ` · ${last.nextTitle}` : ""}`);
+}
+
 function focusPanel(selector, focusSelector) {
   const panel = document.querySelector(selector);
   if (!panel) return;
@@ -7968,6 +7981,12 @@ $("readerNextBtn").addEventListener("click", () => {
 $("readerReviewLastBtn").addEventListener("click", () => {
   $("readerReviewLastBtn").disabled = true;
   void openLastCompletedChunkReview().catch((error) => {
+    log(error.message || String(error));
+  }).finally(renderReaderProgress);
+});
+$("readerResumeNextBtn").addEventListener("click", () => {
+  $("readerResumeNextBtn").disabled = true;
+  void resumeAfterLastCompletedReview().catch((error) => {
     log(error.message || String(error));
   }).finally(renderReaderProgress);
 });
