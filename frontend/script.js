@@ -22,6 +22,7 @@ const state = {
   cardPreviewResults: {},
   cardDigestNotice: "",
   novaReply: "",
+  novaReplyContext: null,
   readerSelection: { text: "", offset: null },
   entityPeek: null,
   selfCheck: { variant: 0, hintVisible: false },
@@ -1187,7 +1188,18 @@ function noteAnchorOffset(item, text) {
 }
 
 function noteFingerprint(item) {
+  if (item.previewId) return `sink-${item.previewId}`;
+  if (item.cardId) return `card-${item.cardId}`;
+  if (item.source === "nova-reply-current") return "nova-reply-current";
   return `${item.source}-${item.index}`;
+}
+
+function novaReplyBelongsToCurrentChunk() {
+  return Boolean(
+    state.novaReply
+    && state.novaReplyContext?.bookId === state.selectedBookId
+    && state.novaReplyContext?.chunkId === state.selectedChunkId
+  );
 }
 
 function readingFootprintRanges(text) {
@@ -1234,22 +1246,16 @@ function renderChunkTextWithFootprints(text) {
 function renderReadingFootprints(ranges) {
   const rail = $("readingFootprints");
   if (!rail) return;
-  if (!ranges.length) {
+  const anchored = ranges.map(({ id, item }) => ({ id, item, anchored: true }));
+  const loose = currentLooseFootprints().map((item) => ({ id: noteFingerprint(item), item, anchored: false }));
+  const items = [...anchored, ...loose].slice(0, 7);
+  if (!items.length) {
     rail.className = "reading-footprints empty";
     rail.textContent = "暂无高亮足迹";
     return;
   }
   rail.className = "reading-footprints";
-  rail.innerHTML = ranges.map(({ id, item }, index) => {
-    const label = item.source === "user-note" ? "我的笔记" : (item.kind || "边注");
-    return `
-      <button class="footprint-card ${item.source === "user-note" ? "mine" : ""}" type="button" data-footprint-id="${escapeHtml(id)}">
-        <span>${escapeHtml(index + 1)} · ${escapeHtml(label)}</span>
-        <strong>${escapeHtml(String(item.note || item.text || "").slice(0, 80))}</strong>
-        <small>${escapeHtml(String(item.quote || "").slice(0, 90))}</small>
-      </button>
-    `;
-  }).join("");
+  rail.innerHTML = items.map((item, index) => renderFootprintButton({ ...item, index })).join("");
 }
 
 function focusReadingFootprint(id) {
@@ -1260,6 +1266,77 @@ function focusReadingFootprint(id) {
   const card = document.querySelector(`.footprint-card[data-footprint-id="${CSS.escape(id)}"]`);
   if (card) card.classList.add("active");
   mark.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+function currentLooseFootprints() {
+  const items = [];
+  if (novaReplyBelongsToCurrentChunk()) {
+    items.push({
+      source: "nova-reply-current",
+      kind: "Nova",
+      note: state.novaReply,
+      quote: state.novaReplyContext?.prompt || String($("novaPrompt")?.value || "").trim() || "当前段落回应",
+      action: "nova",
+    });
+  }
+  for (const card of cardsForCurrentChunk().slice(0, 2)) {
+    items.push({
+      source: "card",
+      kind: "卡片",
+      note: card.message || card.note || card.title || card.kicker || "",
+      quote: card.quote || card.subtitle || card.chunkId || "",
+      cardId: card.id,
+      action: "card",
+      actionId: card.id,
+    });
+  }
+  for (const preview of sinkPreviewsForCurrentChunk().slice(0, 3)) {
+    items.push({
+      source: "sink",
+      kind: preview.status === "approved" ? "已批准沉淀" : "待沉淀",
+      note: preview.destination?.notePath || preview.notePath || preview.previewId,
+      quote: preview.sourceType || preview.target || "",
+      previewId: preview.previewId,
+      action: "sink",
+      actionId: preview.previewId,
+    });
+  }
+  return items.filter((item) => item.note || item.quote);
+}
+
+function renderFootprintButton({ id, item, index, anchored }) {
+  const label = item.source === "user-note" ? "我的笔记" : (item.kind || "边注");
+  const actionAttrs = anchored
+    ? `data-footprint-id="${escapeHtml(id)}"`
+    : `data-footprint-action="${escapeHtml(item.action || "")}" data-id="${escapeHtml(item.actionId || "")}"`;
+  const classes = [
+    "footprint-card",
+    item.source === "user-note" ? "mine" : "",
+    !anchored ? "loose" : "",
+    item.source === "nova-reply-current" ? "nova" : "",
+    item.source === "sink" ? "sink" : "",
+  ].filter(Boolean).join(" ");
+  return `
+    <button class="${classes}" type="button" ${actionAttrs}>
+      <span>${escapeHtml(index + 1)} · ${escapeHtml(label)}</span>
+      <strong>${escapeHtml(String(item.note || item.text || "").slice(0, 90))}</strong>
+      <small>${escapeHtml(String(item.quote || "").slice(0, 100))}</small>
+    </button>
+  `;
+}
+
+async function openLooseFootprint(action, id) {
+  if (action === "nova") {
+    focusPanel(".nova-reading-box", "#novaReply");
+    return;
+  }
+  if (action === "card" && id) {
+    await openQueueCard(id);
+    return;
+  }
+  if (action === "sink" && id) {
+    await openQueueSink(id);
+  }
 }
 
 function renderNovaReply() {
@@ -1278,9 +1355,9 @@ function renderNovaReply() {
   }
   reply.className = "nova-reply";
   reply.textContent = state.novaReply;
-  status.textContent = "已回应";
+  status.textContent = novaReplyBelongsToCurrentChunk() ? "已回应" : "上一段回应";
   copyButton.disabled = false;
-  saveButton.disabled = !activeBook() || !state.selectedChunkId;
+  saveButton.disabled = !activeBook() || !state.selectedChunkId || !novaReplyBelongsToCurrentChunk();
 }
 
 function planFormChunkValue(name) {
@@ -5374,6 +5451,21 @@ document.addEventListener("click", (event) => {
   fillQuoteFromSelection(target.dataset.fillQuote);
 });
 
+$("readingFootprints").addEventListener("click", async (event) => {
+  const target = event.target.closest("button");
+  if (!target) return;
+  const id = target.dataset.footprintId || "";
+  if (id) {
+    focusReadingFootprint(id);
+    return;
+  }
+  try {
+    await openLooseFootprint(target.dataset.footprintAction || "", target.dataset.id || "");
+  } catch (error) {
+    log(error.message || String(error));
+  }
+});
+
 $("readingQueueList").addEventListener("click", async (event) => {
   const target = event.target.closest("button[data-action]");
   if (!target) return;
@@ -7975,7 +8067,14 @@ $("askNovaBtn").addEventListener("click", async () => {
       context: currentNovaContext(selected, chunk, text, quote)
     });
     state.novaReply = result.content || "Nova 暂无文本回复。";
+    state.novaReplyContext = {
+      bookId: selected.bookId,
+      chunkId: state.selectedChunkId,
+      prompt,
+      answeredAt: new Date().toISOString(),
+    };
     renderNovaReply();
+    renderReadingFootprints(readingFootprintRanges(currentChunkText()));
     log("Nova 已回应当前段落。");
   } catch (error) {
     status.textContent = "失败";

@@ -252,41 +252,6 @@
               <button id="readingNowNoteBtn" class="secondary compact" type="button">记一笔</button>
             </div>
           </section>
-          <section class="reading-session" aria-label="当前阅读会话">
-            <div>
-              <span id="sessionKicker">当前阅读</span>
-              <strong id="sessionTitle">还没有选书</strong>
-              <small id="sessionMeta">导入或选择一本书开始。</small>
-            </div>
-            <div class="session-actions">
-              <button id="sessionResumeBtn" class="secondary compact" type="button">回现场</button>
-              <button id="sessionContinueBtn" class="primary compact" type="button">继续读</button>
-              <button id="sessionAskNovaBtn" class="secondary compact" type="button">问 Nova</button>
-              <button id="sessionNoteBtn" class="secondary compact" type="button">记一笔</button>
-            </div>
-          </section>
-          <section class="reading-queue" aria-label="阅读队列">
-            <div class="queue-head">
-              <div>
-                <span>阅读队列</span>
-                <strong id="queueTitle">暂无可继续项目</strong>
-              </div>
-              <button id="queueRefreshBtn" class="secondary compact" type="button">刷新</button>
-            </div>
-            <div id="readingQueueList" class="queue-list empty">选择一本书后显示继续读、计划下一步、卡片和待沉淀。</div>
-          </section>
-          <section class="plan-guide empty" aria-label="当前阅读计划">
-            <div>
-              <span id="planGuideStep">当前计划</span>
-              <strong id="planGuideTitle">暂无活跃计划</strong>
-              <small id="planGuideMeta">创建计划后会在这里显示下一步阅读范围。</small>
-            </div>
-            <div class="plan-guide-actions">
-              <button id="planGuideOpenRangeBtn" class="primary compact" type="button" disabled>打开范围</button>
-              <button id="planGuideReviewBtn" class="secondary compact" type="button" disabled>填评价</button>
-              <button id="planGuideFullBtn" class="secondary compact" type="button" disabled>完整计划</button>
-            </div>
-          </section>
           <div class="reader-tools reader-nav-tools">
             <button id="prevChunkBtn" class="secondary compact" type="button">上一段</button>
             <select id="chunkSelect" aria-label="选择 chunk"></select>
@@ -299,39 +264,6 @@
             <button id="nextChunkBtn" class="secondary compact" type="button">下一段</button>
           </div>
           <div id="chunkPosition" class="chunk-position">未选择位置</div>
-          <section class="reader-progress" aria-label="阅读进度">
-            <div>
-              <span id="readerProgressLabel">阅读进度</span>
-              <strong id="readerProgressValue">未开始</strong>
-              <small id="readerResumeHint">选择书籍后显示当前断点。</small>
-            </div>
-            <div class="reader-progress-bar" aria-hidden="true"><span id="readerProgressFill"></span></div>
-          </section>
-          <section class="reading-map" aria-label="长篇阅读地图">
-            <div class="reading-map-head">
-              <div>
-                <span id="readingMapLabel">阅读地图</span>
-                <strong id="readingMapTitle">选择书籍后显示全书位置。</strong>
-                <small id="readingMapMeta">目录节点、当前段内位置和本地书签会在这里汇合。</small>
-              </div>
-              <div class="reading-map-actions">
-                <button id="bookmarkChunkBtn" class="secondary compact" type="button" disabled>插书签</button>
-                <button id="openLastBookmarkBtn" class="secondary compact" type="button" disabled>最近书签</button>
-              </div>
-            </div>
-            <div id="readingMapTrack" class="reading-map-track" role="list">暂无目录</div>
-          </section>
-          <section class="reading-waypoints" aria-label="阅读路标">
-            <div class="waypoint-head">
-              <div>
-                <span id="waypointKicker">阅读路标</span>
-                <strong id="waypointTitle">选择书籍后显示前后段落。</strong>
-                <small id="waypointMeta">上一段、当前段、下一段和最近书签会在这里排好。</small>
-              </div>
-              <button id="waypointBookmarkBtn" class="secondary compact" type="button" disabled>插书签</button>
-            </div>
-            <div id="waypointList" class="waypoint-list empty">暂无路标</div>
-          </section>
           <article class="reader-surface">
             <header>
               <div>
@@ -360,6 +292,74 @@
               </div>
             </footer>
           </article>
+          <section class="reading-session" aria-label="当前阅读会话">
+            <div>
+              <span id="sessionKicker">当前阅读</span>
+              <strong id="sessionTitle">还没有选书</strong>
+              <small id="sessionMeta">导入或选择一本书开始。</small>
+            </div>
+            <div class="session-actions">
+              <button id="sessionResumeBtn" class="secondary compact" type="button">回现场</button>
+              <button id="sessionContinueBtn" class="primary compact" type="button">继续读</button>
+              <button id="sessionAskNovaBtn" class="secondary compact" type="button">问 Nova</button>
+              <button id="sessionNoteBtn" class="secondary compact" type="button">记一笔</button>
+            </div>
+          </section>
+          <section class="reader-progress" aria-label="阅读进度">
+            <div>
+              <span id="readerProgressLabel">阅读进度</span>
+              <strong id="readerProgressValue">未开始</strong>
+              <small id="readerResumeHint">选择书籍后显示当前断点。</small>
+            </div>
+            <div class="reader-progress-bar" aria-hidden="true"><span id="readerProgressFill"></span></div>
+          </section>
+          <section class="reading-queue" aria-label="阅读队列">
+            <div class="queue-head">
+              <div>
+                <span>阅读队列</span>
+                <strong id="queueTitle">暂无可继续项目</strong>
+              </div>
+              <button id="queueRefreshBtn" class="secondary compact" type="button">刷新</button>
+            </div>
+            <div id="readingQueueList" class="queue-list empty">选择一本书后显示继续读、计划下一步、卡片和待沉淀。</div>
+          </section>
+          <section class="plan-guide empty" aria-label="当前阅读计划">
+            <div>
+              <span id="planGuideStep">当前计划</span>
+              <strong id="planGuideTitle">暂无活跃计划</strong>
+              <small id="planGuideMeta">创建计划后会在这里显示下一步阅读范围。</small>
+            </div>
+            <div class="plan-guide-actions">
+              <button id="planGuideOpenRangeBtn" class="primary compact" type="button" disabled>打开范围</button>
+              <button id="planGuideReviewBtn" class="secondary compact" type="button" disabled>填评价</button>
+              <button id="planGuideFullBtn" class="secondary compact" type="button" disabled>完整计划</button>
+            </div>
+          </section>
+          <section class="reading-map" aria-label="长篇阅读地图">
+            <div class="reading-map-head">
+              <div>
+                <span id="readingMapLabel">阅读地图</span>
+                <strong id="readingMapTitle">选择书籍后显示全书位置。</strong>
+                <small id="readingMapMeta">目录节点、当前段内位置和本地书签会在这里汇合。</small>
+              </div>
+              <div class="reading-map-actions">
+                <button id="bookmarkChunkBtn" class="secondary compact" type="button" disabled>插书签</button>
+                <button id="openLastBookmarkBtn" class="secondary compact" type="button" disabled>最近书签</button>
+              </div>
+            </div>
+            <div id="readingMapTrack" class="reading-map-track" role="list">暂无目录</div>
+          </section>
+          <section class="reading-waypoints" aria-label="阅读路标">
+            <div class="waypoint-head">
+              <div>
+                <span id="waypointKicker">阅读路标</span>
+                <strong id="waypointTitle">选择书籍后显示前后段落。</strong>
+                <small id="waypointMeta">上一段、当前段、下一段和最近书签会在这里排好。</small>
+              </div>
+              <button id="waypointBookmarkBtn" class="secondary compact" type="button" disabled>插书签</button>
+            </div>
+            <div id="waypointList" class="waypoint-list empty">暂无路标</div>
+          </section>
           <section id="selfCheckCard" class="self-check-card" aria-labelledby="selfCheckTitle">
             <div class="self-check-head">
               <div>

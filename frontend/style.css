@@ -596,7 +596,7 @@ fieldset input {
 
 .reader-tools {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) repeat(7, auto);
   gap: 8px;
   margin-bottom: 12px;
 }
@@ -1126,9 +1126,11 @@ fieldset input {
 }
 
 .reader-surface {
+  margin-bottom: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
+  box-shadow: var(--shadow);
 }
 
 .reader-surface header {
@@ -1161,21 +1163,23 @@ fieldset input {
 
 .reader-text-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 25%);
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 24%);
   align-items: stretch;
   border-top: 1px solid var(--line);
   background: #fffdf8;
 }
 
 .chunk-text {
-  max-height: 460px;
+  min-height: 58vh;
+  max-height: 72vh;
   border: 0;
   border-radius: 0;
+  padding: 22px 24px;
   background: #fffdf8;
   color: var(--ink);
   font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
-  font-size: 15px;
-  line-height: 1.85;
+  font-size: 17px;
+  line-height: 2;
 }
 
 .reading-mark {
@@ -1202,19 +1206,19 @@ fieldset input {
 
 .reading-footprints {
   overflow: auto;
-  max-height: 460px;
+  max-height: 72vh;
   border-left: 1px solid var(--line);
-  padding: 12px;
+  padding: 10px;
   background: #fbfaf4;
 }
 
 .footprint-card {
   display: block;
   width: 100%;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   border: 1px solid #dfd4bd;
   border-radius: 8px;
-  padding: 9px 10px;
+  padding: 8px 9px;
   background: #fffaf0;
   color: var(--ink);
   text-align: left;
@@ -1223,6 +1227,20 @@ fieldset input {
 .footprint-card.mine {
   border-color: #b7d8cf;
   background: #f0fbf7;
+}
+
+.footprint-card.loose {
+  border-style: dashed;
+}
+
+.footprint-card.nova {
+  border-color: #b8c5d6;
+  background: #f6f9fc;
+}
+
+.footprint-card.sink {
+  border-color: #d6c99c;
+  background: #fffaf0;
 }
 
 .footprint-card.active {
@@ -1239,8 +1257,11 @@ fieldset input {
 }
 
 .footprint-card strong {
-  display: block;
+  display: -webkit-box;
+  overflow: hidden;
   margin: 3px 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   font-size: 13px;
   line-height: 1.45;
 }
@@ -1900,6 +1921,21 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .plan-panel {
+    order: 1;
+  }
+
+  .library-panel,
+  .sink-panel {
+    order: 2;
+    position: static;
+    max-height: none;
+  }
+
+  .command-panel {
+    order: 3;
+  }
+
   .library-panel,
   .plan-panel,
   .sink-panel {
@@ -1925,11 +1961,11 @@ pre {
     order: 3;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
-    margin: 10px 0;
+    margin: 8px 0;
   }
 
   .metrics > div {
-    padding: 10px;
+    padding: 8px 10px;
   }
 
   .metrics strong {
@@ -1951,6 +1987,23 @@ pre {
 
   .reader-tools {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .reader-nav-tools {
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+
+  .reader-nav-tools select {
+    flex: 0 0 180px;
+  }
+
+  .reader-nav-tools button {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   .reading-map-head {
@@ -2100,7 +2153,7 @@ pre {
     flex: 1 1 42%;
   }
 
-  .reader-tools select,
+  .reader-tools:not(.reader-nav-tools) select,
   .reader-tools input {
     grid-column: 1 / -1;
   }
