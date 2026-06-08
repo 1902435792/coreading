@@ -426,6 +426,8 @@ function renderReadingNowBar({ scrollPercent = 0 } = {}) {
   const index = chunkOrder(state.selectedChunkId);
   const hasChunk = !!selected && index !== null;
   const currentTitle = chunkTitleById(state.selectedChunkId);
+  const { plan, nextStep } = planGuideSelection();
+  const planLabel = nextStep ? planStepChunkLabel(nextStep) : "";
   bar.classList.toggle("empty", !selected);
   $("readingNowKicker").textContent = selected
     ? `${progressPercent(selected)}% · ${selected.chunksRead || 0}/${selected.chunkCount || state.chunks.length || 0} chunks`
@@ -434,10 +436,11 @@ function renderReadingNowBar({ scrollPercent = 0 } = {}) {
     ? `${selected.title || selected.bookId}${hasChunk ? ` · ${state.selectedChunkId}` : ""}`
     : "还没有选书";
   $("readingNowMeta").textContent = hasChunk
-    ? `${index + 1}/${state.chunks.length} · ${currentTitle || state.selectedChunkId} · 段内 ${clampPercent(scrollPercent)}%`
+    ? `${index + 1}/${state.chunks.length} · ${currentTitle || state.selectedChunkId} · 段内 ${clampPercent(scrollPercent)}%${planLabel ? ` · 下一步 ${planLabel}` : ""}`
     : "选择书籍后可以随时回到正文。";
   $("readingNowFocusBtn").disabled = !hasChunk;
   $("readingNowContinueBtn").disabled = !selected;
+  $("readingNowPlanBtn").disabled = !plan || !nextStep;
   $("readingNowAskBtn").disabled = !hasChunk;
   $("readingNowNoteBtn").disabled = !hasChunk;
 }
@@ -731,9 +734,11 @@ async function hydratePlanNext(planId) {
     const result = await query({ command: "plan_get", planId });
     state.planNextCache[planId] = { nextStep: result.nextStep || null, updatedAt: new Date().toISOString() };
     renderReadingQueue();
+    renderReadingNowBar();
     renderPlanGuide();
   } catch {
     state.planNextCache[planId] = { nextStep: null, updatedAt: new Date().toISOString(), error: true };
+    renderReadingNowBar();
     renderPlanGuide();
   }
 }
@@ -7777,6 +7782,17 @@ $("readingNowContinueBtn").addEventListener("click", () => {
     $("readingNowContinueBtn").disabled = !activeBook();
     renderReaderProgress();
   });
+});
+$("readingNowPlanBtn").addEventListener("click", async () => {
+  $("readingNowPlanBtn").disabled = true;
+  try {
+    await openPlanGuideRange();
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderReadingNowBar();
+    renderPlanGuide();
+  }
 });
 $("readingNowAskBtn").addEventListener("click", () => {
   $("sessionAskNovaBtn").click();
