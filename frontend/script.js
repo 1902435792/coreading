@@ -59,8 +59,12 @@ function log(value) {
 async function copyTextToClipboard(text) {
   if (!text) throw new Error("没有可复制的文本。");
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Browser automation and some local contexts deny clipboard permission.
+    }
   }
   const input = document.createElement("textarea");
   input.value = text;
@@ -418,6 +422,28 @@ function countCardsForBook(book = activeBook()) {
   return [...state.cardInbox, ...cardCollectionItems()].filter((card) => !book || !card.bookId || card.bookId === book.bookId).length;
 }
 
+function cardsForCurrentChunk() {
+  return [...state.cardInbox, ...cardCollectionItems()].filter((card) => {
+    if (!card) return false;
+    if (card.bookId && card.bookId !== state.selectedBookId) return false;
+    if (card.chunkId) return card.chunkId === state.selectedChunkId;
+    const title = chunkTitleById(state.selectedChunkId);
+    const haystack = [card.subtitle, card.title, card.kicker, card.message].filter(Boolean).join(" ");
+    return Boolean(state.selectedChunkId && haystack.includes(state.selectedChunkId)) || Boolean(title && haystack.includes(title));
+  });
+}
+
+function sinkPreviewsForCurrentChunk() {
+  return visibleSinkPreviewsForBook(activeBook()).filter((preview) => {
+    const source = preview.sourceRange || preview.range || {};
+    const notePath = preview.destination?.notePath || preview.notePath || "";
+    return preview.chunkId === state.selectedChunkId
+      || source.startChunkId === state.selectedChunkId
+      || source.endChunkId === state.selectedChunkId
+      || notePath.includes(state.selectedChunkId);
+  });
+}
+
 function renderReaderProgress() {
   const selected = activeBook();
   const index = chunkOrder(state.selectedChunkId);
@@ -768,8 +794,86 @@ function renderReader() {
   $("chunkTitle").textContent = chunk.title || chunk.id || state.selectedChunkId || "未选择 chunk";
   renderChunkTextWithFootprints(current?.text || chunk.text || "选择一本书和一个 chunk 后开始共读。");
   renderSelfCheck();
+  renderChunkReview();
   renderReadingSession();
   renderReaderProgress();
+}
+
+function chunkReviewItems() {
+  const notes = (state.userNotes || []).map((item, index) => ({
+    type: item.kind === "self-check" ? "自测" : "我的笔记",
+    title: item.note || item.quote || "用户笔记",
+    meta: item.status || "open",
+    action: "notes",
+    id: `user-${index}`,
+  }));
+  const annotations = (state.annotations || []).map((item, index) => ({
+    type: item.kind || "边注",
+    title: item.note || item.quote || "边注",
+    meta: item.author || "reader",
+    action: "notes",
+    id: `annotation-${index}`,
+  }));
+  const cards = cardsForCurrentChunk().slice(0, 2).map((card) => ({
+    type: "卡片",
+    title: card.title || card.message || card.kicker || card.id,
+    meta: card.subtitle || card.createdAt || card.status || "",
+    action: "card",
+    id: card.id,
+  }));
+  const sinks = sinkPreviewsForCurrentChunk().slice(0, 2).map((preview) => ({
+    type: "沉淀",
+    title: preview.destination?.notePath || preview.previewId,
+    meta: `${preview.status || ""} · ${preview.target || ""}`,
+    action: "sink",
+    id: preview.previewId,
+  }));
+  return [...notes.slice(0, 2), ...annotations.slice(0, 2), ...cards, ...sinks];
+}
+
+function renderChunkReview() {
+  const panel = $("chunkReviewCard");
+  if (!panel) return;
+  const selected = activeBook();
+  const hasChunk = !!selected && !!state.selectedChunkId && !!currentChunkText();
+  const items = hasChunk ? chunkReviewItems() : [];
+  $("chunkReviewTitle").textContent = hasChunk ? "本段留下了什么" : "读取段落后回看";
+  $("chunkReviewMeta").textContent = hasChunk
+    ? `${state.selectedChunkId} · 笔记 ${state.userNotes.length} · 边注 ${state.annotations.length} · 卡片 ${cardsForCurrentChunk().length} · 沉淀 ${sinkPreviewsForCurrentChunk().length}`
+    : "笔记、边注、卡片和待沉淀会汇合到这里。";
+  $("copyChunkReviewBtn").disabled = !hasChunk;
+  $("chunkReviewNotesBtn").disabled = !hasChunk || !(state.userNotes.length || state.annotations.length);
+  $("chunkReviewCardsBtn").disabled = !hasChunk || !cardsForCurrentChunk().length;
+  $("chunkReviewSinksBtn").disabled = !hasChunk || !sinkPreviewsForCurrentChunk().length;
+  const list = $("chunkReviewList");
+  if (!items.length) {
+    list.className = "chunk-review-list empty";
+    list.textContent = hasChunk ? "本段还没有笔记、边注、卡片或沉淀。" : "读取段落后显示本段回看。";
+    return;
+  }
+  list.className = "chunk-review-list";
+  list.innerHTML = items.slice(0, 8).map((item) => `
+    <button class="chunk-review-item" type="button" data-chunk-review-action="${escapeHtml(item.action)}" data-id="${escapeHtml(item.id || "")}">
+      <span>${escapeHtml(item.type)}</span>
+      <strong>${escapeHtml(String(item.title || "").slice(0, 96))}</strong>
+      <small>${escapeHtml(String(item.meta || "").slice(0, 120))}</small>
+    </button>
+  `).join("");
+}
+
+function chunkReviewSummary() {
+  const selected = activeBook();
+  const chunk = state.currentChunk?.chunk || state.currentChunk || {};
+  const items = chunkReviewItems();
+  return [
+    `book: ${selected?.title || selected?.bookId || ""}`,
+    `bookId: ${selected?.bookId || ""}`,
+    `chunkId: ${state.selectedChunkId || ""}`,
+    `title: ${chunk.title || chunk.sectionTitle || ""}`,
+    "",
+    `items: ${items.length}`,
+    ...items.map((item, index) => `${index + 1}. [${item.type}] ${item.title}\n   ${item.meta || ""}`)
+  ].join("\n");
 }
 
 function selfCheckSeed() {
@@ -2277,6 +2381,18 @@ async function openQueueSink(previewId) {
   renderSinks();
   focusPanel(".sink-detail", "#sinkPreviewContent");
   log(`已打开待沉淀预览: ${previewId}`);
+}
+
+async function openFirstChunkReviewCard() {
+  const card = cardsForCurrentChunk()[0];
+  if (!card?.id) return;
+  await openQueueCard(card.id);
+}
+
+async function openFirstChunkReviewSink() {
+  const preview = sinkPreviewsForCurrentChunk()[0];
+  if (!preview?.previewId) return;
+  await openQueueSink(preview.previewId);
 }
 
 async function openBestSinkPreview() {
@@ -3832,6 +3948,7 @@ function renderAll() {
   renderSelectionDock();
   renderEntityPeek();
   renderSelfCheck();
+  renderChunkReview();
   renderTrailGuide();
   renderNovaReply();
   renderSearchResults();
@@ -3916,6 +4033,7 @@ async function readSelectedChunk() {
   state.userNotes = Array.isArray(userNotes?.notes) ? userNotes.notes : [];
   state.submissions = Array.isArray(submissions) ? submissions : [];
   renderReader();
+  renderChunkReview();
   renderAnnotations();
   renderUserNotes();
   renderSubmissions();
@@ -5222,6 +5340,43 @@ $("selfCheckClearBtn").addEventListener("click", () => {
   $("selfCheckAnswer").value = "";
   saveSelfCheckDraft("");
   $("selfCheckAnswer").focus();
+});
+
+$("chunkReviewCard").addEventListener("click", async (event) => {
+  const target = event.target.closest("button[data-chunk-review-action]");
+  if (!target) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const action = target.dataset.chunkReviewAction;
+  const id = target.dataset.id || "";
+  try {
+    if (action === "copy-review") {
+      await copyTextToClipboard(chunkReviewSummary());
+      log(`已复制段落回看: ${state.selectedChunkId || ""}`);
+      return;
+    }
+    if (action === "notes") {
+      focusPanel("#userNoteList", "#userNoteList");
+      return;
+    }
+    if (action === "first-card") {
+      await openFirstChunkReviewCard();
+      return;
+    }
+    if (action === "card") {
+      await openQueueCard(id);
+      return;
+    }
+    if (action === "first-sink") {
+      await openFirstChunkReviewSink();
+      return;
+    }
+    if (action === "sink") {
+      await openQueueSink(id);
+    }
+  } catch (error) {
+    log(error.message || String(error));
+  }
 });
 
 $("trailGuideBacktrackBtn").addEventListener("click", async () => {
@@ -7680,6 +7835,7 @@ loadCardSaveResults();
 loadCardPreviewResults();
 loadSinkSettings();
 renderSelfCheck();
+renderChunkReview();
 for (const input of sinkSettingInputs()) {
   input.addEventListener("input", saveSinkSettings);
   input.addEventListener("change", saveSinkSettings);

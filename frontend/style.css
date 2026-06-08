@@ -349,7 +349,8 @@ legend {
 .illustration-suggestions,
 .backtrack-evidence,
 .sink-settings,
-.self-check-card {
+.self-check-card,
+.chunk-review-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -762,6 +763,7 @@ fieldset input {
 .sink-guide > div,
 .selection-dock > div,
 .self-check-card > div,
+.chunk-review-card > div,
 .entity-peek > div {
   min-width: 0;
 }
@@ -1193,6 +1195,79 @@ fieldset input {
 
 .self-check-actions.lower {
   justify-content: flex-start;
+}
+
+.chunk-review-card {
+  margin: 0 0 14px;
+  border: 1px solid #cbd7d8;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fbfb;
+}
+
+.chunk-review-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.chunk-review-card span,
+.chunk-review-card small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.chunk-review-card h2 {
+  margin: 2px 0;
+  font-size: 16px;
+}
+
+.chunk-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.chunk-review-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.chunk-review-list.empty {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.chunk-review-item {
+  min-width: 0;
+  min-height: 84px;
+  padding: 10px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.chunk-review-item strong {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 3px 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.chunk-review-item small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .trail-guide {
@@ -1775,6 +1850,11 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .chunk-review-head,
+  .chunk-review-list {
+    grid-template-columns: 1fr;
+  }
+
   .entity-peek {
     grid-template-columns: 1fr;
   }
@@ -1813,6 +1893,7 @@ pre {
 
   .selection-actions button,
   .self-check-actions button,
+  .chunk-review-actions button,
   .entity-peek-actions button {
     min-width: 0;
     flex: 1 1 42%;

@@ -320,6 +320,22 @@
               <button id="selfCheckClearBtn" class="secondary compact" type="button">清空</button>
             </div>
           </section>
+          <section id="chunkReviewCard" class="chunk-review-card" aria-labelledby="chunkReviewTitle">
+            <div class="chunk-review-head">
+              <div>
+                <span id="chunkReviewKicker">段落回看</span>
+                <h2 id="chunkReviewTitle">本段留下了什么</h2>
+                <small id="chunkReviewMeta">笔记、边注、卡片和待沉淀会汇合到这里。</small>
+              </div>
+              <div class="chunk-review-actions">
+                <button id="copyChunkReviewBtn" class="secondary compact" type="button" data-chunk-review-action="copy-review">复制回看</button>
+                <button id="chunkReviewNotesBtn" class="secondary compact" type="button" data-chunk-review-action="notes">看笔记</button>
+                <button id="chunkReviewCardsBtn" class="secondary compact" type="button" data-chunk-review-action="first-card">看卡片</button>
+                <button id="chunkReviewSinksBtn" class="secondary compact" type="button" data-chunk-review-action="first-sink">看沉淀</button>
+              </div>
+            </div>
+            <div id="chunkReviewList" class="chunk-review-list empty" role="list">读取段落后显示本段回看。</div>
+          </section>
           <div id="selectionDock" class="selection-dock" hidden>
             <div>
               <span>选区</span>
