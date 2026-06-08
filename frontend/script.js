@@ -422,6 +422,26 @@ function firstCardForBook(book = activeBook()) {
   return [...state.cardInbox, ...cardCollectionItems()].find((card) => !book || !card.bookId || card.bookId === book.bookId) || null;
 }
 
+function activePlanForBook(book = activeBook()) {
+  const plans = activePlansForBook(book);
+  return plans.find((item) => item.status === "active") || plans[0] || null;
+}
+
+function planGuideSelection() {
+  const plan = activePlanForBook(activeBook());
+  if (!plan) return { plan: null, nextStep: null };
+  return { plan, nextStep: state.planNextCache[plan.planId]?.nextStep || null };
+}
+
+function planStepChunkLabel(step) {
+  if (!step) return "";
+  const ids = (step.chunkIds || []).filter(Boolean);
+  if (ids.length) return ids.length === 1 ? ids[0] : `${ids[0]} -> ${ids.at(-1)} · ${ids.length} chunks`;
+  const range = step.range || {};
+  if (range.startChunkId && range.endChunkId) return `${range.startChunkId} -> ${range.endChunkId}`;
+  return range.startChunkId || step.startChunkId || "";
+}
+
 function queueItemHtml(item) {
   const secondary = item.secondary ? " secondary" : "";
   return `
@@ -446,8 +466,7 @@ function renderReadingQueue() {
     return;
   }
   const nextId = nextUnreadChunkId(selected);
-  const plans = activePlansForBook(selected);
-  const plan = plans.find((item) => item.status === "active") || plans[0] || null;
+  const plan = activePlanForBook(selected);
   const planNext = plan ? state.planNextCache[plan.planId]?.nextStep : null;
   const pendingPreview = pendingSinkPreviewsForBook(selected)[0] || null;
   const card = firstCardForBook(selected);
@@ -496,6 +515,7 @@ function renderReadingQueue() {
   if (plan && !state.planNextCache[plan.planId]) {
     void hydratePlanNext(plan.planId);
   }
+  renderPlanGuide();
 }
 
 async function hydratePlanNext(planId) {
@@ -503,9 +523,46 @@ async function hydratePlanNext(planId) {
     const result = await query({ command: "plan_get", planId });
     state.planNextCache[planId] = { nextStep: result.nextStep || null, updatedAt: new Date().toISOString() };
     renderReadingQueue();
+    renderPlanGuide();
   } catch {
     state.planNextCache[planId] = { nextStep: null, updatedAt: new Date().toISOString(), error: true };
+    renderPlanGuide();
   }
+}
+
+function renderPlanGuide() {
+  const guide = document.querySelector(".plan-guide");
+  const stepEl = $("planGuideStep");
+  const titleEl = $("planGuideTitle");
+  const metaEl = $("planGuideMeta");
+  const openBtn = $("planGuideOpenRangeBtn");
+  const reviewBtn = $("planGuideReviewBtn");
+  const fullBtn = $("planGuideFullBtn");
+  if (!guide || !stepEl || !titleEl || !metaEl || !openBtn || !reviewBtn || !fullBtn) return;
+  const { plan, nextStep } = planGuideSelection();
+  if (!plan) {
+    guide.className = "plan-guide empty";
+    stepEl.textContent = "当前计划";
+    titleEl.textContent = "暂无活跃计划";
+    metaEl.textContent = "创建计划后会在这里显示下一步阅读范围。";
+    openBtn.disabled = true;
+    reviewBtn.disabled = true;
+    fullBtn.disabled = true;
+    return;
+  }
+  const total = plan.stepCount || plan.steps?.length || 0;
+  const current = plan.currentStepIndex || 0;
+  const status = nextStep?.status || plan.status || "";
+  const chunkLabel = planStepChunkLabel(nextStep);
+  guide.className = "plan-guide";
+  stepEl.textContent = `${current}/${total} · ${status || "计划"}`;
+  titleEl.textContent = nextStep?.title || plan.title || plan.planId;
+  metaEl.textContent = nextStep
+    ? `${nextStep.type || "step"} · ${chunkLabel || "未给出范围"} · ${nextStep.intent || "按计划继续阅读。"}`
+    : `${plan.status || ""} · 正在读取下一步。`;
+  openBtn.disabled = !nextStep || !(nextStep.chunkIds?.length || nextStep.range?.startChunkId || nextStep.startChunkId);
+  reviewBtn.disabled = !nextStep;
+  fullBtn.disabled = false;
 }
 
 function renderBooks() {
@@ -1850,6 +1907,39 @@ async function openQueuePlan(planId) {
   $("planReviewDrawer").open = true;
   await fillReviewFromPlanNextStep(planId);
   focusPanel("#reviewForm", '#reviewForm textarea[name="summary"]');
+}
+
+async function openPlanGuideRange() {
+  const { nextStep } = planGuideSelection();
+  if (!nextStep) throw new Error("当前没有可打开的计划下一步。");
+  const targetChunkId = nextStep.chunkIds?.[0] || nextStep.range?.startChunkId || nextStep.startChunkId;
+  if (!targetChunkId) throw new Error("计划下一步没有可打开的 chunk。");
+  const startChunkId = nextStep.range?.startChunkId || targetChunkId;
+  const endChunkId = nextStep.range?.endChunkId || nextStep.chunkIds?.at(-1) || targetChunkId;
+  await selectChunk(targetChunkId, true);
+  const startInput = document.querySelector('#reviewForm input[name="startChunkId"]');
+  const endInput = document.querySelector('#reviewForm input[name="endChunkId"]');
+  if (startInput) startInput.value = startChunkId;
+  if (endInput) endInput.value = endChunkId;
+  renderReviewRangeStatus();
+  focusPanel(".reader-surface", "#chunkText");
+  log(`已打开计划范围: ${planStepChunkLabel(nextStep) || targetChunkId}`);
+}
+
+async function reviewPlanGuideStep() {
+  const { plan } = planGuideSelection();
+  if (!plan) throw new Error("当前没有活跃计划。");
+  $("planReviewDrawer").open = true;
+  await fillReviewFromPlanNextStep(plan.planId);
+  focusPanel("#reviewForm", '#reviewForm textarea[name="summary"]');
+}
+
+async function openPlanGuideFull() {
+  const { plan } = planGuideSelection();
+  if (!plan) throw new Error("当前没有活跃计划。");
+  $("planReviewDrawer").open = true;
+  focusPanel("#planList", "#planList");
+  log(`已打开完整计划: ${plan.title || plan.planId}`);
 }
 
 function planExecutionArtifactPacket(planId, result, plan = {}) {
@@ -3348,6 +3438,7 @@ function renderAll() {
   renderReadingSession();
   renderReaderProgress();
   renderReadingQueue();
+  renderPlanGuide();
   renderSelectionDock();
   renderNovaReply();
   renderSearchResults();
@@ -4541,6 +4632,39 @@ $("queueRefreshBtn").addEventListener("click", async () => {
     await loadSnapshot();
   } finally {
     $("queueRefreshBtn").disabled = false;
+  }
+});
+
+$("planGuideOpenRangeBtn").addEventListener("click", async () => {
+  $("planGuideOpenRangeBtn").disabled = true;
+  try {
+    await openPlanGuideRange();
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderPlanGuide();
+  }
+});
+
+$("planGuideReviewBtn").addEventListener("click", async () => {
+  $("planGuideReviewBtn").disabled = true;
+  try {
+    await reviewPlanGuideStep();
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderPlanGuide();
+  }
+});
+
+$("planGuideFullBtn").addEventListener("click", async () => {
+  $("planGuideFullBtn").disabled = true;
+  try {
+    await openPlanGuideFull();
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderPlanGuide();
   }
 });
 

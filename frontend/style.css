@@ -716,6 +716,44 @@ fieldset input {
   white-space: nowrap;
 }
 
+.plan-guide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: #f8fbfa;
+}
+
+.plan-guide.empty {
+  background: #fffdf8;
+}
+
+.plan-guide span,
+.plan-guide small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.plan-guide strong {
+  display: block;
+  overflow: hidden;
+  margin: 2px 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .chunk-position {
   margin: -4px 0 10px;
   color: var(--muted);
@@ -1383,19 +1421,22 @@ pre {
 
   .reader-progress,
   .reader-next,
-  .sink-guide {
+  .sink-guide,
+  .plan-guide {
     grid-template-columns: 1fr;
   }
 
   .reader-header-actions,
   .reader-next-actions,
-  .sink-guide-actions {
+  .sink-guide-actions,
+  .plan-guide-actions {
     justify-content: stretch;
   }
 
   .reader-header-actions button,
   .reader-next-actions button,
-  .sink-guide-actions button {
+  .sink-guide-actions button,
+  .plan-guide-actions button {
     flex: 1 1 42%;
   }
 

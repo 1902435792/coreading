@@ -225,6 +225,18 @@
             </div>
             <div id="readingQueueList" class="queue-list empty">选择一本书后显示继续读、计划下一步、卡片和待沉淀。</div>
           </section>
+          <section class="plan-guide empty" aria-label="当前阅读计划">
+            <div>
+              <span id="planGuideStep">当前计划</span>
+              <strong id="planGuideTitle">暂无活跃计划</strong>
+              <small id="planGuideMeta">创建计划后会在这里显示下一步阅读范围。</small>
+            </div>
+            <div class="plan-guide-actions">
+              <button id="planGuideOpenRangeBtn" class="primary compact" type="button" disabled>打开范围</button>
+              <button id="planGuideReviewBtn" class="secondary compact" type="button" disabled>填评价</button>
+              <button id="planGuideFullBtn" class="secondary compact" type="button" disabled>完整计划</button>
+            </div>
+          </section>
           <div class="reader-tools reader-nav-tools">
             <button id="prevChunkBtn" class="secondary compact" type="button">上一段</button>
             <select id="chunkSelect" aria-label="选择 chunk"></select>
