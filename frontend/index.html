@@ -71,6 +71,42 @@
             </div>
             <button type="submit">导入</button>
           </form>
+          <form id="pasteImportForm" class="import-form paste-import-form">
+            <h3>粘贴开读</h3>
+            <p class="form-hint">临时文章、小说片段或 Markdown 可以直接贴进来，不必先保存成文件。</p>
+            <label>
+              <span>正文</span>
+              <textarea name="content" rows="7" placeholder="把要读的文本粘贴到这里。"></textarea>
+            </label>
+            <div class="two">
+              <label>
+                <span>标题</span>
+                <input name="title" placeholder="默认生成临时书名">
+              </label>
+              <label>
+                <span>格式</span>
+                <select name="format">
+                  <option value="txt">TXT</option>
+                  <option value="markdown">Markdown</option>
+                </select>
+              </label>
+            </div>
+            <div class="two">
+              <label>
+                <span>作者</span>
+                <input name="author" placeholder="可选">
+              </label>
+              <label>
+                <span>每块字数</span>
+                <input name="maxChars" type="number" min="500" max="50000" value="8000">
+              </label>
+            </div>
+            <label>
+              <span>章节正则</span>
+              <input name="headingRegex" placeholder="TXT 可选，如 ^第.+章">
+            </label>
+            <button type="submit">粘贴开读</button>
+          </form>
 
           <details id="planReviewDrawer" class="tool-drawer">
             <summary>分计划与插图工具</summary>

@@ -28,6 +28,7 @@ const state = {
   readingFocus: false,
   planNextCache: {},
   backgroundRunners: [],
+  snapshotLoadId: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -4150,10 +4151,13 @@ function openContainingDrawer(element) {
 }
 
 async function loadSnapshot() {
+  const loadId = ++state.snapshotLoadId;
   setStatus("同步中", "busy");
   try {
     const saved = readSavedReadingSession();
-    state.snapshot = await api("/api/snapshot");
+    const snapshot = await api("/api/snapshot");
+    if (loadId !== state.snapshotLoadId) return;
+    state.snapshot = snapshot;
     state.backgroundRunners = state.snapshot.backgroundRunners || [];
     const savedBookExists = saved?.bookId && state.snapshot.books?.some((book) => book.bookId === saved.bookId);
     if (!state.selectedBookId && savedBookExists) state.selectedBookId = saved.bookId;
@@ -4197,6 +4201,15 @@ function bookIdFromFile(file) {
     .slice(0, 80) || `book-${Date.now()}`;
 }
 
+function pastedBookFilename(title, format) {
+  const safeTitle = String(title || `pasted-book-${Date.now()}`)
+    .trim()
+    .replace(/[^\w.\-\u4e00-\u9fff]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 72) || `pasted-book-${Date.now()}`;
+  return `${safeTitle}.${format === "markdown" ? "md" : "txt"}`;
+}
+
 function arrayBufferToBase64(buffer) {
   const bytes = new Uint8Array(buffer);
   let binary = "";
@@ -4225,6 +4238,28 @@ async function importFile(file, options) {
     headingRegex: options.headingRegex || undefined,
     overwrite: options.overwrite,
   });
+}
+
+async function openImportedBook(imported) {
+  const bookId = imported?.bookId || imported?.book?.bookId || "";
+  if (!bookId) {
+    await loadSnapshot();
+    return;
+  }
+  state.selectedBookId = bookId;
+  state.selectedChunkId = imported.firstChunkId || "";
+  state.currentChunk = null;
+  state.annotations = [];
+  state.userNotes = [];
+  state.submissions = [];
+  state.searchResults = [];
+  await loadSnapshot();
+  state.selectedBookId = bookId;
+  if (imported.firstChunkId) state.selectedChunkId = imported.firstChunkId;
+  await loadChunks(bookId);
+  await loadCards(bookId);
+  if (state.selectedChunkId) await readSelectedChunk();
+  renderAll();
 }
 
 document.addEventListener("click", async (event) => {
@@ -5771,9 +5806,38 @@ $("importForm").addEventListener("submit", async (event) => {
     });
     log(imported);
     formEl.reset();
-    state.selectedBookId = imported.bookId || "";
-    await loadSnapshot();
-    await readSelectedChunk();
+    await openImportedBook(imported);
+  } catch (error) {
+    setStatus("导入失败");
+    setFormError(formEl, error.message || String(error));
+  }
+});
+$("pasteImportForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formEl = event.currentTarget;
+  clearFormError(formEl);
+  const form = new FormData(formEl);
+  const content = String(form.get("content") || "").trim();
+  const title = String(form.get("title") || "").trim() || `粘贴文本 ${new Date().toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
+  const format = String(form.get("format") || "txt");
+  if (content.length < 20) {
+    setFormError(formEl, "至少粘贴 20 个字符再开始读。");
+    return;
+  }
+  try {
+    setStatus("导入中", "busy");
+    const file = new File([content], pastedBookFilename(title, format), { type: format === "markdown" ? "text/markdown" : "text/plain" });
+    const imported = await importFile(file, {
+      title,
+      author: String(form.get("author") || "").trim(),
+      headingRegex: String(form.get("headingRegex") || "").trim(),
+      maxChars: Number(form.get("maxChars") || 8000),
+      overwrite: false,
+    });
+    log(imported);
+    formEl.reset();
+    await openImportedBook(imported);
+    focusPanel(".reader-surface", "#chunkText");
   } catch (error) {
     setStatus("导入失败");
     setFormError(formEl, error.message || String(error));

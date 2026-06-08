@@ -38,6 +38,11 @@
   resize: vertical;
 }
 
+.paste-import-form textarea {
+  min-height: 150px;
+  resize: vertical;
+}
+
 .nova-actions {
   display: flex;
   flex-wrap: wrap;
@@ -445,8 +450,13 @@ legend {
 .suggestion-row strong {
   display: block;
   overflow: hidden;
+  overflow-wrap: anywhere;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.book-row small {
+  overflow-wrap: anywhere;
 }
 
 .illustration-actions {
@@ -503,6 +513,7 @@ input,
 select,
 textarea {
   width: 100%;
+  min-width: 0;
   min-height: 36px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -661,6 +672,7 @@ fieldset input {
   display: block;
   overflow: hidden;
   margin: 2px 0;
+  overflow-wrap: anywhere;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1936,6 +1948,11 @@ pre {
 
   .queue-open {
     min-height: 82px;
+  }
+
+  .book-row,
+  .book-select {
+    grid-template-columns: 1fr;
   }
 
   .selection-dock {
