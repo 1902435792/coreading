@@ -418,6 +418,29 @@ function renderReadingSession() {
     : "这本书暂时没有可继续的段落。";
 }
 
+function renderReadingNowBar({ scrollPercent = 0 } = {}) {
+  const bar = $("readingNowBar");
+  if (!bar) return;
+  const selected = activeBook();
+  const index = chunkOrder(state.selectedChunkId);
+  const hasChunk = !!selected && index !== null;
+  const currentTitle = chunkTitleById(state.selectedChunkId);
+  bar.classList.toggle("empty", !selected);
+  $("readingNowKicker").textContent = selected
+    ? `${progressPercent(selected)}% · ${selected.chunksRead || 0}/${selected.chunkCount || state.chunks.length || 0} chunks`
+    : "阅读现场";
+  $("readingNowTitle").textContent = selected
+    ? `${selected.title || selected.bookId}${hasChunk ? ` · ${state.selectedChunkId}` : ""}`
+    : "还没有选书";
+  $("readingNowMeta").textContent = hasChunk
+    ? `${index + 1}/${state.chunks.length} · ${currentTitle || state.selectedChunkId} · 段内 ${clampPercent(scrollPercent)}%`
+    : "选择书籍后可以随时回到正文。";
+  $("readingNowFocusBtn").disabled = !hasChunk;
+  $("readingNowContinueBtn").disabled = !selected;
+  $("readingNowAskBtn").disabled = !hasChunk;
+  $("readingNowNoteBtn").disabled = !hasChunk;
+}
+
 function countCardsForBook(book = activeBook()) {
   return [...state.cardInbox, ...cardCollectionItems()].filter((card) => !book || !card.bookId || card.bookId === book.bookId).length;
 }
@@ -483,6 +506,7 @@ function renderReaderProgress() {
     : "笔记、卡片和沉淀入口会在这里提示。";
   $("focusReadingBtn").setAttribute("aria-pressed", state.readingFocus ? "true" : "false");
   $("focusReadingBtn").textContent = state.readingFocus ? "退出专注" : "专注";
+  renderReadingNowBar({ scrollPercent });
   renderReadingMap({ scrollPercent });
 }
 
@@ -3943,6 +3967,7 @@ function renderAll() {
   renderReader();
   renderReadingSession();
   renderReaderProgress();
+  renderReadingNowBar();
   renderReadingQueue();
   renderPlanGuide();
   renderSelectionDock();
@@ -7424,6 +7449,23 @@ $("sessionAskNovaBtn").addEventListener("click", () => {
 });
 $("sessionNoteBtn").addEventListener("click", () => {
   focusPanel("#userNoteForm", '#userNoteForm textarea[name="note"]');
+});
+$("readingNowFocusBtn").addEventListener("click", () => {
+  focusPanel(".reader-surface", "#chunkText");
+  if (state.selectedChunkId) log(`已回到正文: ${state.selectedChunkId}`);
+});
+$("readingNowContinueBtn").addEventListener("click", () => {
+  $("readingNowContinueBtn").disabled = true;
+  void continueReading().finally(() => {
+    $("readingNowContinueBtn").disabled = !activeBook();
+    renderReaderProgress();
+  });
+});
+$("readingNowAskBtn").addEventListener("click", () => {
+  $("sessionAskNovaBtn").click();
+});
+$("readingNowNoteBtn").addEventListener("click", () => {
+  $("sessionNoteBtn").click();
 });
 $("copyChunkIndexBtn").addEventListener("click", async () => {
   $("copyChunkIndexBtn").disabled = true;

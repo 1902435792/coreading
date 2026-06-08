@@ -349,6 +349,7 @@ legend {
 .illustration-suggestions,
 .backtrack-evidence,
 .sink-settings,
+.reading-now-bar,
 .self-check-card,
 .chunk-review-card {
   display: flex;
@@ -628,6 +629,55 @@ fieldset input {
   gap: 8px;
 }
 
+.reading-now-bar {
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+  border: 1px solid #b7cecc;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(248, 251, 250, 0.96);
+  box-shadow: 0 8px 22px rgba(31, 37, 40, 0.08);
+}
+
+.reading-now-bar.empty {
+  border-color: var(--line);
+  background: rgba(255, 253, 248, 0.96);
+}
+
+.reading-now-bar span,
+.reading-now-bar small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.reading-now-bar strong {
+  display: block;
+  overflow: hidden;
+  margin: 2px 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reading-now-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.reading-now-actions button.compact {
+  min-width: 72px;
+  padding-right: 10px;
+  padding-left: 10px;
+}
+
 .reading-queue {
   margin-bottom: 12px;
   border: 1px solid var(--line);
@@ -757,6 +807,7 @@ fieldset input {
 }
 
 .plan-guide > div,
+.reading-now-bar > div,
 .reader-progress > div,
 .reader-next > div,
 .trail-guide > div,
@@ -1819,6 +1870,19 @@ pre {
   .reading-session {
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+
+  .reading-now-bar {
+    grid-template-columns: 1fr;
+    top: 6px;
+  }
+
+  .reading-now-actions {
+    justify-content: stretch;
+  }
+
+  .reading-now-actions button {
+    flex: 1 1 42%;
   }
 
   .session-actions {
