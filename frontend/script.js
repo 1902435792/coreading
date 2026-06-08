@@ -23,6 +23,7 @@ const state = {
   cardDigestNotice: "",
   novaReply: "",
   readerSelection: { text: "", offset: null },
+  planNextCache: {},
   backgroundRunners: [],
 };
 
@@ -335,6 +336,108 @@ function renderReadingSession() {
   meta.textContent = nextId
     ? `下一段 ${nextId}${nextTitle ? ` · ${nextTitle}` : ""}`
     : "这本书暂时没有可继续的段落。";
+}
+
+function activePlansForBook(book = activeBook()) {
+  return (state.snapshot?.plans || []).filter((plan) => !book || plan.bookId === book.bookId);
+}
+
+function pendingSinkPreviewsForBook(book = activeBook()) {
+  return (state.snapshot?.sinkPreviews || []).filter((preview) => {
+    if (preview.status !== "pending") return false;
+    if (!book) return true;
+    return !preview.bookId || preview.bookId === book.bookId;
+  });
+}
+
+function firstCardForBook(book = activeBook()) {
+  return [...state.cardInbox, ...cardCollectionItems()].find((card) => !book || !card.bookId || card.bookId === book.bookId) || null;
+}
+
+function queueItemHtml(item) {
+  const secondary = item.secondary ? " secondary" : "";
+  return `
+    <article class="queue-item ${escapeHtml(item.kind || "")}">
+      <button class="queue-open${secondary}" type="button" data-action="${escapeHtml(item.action)}" data-id="${escapeHtml(item.id || "")}" ${item.disabled ? "disabled" : ""}>
+        <span>${escapeHtml(item.kicker || "")}</span>
+        <strong>${escapeHtml(item.title || "")}</strong>
+        <small>${escapeHtml(item.meta || "")}</small>
+      </button>
+    </article>
+  `;
+}
+
+function renderReadingQueue() {
+  const selected = activeBook();
+  const list = $("readingQueueList");
+  const title = $("queueTitle");
+  if (!selected) {
+    title.textContent = "暂无可继续项目";
+    list.className = "queue-list empty";
+    list.textContent = "选择一本书后显示继续读、计划下一步、卡片和待沉淀。";
+    return;
+  }
+  const nextId = nextUnreadChunkId(selected);
+  const plans = activePlansForBook(selected);
+  const plan = plans.find((item) => item.status === "active") || plans[0] || null;
+  const planNext = plan ? state.planNextCache[plan.planId]?.nextStep : null;
+  const pendingPreview = pendingSinkPreviewsForBook(selected)[0] || null;
+  const card = firstCardForBook(selected);
+  const items = [
+    nextId ? {
+      kind: "queue-read",
+      action: "queue-read",
+      id: nextId,
+      kicker: "继续读",
+      title: `${nextId}${chunkTitleById(nextId) ? ` · ${chunkTitleById(nextId)}` : ""}`,
+      meta: `${selected.chunksRead || 0}/${selected.chunkCount || 0} chunks · ${progressPercent(selected)}%`,
+    } : null,
+    plan ? {
+      kind: "queue-plan",
+      action: "queue-plan",
+      id: plan.planId,
+      kicker: "计划下一步",
+      title: planNext?.title || plan.title || plan.planId,
+      meta: planNext
+        ? `${planNext.stepId || ""} · ${(planNext.chunkIds || []).join(", ") || planNext.range?.startChunkId || ""}`
+        : `${plan.status} · ${plan.currentStepIndex || 0}/${plan.stepCount || 0}`,
+      secondary: true,
+    } : null,
+    pendingPreview ? {
+      kind: "queue-sink",
+      action: "queue-sink",
+      id: pendingPreview.previewId,
+      kicker: "待沉淀",
+      title: pendingPreview.destination?.notePath || pendingPreview.previewId,
+      meta: `${pendingPreview.target || ""} · ${pendingPreview.sourceType || ""}`,
+      secondary: true,
+    } : null,
+    card ? {
+      kind: "queue-card",
+      action: "queue-card",
+      id: card.id,
+      kicker: state.cardInbox.some((item) => item.id === card.id) ? "新卡片" : "阅读卡片",
+      title: card.message || card.kicker || card.title || card.id,
+      meta: card.subtitle || card.chunkId || card.createdAt || "",
+      secondary: true,
+    } : null,
+  ].filter(Boolean);
+  title.textContent = `${items.length} 个入口`;
+  list.className = items.length ? "queue-list" : "queue-list empty";
+  list.innerHTML = items.length ? items.map(queueItemHtml).join("") : "当前书没有待处理队列。";
+  if (plan && !state.planNextCache[plan.planId]) {
+    void hydratePlanNext(plan.planId);
+  }
+}
+
+async function hydratePlanNext(planId) {
+  try {
+    const result = await query({ command: "plan_get", planId });
+    state.planNextCache[planId] = { nextStep: result.nextStep || null, updatedAt: new Date().toISOString() };
+    renderReadingQueue();
+  } catch {
+    state.planNextCache[planId] = { nextStep: null, updatedAt: new Date().toISOString(), error: true };
+  }
 }
 
 function renderBooks() {
@@ -1637,6 +1740,32 @@ async function fillReviewFromPlanNextStep(planId) {
   };
   await copyTextToClipboard(JSON.stringify(packet, null, 2));
   log(`已填入计划下一步评价: ${nextStep.stepId || planId}`);
+}
+
+async function openQueueCard(cardId) {
+  const card = findCardSummary(cardId);
+  if (!card) throw new Error("没有找到这张阅读卡片。");
+  $("cardSinkDrawer").open = true;
+  state.selectedCard = card;
+  state.selectedCardSaveResult = state.cardSaveResults[cardId] || null;
+  renderCards();
+  focusPanel(".card-detail", "#cardPreview");
+  log(`已打开阅读卡片: ${card.message || card.title || card.id}`);
+}
+
+async function openQueueSink(previewId) {
+  $("cardSinkDrawer").open = true;
+  state.selectedSinkPreview = await loadSinkPreview(previewId);
+  state.selectedSinkDiff = null;
+  renderSinkDetail();
+  focusPanel(".sink-detail", "#sinkPreviewContent");
+  log(`已打开待沉淀预览: ${previewId}`);
+}
+
+async function openQueuePlan(planId) {
+  $("planReviewDrawer").open = true;
+  await fillReviewFromPlanNextStep(planId);
+  focusPanel("#reviewForm", '#reviewForm textarea[name="summary"]');
 }
 
 function planExecutionArtifactPacket(planId, result, plan = {}) {
@@ -3090,6 +3219,7 @@ function renderAll() {
   renderChunks();
   renderReader();
   renderReadingSession();
+  renderReadingQueue();
   renderSelectionDock();
   renderNovaReply();
   renderSearchResults();
@@ -3227,11 +3357,18 @@ async function continueReading() {
 function focusPanel(selector, focusSelector) {
   const panel = document.querySelector(selector);
   if (!panel) return;
+  openContainingDrawer(panel);
   panel.scrollIntoView({ behavior: "smooth", block: "start" });
   const target = focusSelector ? document.querySelector(focusSelector) : null;
   if (target) {
     window.setTimeout(() => target.focus(), 250);
   }
+}
+
+function openContainingDrawer(element) {
+  const node = typeof element === "string" ? document.querySelector(element) : element;
+  const drawer = node?.closest?.("details");
+  if (drawer) drawer.open = true;
 }
 
 async function loadSnapshot() {
@@ -4213,6 +4350,48 @@ document.addEventListener("click", (event) => {
   const target = event.target.closest("button[data-fill-quote]");
   if (!target) return;
   fillQuoteFromSelection(target.dataset.fillQuote);
+});
+
+$("readingQueueList").addEventListener("click", async (event) => {
+  const target = event.target.closest("button[data-action]");
+  if (!target) return;
+  const action = target.dataset.action;
+  const id = target.dataset.id || "";
+  target.disabled = true;
+  try {
+    if (action === "queue-read") {
+      await selectChunk(id, true);
+      focusPanel(".reader-surface", "#chunkText");
+      return;
+    }
+    if (action === "queue-plan") {
+      await openQueuePlan(id);
+      return;
+    }
+    if (action === "queue-sink") {
+      await openQueueSink(id);
+      return;
+    }
+    if (action === "queue-card") {
+      await openQueueCard(id);
+      return;
+    }
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    target.disabled = false;
+    renderReadingQueue();
+  }
+});
+
+$("queueRefreshBtn").addEventListener("click", async () => {
+  $("queueRefreshBtn").disabled = true;
+  try {
+    state.planNextCache = {};
+    await loadSnapshot();
+  } finally {
+    $("queueRefreshBtn").disabled = false;
+  }
 });
 
 $("chunkText").addEventListener("mouseup", () => {

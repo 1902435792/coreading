@@ -72,7 +72,7 @@
             <button type="submit">导入</button>
           </form>
 
-          <details class="tool-drawer">
+          <details id="planReviewDrawer" class="tool-drawer">
             <summary>分计划与插图工具</summary>
           <form id="planForm" class="plan-form">
             <h3>新计划</h3>
@@ -214,6 +214,16 @@
               <button id="sessionAskNovaBtn" class="secondary compact" type="button">问 Nova</button>
               <button id="sessionNoteBtn" class="secondary compact" type="button">记一笔</button>
             </div>
+          </section>
+          <section class="reading-queue" aria-label="阅读队列">
+            <div class="queue-head">
+              <div>
+                <span>阅读队列</span>
+                <strong id="queueTitle">暂无可继续项目</strong>
+              </div>
+              <button id="queueRefreshBtn" class="secondary compact" type="button">刷新</button>
+            </div>
+            <div id="readingQueueList" class="queue-list empty">选择一本书后显示继续读、计划下一步、卡片和待沉淀。</div>
           </section>
           <div class="reader-tools">
             <button id="prevChunkBtn" class="secondary compact" type="button">上一段</button>
@@ -416,7 +426,7 @@
         </section>
 
         <aside class="panel sink-panel">
-          <details class="tool-drawer sink-drawer">
+          <details id="cardSinkDrawer" class="tool-drawer sink-drawer">
             <summary>卡片与沉淀队列</summary>
           <div class="panel-head">
             <h2>阅读卡片</h2>
