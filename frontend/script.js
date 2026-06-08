@@ -2762,7 +2762,7 @@ async function openFirstChunkReviewSink() {
 }
 
 async function openBestSinkPreview() {
-  const preview = visibleSinkPreviewsForBook(activeBook())[0] || null;
+  const preview = sinkPreviewsForCurrentChunk()[0] || visibleSinkPreviewsForBook(activeBook())[0] || null;
   if (!preview?.previewId) {
     $("cardSinkDrawer").open = true;
     state.selectedSinkPreview = null;
