@@ -221,9 +221,9 @@ function sinkSettingInputs() {
 
 function sinkSettingsPayload() {
   return {
-    vaultPath: $("vaultPath")?.value || "",
-    dailyNoteRoot: $("dailyNoteRoot")?.value || "",
-    vcpMemoryRoot: $("vcpMemoryRoot")?.value || "",
+    vaultPath: $("vaultPath")?.value.trim() || "",
+    dailyNoteRoot: $("dailyNoteRoot")?.value.trim() || "",
+    vcpMemoryRoot: $("vcpMemoryRoot")?.value.trim() || "",
   };
 }
 
@@ -246,6 +246,23 @@ function applySinkSettings(settings, { overwrite = false } = {}) {
   if (settings.vaultPath && (overwrite || !$("vaultPath").value)) $("vaultPath").value = settings.vaultPath;
   if (settings.dailyNoteRoot && (overwrite || !$("dailyNoteRoot").value)) $("dailyNoteRoot").value = settings.dailyNoteRoot;
   if (settings.vcpMemoryRoot && (overwrite || !$("vcpMemoryRoot").value)) $("vcpMemoryRoot").value = settings.vcpMemoryRoot;
+}
+
+function sinkPreviewTarget(preview) {
+  return String(preview?.target || preview?.destination?.type || "").trim();
+}
+
+function sinkPreviewNeedsVaultPath(preview) {
+  return sinkPreviewTarget(preview).toLowerCase() === "obsidian";
+}
+
+function applyPreviewVaultPath(preview) {
+  const vaultPath = String(preview?.destination?.vaultPath || "").trim();
+  if (vaultPath && !$("vaultPath").value.trim()) {
+    $("vaultPath").value = vaultPath;
+    saveSinkSettings();
+  }
+  return $("vaultPath").value.trim();
 }
 
 function loadSinkSettings() {
@@ -499,6 +516,7 @@ function renderReaderProgress() {
   const nextId = getChunkId(nextChunk);
   const pendingCount = pendingSinkPreviewsForBook(selected).length;
   const currentChunkPendingSink = sinkPreviewsForCurrentChunk().find((preview) => preview.status === "pending") || null;
+  const currentChunkApprovedSink = sinkPreviewsForCurrentChunk().find((preview) => preview.status === "approved") || null;
   const cardCountForBook = countCardsForBook(selected);
   const currentTitle = chunkTitleById(state.selectedChunkId);
   const nextTitle = chunkTitleById(nextId);
@@ -533,6 +551,8 @@ function renderReaderProgress() {
   $("readerOpenSinkBtn").textContent = pendingCount ? `看沉淀 ${pendingCount}` : "看沉淀";
   $("readerApproveSinkBtn").disabled = !currentChunkPendingSink;
   $("readerApproveSinkBtn").textContent = currentChunkPendingSink ? "批准本段" : "批准本段";
+  $("readerExecuteSinkBtn").disabled = !currentChunkApprovedSink;
+  $("readerExecuteSinkBtn").textContent = currentChunkApprovedSink ? "写入本段" : "写入本段";
   $("readerSinkHint").textContent = selected
     ? `本书待沉淀 ${pendingCount} 条 · 卡片 ${cardCountForBook} 张 · 本段笔记 ${state.userNotes.length} 条`
     : "笔记、卡片和沉淀入口会在这里提示。";
@@ -2789,6 +2809,25 @@ async function approveCurrentChunkSinkPreview() {
   await updateSinkPreviewContent(state.selectedSinkPreview, { status: "approved", note: "reader approve current chunk sink" });
   focusPanel(".sink-detail", "#sinkPreviewContent");
   log(`已批准本段沉淀: ${preview.previewId}`);
+}
+
+async function executeCurrentChunkSinkPreview() {
+  const preview = sinkPreviewsForCurrentChunk().find((item) => item.status === "approved");
+  if (!preview?.previewId) throw new Error("当前段没有已批准沉淀。");
+  $("cardSinkDrawer").open = true;
+  state.selectedSinkPreview = await loadSinkPreview(preview.previewId);
+  state.selectedSinkDiff = null;
+  renderSinkDetail();
+  renderSinks();
+  if (sinkPreviewNeedsVaultPath(state.selectedSinkPreview) && !applyPreviewVaultPath(state.selectedSinkPreview)) {
+    focusPanel(".sink-settings", "#vaultPath");
+    $("vaultPath")?.focus();
+    log("请先填写 Obsidian Vault 路径，再写入本段。");
+    return;
+  }
+  const executed = await executeSelectedSinkPreview();
+  focusPanel(".sink-detail", "#sinkPreviewContent");
+  if (executed) log(`已写入本段沉淀: ${preview.previewId}`);
 }
 
 async function openQueuePlan(planId) {
@@ -6656,14 +6695,16 @@ function sinkDecisionPacket(preview, options = {}) {
 
 async function executeSelectedSinkPreview() {
   const preview = state.selectedSinkPreview;
-  if (!preview) return;
+  if (!preview) return false;
   try {
     saveSinkSettings();
     await command(sinkExecutePayload(preview));
     await refreshExecutedSinkPreview(preview.previewId);
     await loadSnapshot();
+    return true;
   } catch (error) {
     log(error.message || String(error));
+    return false;
   }
 }
 
@@ -6671,9 +6712,9 @@ function sinkExecutePayload(preview) {
   return {
     command: "sink_execute",
     previewId: preview.previewId,
-    vaultPath: $("vaultPath").value || undefined,
-    dailyNoteRoot: $("dailyNoteRoot").value || undefined,
-    vcpMemoryRoot: $("vcpMemoryRoot").value || undefined,
+    vaultPath: $("vaultPath").value.trim() || preview.destination?.vaultPath || undefined,
+    dailyNoteRoot: $("dailyNoteRoot").value.trim() || undefined,
+    vcpMemoryRoot: $("vcpMemoryRoot").value.trim() || undefined,
     updatedBy: "CoReadingSidecar",
   };
 }
@@ -8026,6 +8067,12 @@ $("readerOpenSinkBtn").addEventListener("click", async () => {
 $("readerApproveSinkBtn").addEventListener("click", () => {
   $("readerApproveSinkBtn").disabled = true;
   void approveCurrentChunkSinkPreview().catch((error) => {
+    log(error.message || String(error));
+  }).finally(renderReaderProgress);
+});
+$("readerExecuteSinkBtn").addEventListener("click", () => {
+  $("readerExecuteSinkBtn").disabled = true;
+  void executeCurrentChunkSinkPreview().catch((error) => {
     log(error.message || String(error));
   }).finally(renderReaderProgress);
 });
