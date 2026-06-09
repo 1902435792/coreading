@@ -460,6 +460,9 @@ function handleReaderKeyboard(event) {
   } else if (event.key.toLowerCase() === "q" && state.readerSelection?.text) {
     event.preventDefault();
     askNovaFromSelection();
+  } else if (event.key.toLowerCase() === "m" && state.readerSelection?.text) {
+    event.preventDefault();
+    openImmersiveQuickNote();
   }
 }
 
@@ -3420,6 +3423,7 @@ function clearReaderSelection() {
   state.readerSelection = { text: "", offset: null };
   window.getSelection?.().removeAllRanges?.();
   closeImmersiveNotesPane();
+  closeImmersiveQuickNote({ clear: true });
   renderSelectionDock();
 }
 
@@ -3546,6 +3550,39 @@ function prepareNoteFromCurrentReading() {
   }
   openImmersiveNotesPane();
   focusPanel("#userNoteForm", '#userNoteForm textarea[name="note"]');
+}
+
+async function saveUserNote({ quote, quoteOffset, note, status = "open", kind = "note" }) {
+  const selected = activeBook();
+  if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和一个 chunk。");
+  if (!quote || !note) throw new Error("用户笔记需要引用和内容。");
+  await command({
+    command: "user_note_create",
+    bookId: selected.bookId,
+    chunkId: state.selectedChunkId,
+    quote,
+    quoteOffset,
+    note,
+    kind,
+    status,
+    tags: ["co-reading", "sidecar", "user-note"],
+  });
+}
+
+async function saveAnnotation({ quote, quoteOffset, note, kind = "annotation" }) {
+  const selected = activeBook();
+  if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和一个 chunk。");
+  if (!quote || !note) throw new Error("边注需要引用和内容。");
+  await command({
+    command: "annotate",
+    bookId: selected.bookId,
+    chunkId: state.selectedChunkId,
+    quote,
+    quoteOffset,
+    note,
+    kind,
+    tags: ["co-reading", "sidecar"],
+  });
 }
 
 function currentNovaContext(selected, chunk, text, quote) {
@@ -5878,6 +5915,25 @@ function closeImmersiveNotesPane() {
   document.body.classList.remove("immersive-notes-open");
 }
 
+function openImmersiveQuickNote() {
+  if (!state.readerSelection?.text) captureReaderSelection();
+  if (!state.readerSelection?.text) {
+    log("请先选中要记下来的原文。");
+    return;
+  }
+  const panel = $("immersiveQuickNote");
+  if (!panel) return;
+  panel.hidden = false;
+  $("immersiveQuickNoteStatus").textContent = `引用：${state.readerSelection.text.slice(0, 80)}`;
+  window.setTimeout(() => $("immersiveQuickNoteInput")?.focus(), 80);
+}
+
+function closeImmersiveQuickNote({ clear = false } = {}) {
+  const panel = $("immersiveQuickNote");
+  if (panel) panel.hidden = true;
+  if (clear) $("immersiveQuickNoteInput").value = "";
+}
+
 function openImmersiveToolsPane() {
   closeImmersiveNotesPane();
   closeImmersiveFootprints();
@@ -7271,6 +7327,10 @@ $("selectionEntityBtn").addEventListener("click", () => {
 });
 $("selectionNoteBtn").addEventListener("click", () => {
   if (!state.readerSelection?.text) captureReaderSelection();
+  if (state.immersiveReading) {
+    openImmersiveQuickNote();
+    return;
+  }
   fillFormFromSelection("userNoteForm");
   openImmersiveNotesPane();
   focusPanel("#userNoteForm", '#userNoteForm textarea[name="note"]');
@@ -7283,6 +7343,40 @@ $("selectionAnnotateBtn").addEventListener("click", () => {
 });
 $("selectionClearBtn").addEventListener("click", () => {
   clearReaderSelection();
+});
+
+async function saveImmersiveQuickNote(kind = "note") {
+  const button = kind === "annotation" ? $("immersiveQuickAnnotationSaveBtn") : $("immersiveQuickNoteSaveBtn");
+  const input = $("immersiveQuickNoteInput");
+  const status = $("immersiveQuickNoteStatus");
+  const quote = selectedQuote();
+  const note = String(input?.value || "").trim();
+  if (!quote.text || !note) {
+    if (status) status.textContent = "需要选区和内容。";
+    return;
+  }
+  button.disabled = true;
+  try {
+    if (kind === "annotation") await saveAnnotation({ quote: quote.text, quoteOffset: quote.offset, note, kind: "annotation" });
+    else await saveUserNote({ quote: quote.text, quoteOffset: quote.offset, note, status: "open" });
+    closeImmersiveQuickNote({ clear: true });
+    await readSelectedChunk();
+    log(kind === "annotation" ? "已保存选区边注。" : "已保存选区笔记。");
+  } catch (error) {
+    if (status) status.textContent = error.message || String(error);
+    log(error.message || String(error));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$("immersiveQuickNoteSaveBtn")?.addEventListener("click", () => void saveImmersiveQuickNote("note"));
+$("immersiveQuickAnnotationSaveBtn")?.addEventListener("click", () => void saveImmersiveQuickNote("annotation"));
+$("immersiveQuickNoteCloseBtn")?.addEventListener("click", () => closeImmersiveQuickNote());
+$("immersiveQuickNoteInput")?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  void saveImmersiveQuickNote(event.shiftKey ? "annotation" : "note");
 });
 
 $("entityAskNovaBtn").addEventListener("click", () => {
@@ -9949,21 +10043,8 @@ $("annotationForm").addEventListener("submit", async (event) => {
   const form = new FormData(formEl);
   const { quote, quoteOffset } = quotePayloadFromForm(form);
   const note = String(form.get("note") || "").trim();
-  if (!quote || !note) {
-    setFormError(formEl, "边注需要引用和内容。");
-    return;
-  }
   try {
-    await command({
-      command: "annotate",
-      bookId: selected.bookId,
-      chunkId: state.selectedChunkId,
-      quote,
-      quoteOffset,
-      note,
-      kind: String(form.get("kind") || "annotation"),
-      tags: ["co-reading", "sidecar"],
-    });
+    await saveAnnotation({ quote, quoteOffset, note, kind: String(form.get("kind") || "annotation") });
     formEl.reset();
     await readSelectedChunk();
   } catch (error) {
@@ -9982,22 +10063,8 @@ $("userNoteForm").addEventListener("submit", async (event) => {
   const form = new FormData(formEl);
   const { quote, quoteOffset } = quotePayloadFromForm(form);
   const note = String(form.get("note") || "").trim();
-  if (!quote || !note) {
-    setFormError(formEl, "用户笔记需要引用和内容。");
-    return;
-  }
   try {
-    await command({
-      command: "user_note_create",
-      bookId: selected.bookId,
-      chunkId: state.selectedChunkId,
-      quote,
-      quoteOffset,
-      note,
-      kind: "note",
-      status: String(form.get("status") || "open"),
-      tags: ["co-reading", "sidecar", "user-note"],
-    });
+    await saveUserNote({ quote, quoteOffset, note, status: String(form.get("status") || "open") });
     formEl.reset();
     await readSelectedChunk();
   } catch (error) {

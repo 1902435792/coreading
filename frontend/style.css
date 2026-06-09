@@ -1255,6 +1255,44 @@ fieldset input {
   gap: 8px;
 }
 
+.immersive-quick-note[hidden] {
+  display: none;
+}
+
+.immersive-quick-note {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface);
+}
+
+.immersive-quick-note label,
+.immersive-quick-note textarea {
+  min-width: 0;
+  width: 100%;
+}
+
+.immersive-quick-note label span,
+.immersive-quick-note small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.immersive-quick-note textarea {
+  margin-top: 4px;
+  resize: vertical;
+}
+
+.immersive-quick-note-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .entity-peek {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1820,6 +1858,38 @@ body.immersive-reading .selection-actions {
 }
 
 body.immersive-reading .selection-actions button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+body.immersive-reading .immersive-quick-note {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 18px);
+  bottom: 148px;
+  left: clamp(42px, 8vw, 140px);
+  z-index: 10;
+  max-width: min(760px, calc(100vw - var(--reader-assistant-width) - 132px));
+  margin: 0;
+  background: color-mix(in srgb, var(--surface) 91%, transparent);
+  box-shadow: 0 10px 28px rgba(15, 15, 15, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+body.immersive-reading.immersive-assistant-collapsed .immersive-quick-note {
+  right: 18px;
+  max-width: min(860px, calc(100vw - 132px));
+  visibility: visible;
+  pointer-events: auto;
+}
+
+body.immersive-reading .immersive-quick-note textarea {
+  min-height: 42px;
+  max-height: 120px;
+}
+
+body.immersive-reading .immersive-quick-note-actions button {
   flex: 0 0 auto;
   min-height: 28px;
   padding: 4px 8px;
@@ -3298,6 +3368,19 @@ pre {
 
   body.immersive-reading .selection-dock strong {
     max-width: 100%;
+  }
+
+  body.immersive-reading .immersive-quick-note {
+    right: 12px;
+    bottom: 210px;
+    left: 12px;
+    grid-template-columns: 1fr;
+    max-width: none;
+  }
+
+  body.immersive-reading .immersive-quick-note-actions {
+    overflow-x: auto;
+    scrollbar-width: thin;
   }
 
   body.immersive-reading.immersive-notes-open .notes-pane {

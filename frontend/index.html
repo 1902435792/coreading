@@ -472,6 +472,18 @@
               <button id="selectionClearBtn" class="secondary compact" type="button">清除</button>
             </div>
           </div>
+          <div id="immersiveQuickNote" class="immersive-quick-note" hidden>
+            <label>
+              <span id="immersiveQuickNoteLabel">快速笔记</span>
+              <textarea id="immersiveQuickNoteInput" rows="2" placeholder="写给自己。Enter 保存笔记，Shift+Enter 保存边注。"></textarea>
+            </label>
+            <div class="immersive-quick-note-actions">
+              <button id="immersiveQuickNoteSaveBtn" class="primary compact" type="button">保存笔记</button>
+              <button id="immersiveQuickAnnotationSaveBtn" class="secondary compact" type="button">保存边注</button>
+              <button id="immersiveQuickNoteCloseBtn" class="secondary compact" type="button">关闭</button>
+            </div>
+            <small id="immersiveQuickNoteStatus">选区会作为引用。</small>
+          </div>
 
           <section id="entityPeek" class="entity-peek" aria-label="人物与设定速查" hidden>
             <div>
