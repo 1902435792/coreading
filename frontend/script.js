@@ -27,6 +27,7 @@ const state = {
   novaAskError: null,
   novaLastRequest: null,
   readerSelection: { text: "", offset: null },
+  selectionCaptureTimer: 0,
   entityPeek: null,
   selfCheck: { variant: 0, hintVisible: false },
   readingFocus: false,
@@ -456,6 +457,9 @@ function handleReaderKeyboard(event) {
   } else if (event.key.toLowerCase() === "n") {
     event.preventDefault();
     toggleImmersiveAssistant();
+  } else if (event.key.toLowerCase() === "q" && state.readerSelection?.text) {
+    event.preventDefault();
+    askNovaFromSelection();
   }
 }
 
@@ -676,6 +680,12 @@ function setImmersiveAssistantCollapsed(enabled) {
     button.setAttribute("aria-pressed", active ? "true" : "false");
   }
   window.setTimeout(updateReaderPageStatus, 80);
+}
+
+function revealNovaForReadingAction() {
+  if (state.immersiveReading && document.body.classList.contains("immersive-assistant-collapsed")) {
+    setImmersiveAssistantCollapsed(false);
+  }
 }
 
 function announce(text) {
@@ -3524,6 +3534,7 @@ function prepareNovaPromptFromCurrentReading() {
   } else if (!$("novaPrompt").value.trim()) {
     $("novaPrompt").value = "请陪我继续读当前段落：先定位这一段，再指出一句值得停留的话，最后给一个下一步。";
   }
+  revealNovaForReadingAction();
   focusPanel(".nova-reading-box", "#novaPrompt");
 }
 
@@ -7190,12 +7201,30 @@ $("chunkText").addEventListener("keyup", (event) => {
     captureReaderSelection();
   }
 });
-$("selectionAskNovaBtn").addEventListener("click", () => {
+document.addEventListener("selectionchange", () => {
+  if (!state.immersiveReading) return;
+  window.clearTimeout(state.selectionCaptureTimer);
+  state.selectionCaptureTimer = window.setTimeout(() => {
+    const quote = liveSelectedQuote();
+    if (quote.text) {
+      state.readerSelection = quote;
+      renderSelectionDock();
+    }
+  }, 80);
+});
+function askNovaFromSelection() {
   if (!state.readerSelection?.text) captureReaderSelection();
+  if (!state.readerSelection?.text) {
+    log("请先在原文里选中一段想问 Nova 的话。");
+    return;
+  }
   $("novaPrompt").value = buildNovaPromptFromSelection();
+  revealNovaForReadingAction();
   focusPanel(".nova-reading-box", "#novaPrompt");
   $("askNovaBtn").click();
-});
+}
+
+$("selectionAskNovaBtn").addEventListener("click", askNovaFromSelection);
 $("selectionBacktrackBtn").addEventListener("click", async () => {
   const button = $("selectionBacktrackBtn");
   if (!state.readerSelection?.text) captureReaderSelection();

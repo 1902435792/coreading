@@ -1784,20 +1784,32 @@ body.immersive-reading .nova-reply {
 body.immersive-reading .selection-dock {
   position: fixed;
   right: calc(var(--reader-assistant-width) + 18px);
-  bottom: 92px;
-  left: clamp(42px, 6vw, 90px);
+  bottom: 82px;
+  left: clamp(42px, 8vw, 140px);
   z-index: 9;
   grid-template-columns: minmax(0, 1fr) auto;
-  max-width: calc(100vw - var(--reader-assistant-width) - 120px);
+  max-width: min(760px, calc(100vw - var(--reader-assistant-width) - 132px));
   margin: 0;
   border-color: var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
   background: var(--surface);
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
-  box-shadow: 0 10px 28px rgba(15, 15, 15, 0.08);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 8px 24px rgba(15, 15, 15, 0.07);
+  backdrop-filter: blur(10px);
+}
+
+body.immersive-reading.immersive-assistant-collapsed .selection-dock {
+  right: 18px;
+  max-width: min(860px, calc(100vw - 132px));
+  visibility: visible;
+  pointer-events: auto;
 }
 
 body.immersive-reading .selection-dock strong {
-  max-width: 42vw;
+  max-width: min(42vw, 420px);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 body.immersive-reading .selection-actions {
@@ -1809,6 +1821,9 @@ body.immersive-reading .selection-actions {
 
 body.immersive-reading .selection-actions button {
   flex: 0 0 auto;
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
 }
 
 body.immersive-reading.reader-selection-active .reader-settings {
