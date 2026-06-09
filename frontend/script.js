@@ -231,6 +231,13 @@ function setupReaderModeControls() {
     '  <button id="immersiveLastBookmarkBtn" type="button" disabled>最近书签</button>',
     '  <span id="immersiveBookmarkStatus">暂无书签</span>',
     '</div>',
+    '<div class="reader-action-tools" aria-label="本段动作">',
+    '  <button id="immersiveAskNovaBtn" type="button">问 Nova</button>',
+    '  <button id="immersiveNoteBtn" type="button">记一笔</button>',
+    '  <button id="immersiveSinkCurrentBtn" type="button">沉淀本段</button>',
+    '  <button id="immersiveOpenSinkBtn" type="button">看沉淀</button>',
+    '  <span id="immersiveActionStatus">本段动作</span>',
+    '</div>',
   ].join("");
   shell.insertAdjacentElement("afterend", chrome);
   $("immersivePrevPageBtn")?.addEventListener("click", () => void turnReaderPage(-1));
@@ -267,6 +274,18 @@ function setupReaderModeControls() {
   $("immersiveBookmarkBtn")?.addEventListener("click", saveImmersiveBookmark);
   $("immersiveLastBookmarkBtn")?.addEventListener("click", () => {
     void openImmersiveLastBookmark();
+  });
+  $("immersiveAskNovaBtn")?.addEventListener("click", prepareNovaPromptFromCurrentReading);
+  $("immersiveNoteBtn")?.addEventListener("click", prepareNoteFromCurrentReading);
+  $("immersiveSinkCurrentBtn")?.addEventListener("click", () => {
+    void createCurrentChunkSinkPreview({ focusSink: false }).catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+  });
+  $("immersiveOpenSinkBtn")?.addEventListener("click", () => {
+    void openBestSinkPreview().catch((error) => {
+      log(error.message || String(error));
+    });
   });
 
   document.addEventListener("fullscreenchange", () => {
@@ -1324,7 +1343,31 @@ function renderReaderProgress() {
   renderReadingNowBar({ scrollPercent });
   renderReadingMap({ scrollPercent });
   renderWaypoints();
+  renderImmersiveActions({
+    hasChunk,
+    pendingCount,
+    currentChunkPendingSink,
+    currentChunkApprovedSink,
+  });
   updateReaderPageStatus();
+}
+
+function renderImmersiveActions({ hasChunk = false, pendingCount = 0, currentChunkPendingSink = null, currentChunkApprovedSink = null } = {}) {
+  const ask = $("immersiveAskNovaBtn");
+  const note = $("immersiveNoteBtn");
+  const sink = $("immersiveSinkCurrentBtn");
+  const open = $("immersiveOpenSinkBtn");
+  const status = $("immersiveActionStatus");
+  if (!ask || !note || !sink || !open || !status) return;
+  ask.disabled = !hasChunk;
+  note.disabled = !hasChunk;
+  sink.disabled = !hasChunk;
+  open.disabled = !activeBook();
+  open.textContent = pendingCount ? `看沉淀 ${pendingCount}` : "看沉淀";
+  const currentSink = currentChunkPendingSink || currentChunkApprovedSink;
+  status.textContent = hasChunk
+    ? `${state.selectedChunkId} · 笔记 ${state.userNotes.length} · 沉淀 ${sinkPreviewsForCurrentChunk().length}${currentSink ? ` · ${currentSink.status}` : ""}`
+    : "未选择段落";
 }
 
 function renderReadingMap({ scrollPercent = 0 } = {}) {
@@ -1989,6 +2032,8 @@ async function createCurrentChunkSinkPreview(options = {}) {
   const opened = await openPreviewFromResult(previewResult, { refreshSnapshot: true });
   if (!opened) await loadSnapshot();
   renderChunkReview();
+  renderReaderProgress();
+  if (options.focusSink === false) focusPanel(".reader-surface", "#chunkText");
   return { reviewId, previewResult };
 }
 
