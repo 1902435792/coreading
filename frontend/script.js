@@ -29,6 +29,7 @@ const state = {
   readerSelection: { text: "", offset: null },
   selectionCaptureTimer: 0,
   quickNoteLastQuote: null,
+  quickNoteSinkPreviewId: "",
   entityPeek: null,
   selfCheck: { variant: 0, hintVisible: false },
   readingFocus: false,
@@ -5926,7 +5927,7 @@ function openImmersiveQuickNote() {
   if (!panel) return;
   panel.hidden = false;
   state.quickNoteLastQuote = null;
-  $("immersiveQuickSinkBtn").disabled = true;
+  setQuickSinkPreview(null);
   $("immersiveQuickNoteStatus").textContent = `引用：${state.readerSelection.text.slice(0, 80)}`;
   window.setTimeout(() => $("immersiveQuickNoteInput")?.focus(), 80);
 }
@@ -5937,8 +5938,16 @@ function closeImmersiveQuickNote({ clear = false } = {}) {
   if (clear) {
     $("immersiveQuickNoteInput").value = "";
     state.quickNoteLastQuote = null;
-    $("immersiveQuickSinkBtn").disabled = true;
+    setQuickSinkPreview(null);
   }
+}
+
+function setQuickSinkPreview(preview) {
+  state.quickNoteSinkPreviewId = preview?.previewId || "";
+  const status = preview?.status || "";
+  $("immersiveQuickSinkBtn").disabled = !state.quickNoteLastQuote;
+  $("immersiveQuickApproveSinkBtn").disabled = status !== "pending";
+  $("immersiveQuickExecuteSinkBtn").disabled = status !== "approved";
 }
 
 function openImmersiveToolsPane() {
@@ -7370,7 +7379,7 @@ async function saveImmersiveQuickNote(kind = "note") {
     $("immersiveQuickNote").hidden = false;
     state.quickNoteLastQuote = quote;
     if (status) status.textContent = kind === "annotation" ? "已保存边注，可生成沉淀预览。" : "已保存笔记，可生成沉淀预览。";
-    $("immersiveQuickSinkBtn").disabled = false;
+    setQuickSinkPreview(null);
     input.value = "";
     log(kind === "annotation" ? "已保存选区边注。" : "已保存选区笔记。");
   } catch (error) {
@@ -7396,14 +7405,57 @@ $("immersiveQuickSinkBtn")?.addEventListener("click", async () => {
   try {
     if (status) status.textContent = "正在生成沉淀预览...";
     const result = await createCurrentChunkSinkPreview({ quote });
-    closeImmersiveQuickNote({ clear: true });
-    focusPanel(".sink-detail", "#sinkPreviewContent");
+    const preview = state.selectedSinkPreview;
+    state.quickNoteLastQuote = quote;
+    $("immersiveQuickNote").hidden = false;
+    setQuickSinkPreview(preview);
+    if (status) status.textContent = preview?.previewId ? "已生成预览，请先批准。" : "已生成预览，请在沉淀详情查看。";
+    if (!state.immersiveReading) focusPanel(".sink-detail", "#sinkPreviewContent");
     log(`已生成快速笔记沉淀预览: ${result.reviewId}`);
   } catch (error) {
     if (status) status.textContent = error.message || String(error);
     log(error.message || String(error));
   } finally {
     button.disabled = !state.quickNoteLastQuote;
+  }
+});
+$("immersiveQuickApproveSinkBtn")?.addEventListener("click", async () => {
+  const button = $("immersiveQuickApproveSinkBtn");
+  const status = $("immersiveQuickNoteStatus");
+  if (!state.quickNoteSinkPreviewId) return;
+  button.disabled = true;
+  try {
+    if (status) status.textContent = "正在批准沉淀预览...";
+    state.selectedSinkPreview = await loadSinkPreview(state.quickNoteSinkPreviewId);
+    state.selectedSinkDiff = null;
+    renderSinkDetail();
+    await updateSinkPreviewContent(state.selectedSinkPreview, { status: "approved", note: "immersive quick note approve" });
+    $("immersiveQuickNote").hidden = false;
+    setQuickSinkPreview(state.selectedSinkPreview);
+    if (status) status.textContent = "已批准预览，可以执行写入。";
+  } catch (error) {
+    if (status) status.textContent = error.message || String(error);
+    log(error.message || String(error));
+  }
+});
+$("immersiveQuickExecuteSinkBtn")?.addEventListener("click", async () => {
+  const button = $("immersiveQuickExecuteSinkBtn");
+  const status = $("immersiveQuickNoteStatus");
+  if (!state.quickNoteSinkPreviewId) return;
+  button.disabled = true;
+  try {
+    if (status) status.textContent = "正在执行写入...";
+    state.selectedSinkPreview = await loadSinkPreview(state.quickNoteSinkPreviewId);
+    state.selectedSinkDiff = null;
+    renderSinkDetail();
+    if (state.selectedSinkPreview.status !== "approved") throw new Error("请先批准沉淀预览。");
+    const executed = await executeSelectedSinkPreview();
+    $("immersiveQuickNote").hidden = false;
+    setQuickSinkPreview(state.selectedSinkPreview);
+    if (status) status.textContent = executed ? "已执行写入，可在沉淀详情回读。" : "执行未完成，请查看沉淀详情。";
+  } catch (error) {
+    if (status) status.textContent = error.message || String(error);
+    log(error.message || String(error));
   }
 });
 $("immersiveQuickNoteInput")?.addEventListener("keydown", (event) => {
