@@ -2026,6 +2026,50 @@ body.immersive-reading .reader-immersive-progress span {
   transition: width 180ms ease;
 }
 
+body.immersive-reading .reader-position-nav {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 328px);
+  bottom: 18px;
+  z-index: 8;
+  display: grid;
+  grid-template-columns: minmax(76px, auto) minmax(180px, 1fr) minmax(76px, auto) minmax(128px, auto);
+  gap: 6px;
+  width: min(560px, calc(100vw - var(--reader-assistant-width) - 430px));
+  color: var(--muted);
+  opacity: 0.36;
+  transition: opacity 180ms ease;
+}
+
+body.immersive-reading .reader-position-nav:hover,
+body.immersive-reading .reader-position-nav:focus-within {
+  opacity: 1;
+}
+
+body.immersive-reading .reader-position-nav button {
+  min-width: 0;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 9px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: inherit;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.immersive-reading .reader-position-nav button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+body.immersive-reading .reader-position-nav button:hover:not(:disabled),
+body.immersive-reading .reader-position-nav button:focus-visible {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 34%, var(--line));
+}
+
 body.immersive-reading .reader-clean-button {
   position: fixed;
   right: calc(var(--reader-assistant-width) + 18px);
@@ -2072,6 +2116,7 @@ body.immersive-reading.immersive-clean-reading .reader-settings,
 body.immersive-reading.immersive-clean-reading .reader-find,
 body.immersive-reading.immersive-clean-reading .reader-bookmark-tools,
 body.immersive-reading.immersive-clean-reading .reader-action-tools,
+body.immersive-reading.immersive-clean-reading .reader-position-nav,
 body.immersive-reading.immersive-clean-reading .reader-plan-button,
 body.immersive-reading.immersive-clean-reading .reader-plan-card,
 body.immersive-reading.immersive-clean-reading .reader-toc-button,
@@ -3362,6 +3407,23 @@ pre {
     left: 14px;
   }
 
+  body.immersive-reading .reader-position-nav {
+    right: 12px;
+    bottom: 124px;
+    left: 12px;
+    width: auto;
+    grid-template-columns: 68px minmax(0, 1fr) 68px;
+  }
+
+  body.immersive-reading .reader-position-nav button {
+    min-height: 30px;
+    padding: 4px 7px;
+  }
+
+  body.immersive-reading .reader-position-nav #immersivePlanNextNavBtn {
+    grid-column: 1 / -1;
+  }
+
   body.immersive-reading .reader-clean-button {
     right: 12px;
     bottom: 42px;
@@ -3379,7 +3441,7 @@ pre {
 
   body.immersive-reading .reader-find {
     right: 12px;
-    bottom: 82px;
+    bottom: 168px;
     left: 12px;
     grid-template-columns: minmax(0, 1fr) repeat(3, 30px) 38px;
     max-width: none;
@@ -3387,14 +3449,14 @@ pre {
 
   body.immersive-reading .reader-bookmark-tools {
     right: 12px;
-    bottom: 126px;
+    bottom: 212px;
     left: 12px;
     max-width: none;
   }
 
   body.immersive-reading .reader-action-tools {
     right: 12px;
-    bottom: 170px;
+    bottom: 256px;
     left: 12px;
     max-width: none;
     overflow-x: auto;
@@ -3403,7 +3465,7 @@ pre {
 
   body.immersive-reading.immersive-footprints-open .reading-footprints {
     right: 12px;
-    bottom: 214px;
+    bottom: 300px;
     left: 12px;
     width: auto;
     max-height: 34vh;

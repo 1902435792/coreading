@@ -200,6 +200,12 @@ function setupReaderModeControls() {
     '  <span id="immersiveBookStatus">未选择书籍</span>',
     '</div>',
     '<div class="reader-immersive-progress" aria-hidden="true"><span id="immersiveProgressFill"></span></div>',
+    '<div class="reader-position-nav" aria-label="阅读位置导航">',
+    '  <button id="immersivePrevChunkNavBtn" type="button" aria-label="上一段">上一段</button>',
+    '  <button id="immersiveCurrentChunkNavBtn" type="button">当前位置</button>',
+    '  <button id="immersiveNextChunkNavBtn" type="button" aria-label="下一段">下一段</button>',
+    '  <button id="immersivePlanNextNavBtn" type="button" disabled>计划下一步</button>',
+    '</div>',
     '<button id="immersiveCleanReadBtn" class="reader-clean-button" type="button" aria-pressed="false">净读</button>',
     '<button id="immersiveAssistantBtn" class="reader-assistant-toggle" type="button" aria-pressed="false">收起 Nova</button>',
     '<button id="immersivePlanBtn" class="reader-plan-button" type="button" aria-expanded="false" aria-controls="immersivePlan">计划</button>',
@@ -267,6 +273,28 @@ function setupReaderModeControls() {
   shell.insertAdjacentElement("afterend", chrome);
   $("immersivePrevPageBtn")?.addEventListener("click", () => void turnReaderPage(-1));
   $("immersiveNextPageBtn")?.addEventListener("click", () => void turnReaderPage(1));
+  $("immersivePrevChunkNavBtn")?.addEventListener("click", () => {
+    $("immersivePrevChunkNavBtn").disabled = true;
+    void moveChunk(-1).catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+  });
+  $("immersiveCurrentChunkNavBtn")?.addEventListener("click", () => {
+    focusPanel(".reader-surface", "#chunkText");
+    renderReaderProgress();
+  });
+  $("immersiveNextChunkNavBtn")?.addEventListener("click", () => {
+    $("immersiveNextChunkNavBtn").disabled = true;
+    void moveChunk(1).catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+  });
+  $("immersivePlanNextNavBtn")?.addEventListener("click", () => {
+    $("immersivePlanNextNavBtn").disabled = true;
+    void openPlanGuideRange().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+  });
   $("immersiveCleanReadBtn")?.addEventListener("click", toggleImmersiveCleanRead);
   $("immersiveAssistantBtn")?.addEventListener("click", toggleImmersiveAssistant);
   $("immersivePlanBtn")?.addEventListener("click", toggleImmersivePlan);
@@ -687,7 +715,56 @@ function updateImmersivePageStatus({ current = 1, total = 1, mode = state.reader
     const overall = selected && index !== null ? ((baseIndex + intraChunk) / chunkCount) * 100 : 0;
     progressFill.style.width = `${clampPercent(overall)}%`;
   }
+  renderImmersivePositionNav({ current, total, mode });
   renderImmersiveToc();
+}
+
+function renderImmersivePositionNav({ current = 1, total = 1, mode = state.readerMode } = {}) {
+  const nav = document.querySelector(".reader-position-nav");
+  if (!nav) return;
+  const selected = activeBook();
+  const index = chunkOrder(state.selectedChunkId);
+  const hasChunk = !!selected && index !== null;
+  const previousChunk = hasChunk ? state.chunks[index - 1] : null;
+  const nextChunk = hasChunk ? state.chunks[index + 1] : null;
+  const prevBtn = $("immersivePrevChunkNavBtn");
+  const currentBtn = $("immersiveCurrentChunkNavBtn");
+  const nextBtn = $("immersiveNextChunkNavBtn");
+  const planBtn = $("immersivePlanNextNavBtn");
+  const title = chunkTitleById(state.selectedChunkId);
+  const { plan, nextStep } = planGuideSelection();
+  const planLabel = planStepChunkLabel(nextStep);
+  const inChunk = mode === "paged"
+    ? `P${current}/${total}`
+    : `${clampPercent(current)}%`;
+  nav.classList.toggle("empty", !selected);
+  if (prevBtn) {
+    const previousId = getChunkId(previousChunk);
+    prevBtn.disabled = !previousId;
+    prevBtn.textContent = previousId ? `← ${previousId}` : "开头";
+    prevBtn.title = previousId ? chunkTitleById(previousId) : "已经是第一段";
+  }
+  if (currentBtn) {
+    currentBtn.disabled = !hasChunk;
+    currentBtn.textContent = hasChunk
+      ? `${index + 1}/${state.chunks.length} · ${state.selectedChunkId} · ${inChunk}`
+      : "未定位";
+    currentBtn.title = [selected?.title || selected?.bookId, title].filter(Boolean).join(" · ");
+  }
+  if (nextBtn) {
+    const nextId = getChunkId(nextChunk);
+    nextBtn.disabled = !nextId;
+    nextBtn.textContent = nextId ? `${nextId} →` : "末尾";
+    nextBtn.title = nextId ? chunkTitleById(nextId) : "已经是最后一段";
+  }
+  if (planBtn) {
+    if (plan && !state.planNextCache[plan.planId]) void hydratePlanNext(plan.planId);
+    planBtn.disabled = !plan || !nextStep || !planLabel;
+    planBtn.textContent = plan
+      ? (planLabel ? `计划: ${planLabel}` : "计划加载中")
+      : "无计划";
+    planBtn.title = nextStep?.title || plan?.title || "";
+  }
 }
 
 async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
@@ -1531,6 +1608,7 @@ function renderReaderProgress() {
   renderReadingNowBar({ scrollPercent });
   renderReadingMap({ scrollPercent });
   renderWaypoints();
+  renderImmersivePositionNav({ current: scrollPercent, total: 100, mode: state.readerMode });
   renderImmersiveActions({
     hasChunk,
     pendingCount,
