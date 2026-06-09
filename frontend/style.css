@@ -1506,9 +1506,14 @@ body.reader-mode-paged .chunk-text {
 }
 
 body.immersive-reading {
-  --reader-assistant-width: max(360px, 36vw);
+  --reader-assistant-open-width: max(360px, 36vw);
+  --reader-assistant-width: var(--reader-assistant-open-width);
   overflow: hidden;
   background: var(--surface);
+}
+
+body.immersive-reading.immersive-assistant-collapsed {
+  --reader-assistant-width: 0px;
 }
 
 body.immersive-reading[data-reader-theme="paper"] {
@@ -1740,6 +1745,12 @@ body.immersive-reading .assistant-pane {
   padding: 0;
 }
 
+body.immersive-reading.immersive-assistant-collapsed .assistant-pane {
+  border-left: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 body.immersive-reading .nova-pane {
   display: flex;
   flex: 1 1 auto;
@@ -1946,8 +1957,27 @@ body.immersive-reading .reader-clean-button {
   transition: opacity 180ms ease;
 }
 
+body.immersive-reading .reader-assistant-toggle {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 86px);
+  bottom: 62px;
+  z-index: 9;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--muted);
+  font-size: 12px;
+  opacity: 0.32;
+  transition: opacity 180ms ease;
+}
+
 body.immersive-reading .reader-clean-button:hover,
 body.immersive-reading .reader-clean-button:focus-visible,
+body.immersive-reading .reader-assistant-toggle:hover,
+body.immersive-reading .reader-assistant-toggle:focus-visible,
+body.immersive-reading.immersive-assistant-collapsed .reader-assistant-toggle,
 body.immersive-reading.immersive-clean-reading .reader-clean-button {
   opacity: 1;
   color: var(--ink);
@@ -3185,6 +3215,11 @@ pre {
 
   body.immersive-reading .reader-clean-button {
     right: 12px;
+    bottom: 42px;
+  }
+
+  body.immersive-reading .reader-assistant-toggle {
+    right: 86px;
     bottom: 42px;
   }
 

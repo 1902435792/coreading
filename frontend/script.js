@@ -198,6 +198,7 @@ function setupReaderModeControls() {
     '</div>',
     '<div class="reader-immersive-progress" aria-hidden="true"><span id="immersiveProgressFill"></span></div>',
     '<button id="immersiveCleanReadBtn" class="reader-clean-button" type="button" aria-pressed="false">净读</button>',
+    '<button id="immersiveAssistantBtn" class="reader-assistant-toggle" type="button" aria-pressed="false">收起 Nova</button>',
     '<button id="immersiveTocBtn" class="reader-toc-button" type="button" aria-expanded="false" aria-controls="immersiveToc">目录</button>',
     '<div id="immersiveToc" class="reader-toc" hidden>',
     '  <div class="reader-toc-head">',
@@ -250,6 +251,7 @@ function setupReaderModeControls() {
   $("immersivePrevPageBtn")?.addEventListener("click", () => void turnReaderPage(-1));
   $("immersiveNextPageBtn")?.addEventListener("click", () => void turnReaderPage(1));
   $("immersiveCleanReadBtn")?.addEventListener("click", toggleImmersiveCleanRead);
+  $("immersiveAssistantBtn")?.addEventListener("click", toggleImmersiveAssistant);
   $("immersiveTocBtn")?.addEventListener("click", toggleImmersiveToc);
   $("immersiveTocCloseBtn")?.addEventListener("click", closeImmersiveToc);
   $("immersiveTocSearch")?.addEventListener("input", renderImmersiveToc);
@@ -451,6 +453,9 @@ function handleReaderKeyboard(event) {
   } else if (event.key.toLowerCase() === "h") {
     event.preventDefault();
     toggleImmersiveCleanRead();
+  } else if (event.key.toLowerCase() === "n") {
+    event.preventDefault();
+    toggleImmersiveAssistant();
   }
 }
 
@@ -614,7 +619,10 @@ function updateImmersivePageStatus({ current = 1, total = 1, mode = state.reader
 async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
   state.immersiveReading = !!enabled;
   document.body.classList.toggle("immersive-reading", state.immersiveReading);
-  if (!state.immersiveReading) setImmersiveCleanRead(false);
+  if (!state.immersiveReading) {
+    setImmersiveCleanRead(false);
+    setImmersiveAssistantCollapsed(false);
+  }
   const button = $("immersiveReadingBtn");
   if (button) {
     button.textContent = state.immersiveReading ? "退出沉浸" : "沉浸";
@@ -653,6 +661,21 @@ function setImmersiveCleanRead(enabled) {
     button.textContent = active ? "显示控件" : "净读";
     button.setAttribute("aria-pressed", active ? "true" : "false");
   }
+}
+
+function toggleImmersiveAssistant() {
+  setImmersiveAssistantCollapsed(!document.body.classList.contains("immersive-assistant-collapsed"));
+}
+
+function setImmersiveAssistantCollapsed(enabled) {
+  const active = Boolean(enabled);
+  document.body.classList.toggle("immersive-assistant-collapsed", active);
+  const button = $("immersiveAssistantBtn");
+  if (button) {
+    button.textContent = active ? "打开 Nova" : "收起 Nova";
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+  window.setTimeout(updateReaderPageStatus, 80);
 }
 
 function announce(text) {
