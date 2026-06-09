@@ -1450,6 +1450,73 @@ function readingVisitCopySummary(book = activeBook()) {
   ].join("\n");
 }
 
+function readingVisitReviewPayload(book = activeBook()) {
+  if (!book?.bookId || !state.selectedChunkId) throw new Error("请先选择一本书和当前段落。");
+  ensureReadingVisit(book.bookId);
+  const visit = normalizeReadingVisit(state.readingVisit);
+  const targets = currentChunkSinkTargets();
+  const summary = readingVisitCopySummary(book);
+  return {
+    command: "review_create",
+    bookId: book.bookId,
+    startChunkId: state.selectedChunkId,
+    endChunkId: state.selectedChunkId,
+    summary: [
+      `本次阅读沉淀：${book.title || book.bookId}`,
+      readingVisitSummary(book),
+      `当前位置：${state.selectedChunkId}${chunkTitleById(state.selectedChunkId) ? ` · ${chunkTitleById(state.selectedChunkId)}` : ""}`,
+    ].join("\n"),
+    observations: [
+      {
+        section: "reading_visit",
+        source: "browser-reading-visit",
+        kind: "session-summary",
+        chunkId: state.selectedChunkId,
+        quote: state.selectedChunkId,
+        note: summary,
+        text: summary,
+        startedAt: visit.startedAt ? new Date(visit.startedAt).toISOString() : "",
+        endedAt: visit.endedAt ? new Date(visit.endedAt).toISOString() : "",
+        completedChunks: visit.completedChunks,
+        targetChunks: visit.targetChunks,
+      }
+    ],
+    tags: ["co-reading", "sidecar", "reading-visit"],
+    sinkPolicy: {
+      requireApproval: true,
+      obsidian: targets.includes("obsidian"),
+      dailyNote: targets.includes("dailyNote"),
+      vcpMemory: targets.includes("vcpMemory"),
+    },
+    createdBy: "CoReadingSidecar",
+  };
+}
+
+async function createReadingVisitSinkPreview() {
+  const selected = activeBook();
+  const reviewResult = await command(readingVisitReviewPayload(selected));
+  const review = reviewResult.data?.review || reviewResult.raw?.review || reviewResult.review || reviewResult.fullReview || null;
+  const reviewId = review?.reviewId || reviewResult.data?.reviewId || reviewResult.raw?.reviewId || reviewResult.reviewId;
+  if (!reviewId) throw new Error("已创建本次阅读评价，但没有返回 reviewId。");
+  const previewResult = await command({
+    command: "sink_preview_create",
+    reviewId,
+    targets: currentChunkSinkTargets(),
+    requireApproval: true,
+    vaultPath: $("vaultPath").value || undefined,
+    dailyNoteRoot: $("dailyNoteRoot").value || undefined,
+    vcpMemoryRoot: $("vcpMemoryRoot").value || undefined,
+    createdBy: "CoReadingSidecar",
+  });
+  const opened = await openPreviewFromResult(previewResult, { refreshSnapshot: true });
+  if (!opened) await loadSnapshot();
+  renderReadingSession();
+  renderReaderProgress();
+  focusPanel(".sink-detail", "#sinkPreviewContent");
+  log(`已生成本次阅读沉淀预览: ${reviewId}`);
+  return { reviewId, previewResult };
+}
+
 function restoreSavedScroll(saved) {
   if (!saved || saved.bookId !== state.selectedBookId || saved.chunkId !== state.selectedChunkId) return;
   const chunkText = $("chunkText");
@@ -1971,6 +2038,7 @@ function renderReadingSession() {
   $("sessionAskNovaBtn").disabled = !hasBook || !state.selectedChunkId;
   $("sessionNoteBtn").disabled = !hasBook || !state.selectedChunkId;
   $("sessionCopySummaryBtn").disabled = !hasBook;
+  $("sessionSinkVisitBtn").disabled = !hasBook || !state.selectedChunkId;
   $("sessionEndVisitBtn").disabled = !hasBook || !state.readingVisit.startedAt || !!state.readingVisit.endedAt;
   $("sessionTargetInput").disabled = !hasBook;
   $("sessionTargetInput").value = String(Math.max(1, Number(state.readingVisit.targetChunks || 3)));
@@ -11119,6 +11187,12 @@ $("sessionCopySummaryBtn").addEventListener("click", async () => {
   } catch (error) {
     log(error.message || String(error));
   }
+});
+$("sessionSinkVisitBtn").addEventListener("click", () => {
+  $("sessionSinkVisitBtn").disabled = true;
+  void createReadingVisitSinkPreview().catch((error) => {
+    log(error.message || String(error));
+  }).finally(renderReadingSession);
 });
 $("sessionEndVisitBtn").addEventListener("click", endReadingVisit);
 $("readingNowFocusBtn").addEventListener("click", () => {
