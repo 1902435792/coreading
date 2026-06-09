@@ -4701,6 +4701,11 @@ async function selectChunk(chunkId, autoRead = true, { resetScroll = true } = {}
   clearReaderSelection();
   clearEntityPeek();
   state.selfCheck.hintVisible = false;
+  state.currentChunk = null;
+  state.annotations = [];
+  state.userNotes = [];
+  state.submissions = [];
+  state.illustrationSuggestions = [];
   state.selectedChunkId = chunkId;
   if (resetScroll) saveReadingSession({ chunkId, scrollTop: 0 });
   $("chunkSelect").value = chunkId;
@@ -8287,21 +8292,15 @@ $("illustrationSuggestions").addEventListener("click", (event) => {
   log(suggestion);
 });
 $("chunkSelect").addEventListener("change", (event) => {
-  clearReaderSelection();
-  clearEntityPeek();
-  state.selfCheck.hintVisible = false;
-  state.selectedChunkId = event.target.value;
-  state.currentChunk = null;
-  state.annotations = [];
-  state.illustrationSuggestions = [];
-  saveReadingSession({ chunkId: state.selectedChunkId, scrollTop: 0 });
-  renderPlanRangeStatus();
-  renderReviewRangeStatus();
-  renderChunkNavigation();
-  renderReader();
-  renderSelfCheck();
-  renderAnnotations();
-  renderIllustrationSuggestions();
+  const select = event.target;
+  select.disabled = true;
+  void selectChunk(select.value, true).catch((error) => {
+    log(error.message || String(error));
+  }).finally(() => {
+    select.disabled = !state.chunks.length;
+    renderPlanRangeStatus();
+    renderReviewRangeStatus();
+  });
 });
 $("readerBookSelect").addEventListener("change", (event) => {
   const select = event.target;
