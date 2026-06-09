@@ -28,6 +28,7 @@ const state = {
   novaLastRequest: null,
   readerSelection: { text: "", offset: null },
   selectionCaptureTimer: 0,
+  quickNoteLastQuote: null,
   entityPeek: null,
   selfCheck: { variant: 0, hintVisible: false },
   readingFocus: false,
@@ -5924,6 +5925,8 @@ function openImmersiveQuickNote() {
   const panel = $("immersiveQuickNote");
   if (!panel) return;
   panel.hidden = false;
+  state.quickNoteLastQuote = null;
+  $("immersiveQuickSinkBtn").disabled = true;
   $("immersiveQuickNoteStatus").textContent = `引用：${state.readerSelection.text.slice(0, 80)}`;
   window.setTimeout(() => $("immersiveQuickNoteInput")?.focus(), 80);
 }
@@ -5931,7 +5934,11 @@ function openImmersiveQuickNote() {
 function closeImmersiveQuickNote({ clear = false } = {}) {
   const panel = $("immersiveQuickNote");
   if (panel) panel.hidden = true;
-  if (clear) $("immersiveQuickNoteInput").value = "";
+  if (clear) {
+    $("immersiveQuickNoteInput").value = "";
+    state.quickNoteLastQuote = null;
+    $("immersiveQuickSinkBtn").disabled = true;
+  }
 }
 
 function openImmersiveToolsPane() {
@@ -7359,8 +7366,12 @@ async function saveImmersiveQuickNote(kind = "note") {
   try {
     if (kind === "annotation") await saveAnnotation({ quote: quote.text, quoteOffset: quote.offset, note, kind: "annotation" });
     else await saveUserNote({ quote: quote.text, quoteOffset: quote.offset, note, status: "open" });
-    closeImmersiveQuickNote({ clear: true });
     await readSelectedChunk();
+    $("immersiveQuickNote").hidden = false;
+    state.quickNoteLastQuote = quote;
+    if (status) status.textContent = kind === "annotation" ? "已保存边注，可生成沉淀预览。" : "已保存笔记，可生成沉淀预览。";
+    $("immersiveQuickSinkBtn").disabled = false;
+    input.value = "";
     log(kind === "annotation" ? "已保存选区边注。" : "已保存选区笔记。");
   } catch (error) {
     if (status) status.textContent = error.message || String(error);
@@ -7373,6 +7384,28 @@ async function saveImmersiveQuickNote(kind = "note") {
 $("immersiveQuickNoteSaveBtn")?.addEventListener("click", () => void saveImmersiveQuickNote("note"));
 $("immersiveQuickAnnotationSaveBtn")?.addEventListener("click", () => void saveImmersiveQuickNote("annotation"));
 $("immersiveQuickNoteCloseBtn")?.addEventListener("click", () => closeImmersiveQuickNote());
+$("immersiveQuickSinkBtn")?.addEventListener("click", async () => {
+  const button = $("immersiveQuickSinkBtn");
+  const status = $("immersiveQuickNoteStatus");
+  const quote = state.quickNoteLastQuote || selectedQuote();
+  if (!quote?.text) {
+    if (status) status.textContent = "先保存一条选区笔记或边注。";
+    return;
+  }
+  button.disabled = true;
+  try {
+    if (status) status.textContent = "正在生成沉淀预览...";
+    const result = await createCurrentChunkSinkPreview({ quote });
+    closeImmersiveQuickNote({ clear: true });
+    focusPanel(".sink-detail", "#sinkPreviewContent");
+    log(`已生成快速笔记沉淀预览: ${result.reviewId}`);
+  } catch (error) {
+    if (status) status.textContent = error.message || String(error);
+    log(error.message || String(error));
+  } finally {
+    button.disabled = !state.quickNoteLastQuote;
+  }
+});
 $("immersiveQuickNoteInput")?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   event.preventDefault();
