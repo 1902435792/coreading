@@ -232,6 +232,7 @@ function setupReaderModeControls() {
     '  <span id="immersiveBookmarkStatus">暂无书签</span>',
     '</div>',
     '<div class="reader-action-tools" aria-label="本段动作">',
+    '  <button id="immersiveNextChunkBtn" type="button">读完下一段</button>',
     '  <button id="immersiveAskNovaBtn" type="button">问 Nova</button>',
     '  <button id="immersiveNoteBtn" type="button">记一笔</button>',
     '  <button id="immersiveSelfCheckBtn" type="button">自测</button>',
@@ -277,6 +278,12 @@ function setupReaderModeControls() {
     void openImmersiveLastBookmark();
   });
   $("immersiveAskNovaBtn")?.addEventListener("click", prepareNovaPromptFromCurrentReading);
+  $("immersiveNextChunkBtn")?.addEventListener("click", () => {
+    $("immersiveNextChunkBtn").disabled = true;
+    void markReadAndMaybeAdvance({ advance: true }).catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+  });
   $("immersiveNoteBtn")?.addEventListener("click", prepareNoteFromCurrentReading);
   $("immersiveSelfCheckBtn")?.addEventListener("click", openImmersiveSelfCheck);
   $("immersiveSinkCurrentBtn")?.addEventListener("click", () => {
@@ -1371,13 +1378,18 @@ function renderReaderProgress() {
 }
 
 function renderImmersiveActions({ hasChunk = false, pendingCount = 0, currentChunkPendingSink = null, currentChunkApprovedSink = null } = {}) {
+  const next = $("immersiveNextChunkBtn");
   const ask = $("immersiveAskNovaBtn");
   const note = $("immersiveNoteBtn");
   const selfCheck = $("immersiveSelfCheckBtn");
   const sink = $("immersiveSinkCurrentBtn");
   const open = $("immersiveOpenSinkBtn");
   const status = $("immersiveActionStatus");
-  if (!ask || !note || !selfCheck || !sink || !open || !status) return;
+  if (!next || !ask || !note || !selfCheck || !sink || !open || !status) return;
+  const currentIndex = chunkOrder(state.selectedChunkId);
+  const nextId = hasChunk && currentIndex !== null ? getChunkId(state.chunks[currentIndex + 1]) : "";
+  next.disabled = !hasChunk;
+  next.textContent = nextId ? "读完下一段" : "标记读完";
   ask.disabled = !hasChunk;
   note.disabled = !hasChunk;
   selfCheck.disabled = !hasChunk;
