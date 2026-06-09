@@ -351,9 +351,15 @@
               <small id="sessionMeta">导入或选择一本书开始。</small>
             </div>
             <div class="session-actions">
+              <label class="session-target-control">
+                <span>目标</span>
+                <input id="sessionTargetInput" type="number" min="1" max="99" step="1" value="3" aria-label="本次阅读目标段数">
+              </label>
               <button id="sessionResumeBtn" class="secondary compact" type="button">回现场</button>
               <button id="sessionContinueBtn" class="primary compact" type="button">继续读</button>
               <button id="sessionRestartBtn" class="secondary compact" type="button">从头读</button>
+              <button id="sessionCopySummaryBtn" class="secondary compact" type="button">复制本次</button>
+              <button id="sessionEndVisitBtn" class="secondary compact" type="button">结束本次</button>
               <button id="sessionAskNovaBtn" class="secondary compact" type="button">问 Nova</button>
               <button id="sessionNoteBtn" class="secondary compact" type="button">记一笔</button>
             </div>

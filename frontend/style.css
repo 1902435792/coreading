@@ -811,6 +811,26 @@ fieldset input {
   gap: 8px;
 }
 
+.session-target-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 92px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.session-target-control input {
+  width: 48px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
 .reading-now-bar {
   position: sticky;
   top: 8px;

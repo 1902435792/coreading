@@ -61,6 +61,7 @@ const SELF_CHECK_DRAFTS_KEY = "vcp-coreading-sidecar.selfCheckDrafts";
 const LIBRARY_SHOW_TEST_BOOKS_KEY = "vcp-coreading-sidecar.showTestBooks";
 const READER_MODE_KEY = "vcp-coreading-sidecar.readerMode";
 const READER_SETTINGS_KEY = "vcp-coreading-sidecar.readerSettings";
+const READING_VISIT_KEY = "vcp-coreading-sidecar.readingVisit";
 const NOVA_REQUEST_TIMEOUT_MS = 15000;
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
 
@@ -68,6 +69,7 @@ setupAppLayout();
 setupReaderModeControls();
 loadReaderMode();
 loadReaderSettings();
+loadReadingVisit();
 
 function setupAppLayout() {
   const workspace = $("mainContent");
@@ -1296,6 +1298,30 @@ function clearSavedReadingSessionForBook(bookId) {
   if (legacy?.bookId === bookId) localStorage.removeItem(READING_SESSION_KEY);
 }
 
+function normalizeReadingVisit(visit = {}) {
+  const targetChunks = Math.max(1, Math.min(99, Number(visit.targetChunks || state.readingVisit?.targetChunks || 3)));
+  return {
+    bookId: String(visit.bookId || ""),
+    startedAt: Number(visit.startedAt || 0),
+    completedChunks: Math.max(0, Number(visit.completedChunks || 0)),
+    targetChunks,
+    endedAt: Number(visit.endedAt || 0),
+  };
+}
+
+function loadReadingVisit() {
+  try {
+    state.readingVisit = normalizeReadingVisit(JSON.parse(localStorage.getItem(READING_VISIT_KEY) || "{}"));
+  } catch {
+    state.readingVisit = normalizeReadingVisit();
+    localStorage.removeItem(READING_VISIT_KEY);
+  }
+}
+
+function saveReadingVisit() {
+  localStorage.setItem(READING_VISIT_KEY, JSON.stringify(normalizeReadingVisit(state.readingVisit)));
+}
+
 function rememberRestartUndo(session) {
   if (!session?.bookId || !session.chunkId) return;
   if (state.restartUndoTimer) window.clearTimeout(state.restartUndoTimer);
@@ -1348,18 +1374,40 @@ function saveReadingSession(extra = {}) {
 
 function ensureReadingVisit(bookId = activeBook()?.bookId) {
   if (!bookId) return;
-  if (state.readingVisit.bookId === bookId && state.readingVisit.startedAt) return;
+  if (state.readingVisit.bookId === bookId && state.readingVisit.startedAt && !state.readingVisit.endedAt) return;
   state.readingVisit = {
     bookId,
     startedAt: Date.now(),
     completedChunks: 0,
     targetChunks: state.readingVisit.targetChunks || 3,
+    endedAt: 0,
   };
+  saveReadingVisit();
 }
 
 function recordReadingVisitCompletion(bookId = activeBook()?.bookId) {
   ensureReadingVisit(bookId);
   state.readingVisit.completedChunks += 1;
+  saveReadingVisit();
+}
+
+function setReadingVisitTarget(value) {
+  const targetChunks = Math.max(1, Math.min(99, Number(value || 3)));
+  state.readingVisit = normalizeReadingVisit({ ...state.readingVisit, targetChunks });
+  saveReadingVisit();
+  renderReadingSession();
+  renderReadingNowBar();
+  renderImmersiveActions({ hasChunk: !!activeBook() && !!state.selectedChunkId });
+}
+
+function endReadingVisit() {
+  if (!state.readingVisit.startedAt) ensureReadingVisit();
+  state.readingVisit = normalizeReadingVisit({ ...state.readingVisit, endedAt: Date.now() });
+  saveReadingVisit();
+  renderReadingSession();
+  renderReadingNowBar();
+  renderReaderProgress();
+  log(`已结束本次阅读: ${readingVisitSummary(activeBook())}`);
 }
 
 function formatReadingVisitElapsed(startedAt = state.readingVisit.startedAt) {
@@ -1376,8 +1424,30 @@ function readingVisitSummary(book = activeBook()) {
   if (!book) return "本次未开始";
   ensureReadingVisit(book.bookId);
   const visit = state.readingVisit;
-  const remaining = Math.max(0, Number(visit.targetChunks || 0) - Number(visit.completedChunks || 0));
-  return `本次 ${formatReadingVisitElapsed()} · 已读 ${visit.completedChunks || 0} 段 · 目标还差 ${remaining} 段`;
+  const done = Math.max(0, Number(visit.completedChunks || 0));
+  const target = Math.max(1, Number(visit.targetChunks || 3));
+  const remaining = Math.max(0, target - done);
+  const goal = remaining ? `目标还差 ${remaining} 段` : "已达成本次目标";
+  const ended = visit.endedAt ? " · 已结束" : "";
+  return `本次 ${formatReadingVisitElapsed(visit.startedAt)} · 已读 ${done}/${target} 段 · ${goal}${ended}`;
+}
+
+function readingVisitCopySummary(book = activeBook()) {
+  if (!book?.bookId) throw new Error("请先选择一本书。");
+  ensureReadingVisit(book.bookId);
+  const visit = normalizeReadingVisit(state.readingVisit);
+  const chunkTitle = chunkTitleById(state.selectedChunkId);
+  return [
+    `阅读会话: ${book.title || book.bookId}`,
+    `bookId: ${book.bookId}`,
+    `currentChunk: ${state.selectedChunkId || ""}${chunkTitle ? ` · ${chunkTitle}` : ""}`,
+    `startedAt: ${visit.startedAt ? new Date(visit.startedAt).toISOString() : ""}`,
+    `endedAt: ${visit.endedAt ? new Date(visit.endedAt).toISOString() : ""}`,
+    `elapsed: ${formatReadingVisitElapsed(visit.startedAt)}`,
+    `progressThisVisit: ${visit.completedChunks}/${visit.targetChunks}`,
+    `bookProgress: ${progressPercent(book)}% · ${book.chunksRead || 0}/${book.chunkCount || state.chunks.length || 0} chunks`,
+    `summary: ${readingVisitSummary(book)}`,
+  ].join("\n");
 }
 
 function restoreSavedScroll(saved) {
@@ -1900,6 +1970,10 @@ function renderReadingSession() {
   $("sessionRestartBtn").textContent = canUndoRestart ? "撤销从头读" : "从头读";
   $("sessionAskNovaBtn").disabled = !hasBook || !state.selectedChunkId;
   $("sessionNoteBtn").disabled = !hasBook || !state.selectedChunkId;
+  $("sessionCopySummaryBtn").disabled = !hasBook;
+  $("sessionEndVisitBtn").disabled = !hasBook || !state.readingVisit.startedAt || !!state.readingVisit.endedAt;
+  $("sessionTargetInput").disabled = !hasBook;
+  $("sessionTargetInput").value = String(Math.max(1, Number(state.readingVisit.targetChunks || 3)));
   if (!selected) {
     kicker.textContent = "当前阅读";
     title.textContent = "还没有选书";
@@ -11034,6 +11108,19 @@ $("sessionAskNovaBtn").addEventListener("click", () => {
 $("sessionNoteBtn").addEventListener("click", () => {
   prepareNoteFromCurrentReading();
 });
+$("sessionTargetInput").addEventListener("change", (event) => {
+  setReadingVisitTarget(event.target.value);
+});
+$("sessionCopySummaryBtn").addEventListener("click", async () => {
+  try {
+    const selected = activeBook();
+    await copyTextToClipboard(readingVisitCopySummary(selected));
+    log(`已复制本次阅读摘要: ${selected.title || selected.bookId}`);
+  } catch (error) {
+    log(error.message || String(error));
+  }
+});
+$("sessionEndVisitBtn").addEventListener("click", endReadingVisit);
 $("readingNowFocusBtn").addEventListener("click", () => {
   focusPanel(".reader-surface", "#chunkText");
   if (state.selectedChunkId) log(`已回到正文: ${state.selectedChunkId}`);
