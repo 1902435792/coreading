@@ -62,6 +62,7 @@ const LIBRARY_SHOW_TEST_BOOKS_KEY = "vcp-coreading-sidecar.showTestBooks";
 const READER_MODE_KEY = "vcp-coreading-sidecar.readerMode";
 const READER_SETTINGS_KEY = "vcp-coreading-sidecar.readerSettings";
 const READING_VISIT_KEY = "vcp-coreading-sidecar.readingVisit";
+const READING_VISIT_HISTORY_KEY = "vcp-coreading-sidecar.readingVisitHistory";
 const NOVA_REQUEST_TIMEOUT_MS = 15000;
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
 
@@ -1322,6 +1323,47 @@ function saveReadingVisit() {
   localStorage.setItem(READING_VISIT_KEY, JSON.stringify(normalizeReadingVisit(state.readingVisit)));
 }
 
+function readReadingVisitHistory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(READING_VISIT_HISTORY_KEY) || "[]");
+    return Array.isArray(saved) ? saved.filter((item) => item?.bookId && item.startedAt).slice(0, 20) : [];
+  } catch {
+    localStorage.removeItem(READING_VISIT_HISTORY_KEY);
+    return [];
+  }
+}
+
+function saveReadingVisitHistory(items) {
+  localStorage.setItem(READING_VISIT_HISTORY_KEY, JSON.stringify(items.slice(0, 20)));
+}
+
+function readingVisitHistoryItem(book = activeBook()) {
+  if (!book?.bookId) return null;
+  const visit = normalizeReadingVisit(state.readingVisit);
+  if (!visit.startedAt) return null;
+  return {
+    id: `visit-${book.bookId}-${visit.startedAt}`,
+    bookId: book.bookId,
+    bookTitle: book.title || book.bookId,
+    currentChunkId: state.selectedChunkId || "",
+    currentChunkTitle: chunkTitleById(state.selectedChunkId),
+    startedAt: visit.startedAt,
+    endedAt: visit.endedAt || Date.now(),
+    completedChunks: visit.completedChunks,
+    targetChunks: visit.targetChunks,
+    summary: readingVisitCopySummary(book),
+  };
+}
+
+function archiveReadingVisit(book = activeBook()) {
+  const item = readingVisitHistoryItem(book);
+  if (!item) return null;
+  const history = readReadingVisitHistory().filter((existing) => existing.id !== item.id);
+  history.unshift(item);
+  saveReadingVisitHistory(history);
+  return item;
+}
+
 function rememberRestartUndo(session) {
   if (!session?.bookId || !session.chunkId) return;
   if (state.restartUndoTimer) window.clearTimeout(state.restartUndoTimer);
@@ -1404,10 +1446,11 @@ function endReadingVisit() {
   if (!state.readingVisit.startedAt) ensureReadingVisit();
   state.readingVisit = normalizeReadingVisit({ ...state.readingVisit, endedAt: Date.now() });
   saveReadingVisit();
+  const archived = archiveReadingVisit(activeBook());
   renderReadingSession();
   renderReadingNowBar();
   renderReaderProgress();
-  log(`已结束本次阅读: ${readingVisitSummary(activeBook())}`);
+  log(archived ? `已结束并归档本次阅读: ${archived.bookTitle} · ${archived.completedChunks}/${archived.targetChunks}` : `已结束本次阅读: ${readingVisitSummary(activeBook())}`);
 }
 
 function formatReadingVisitElapsed(startedAt = state.readingVisit.startedAt) {
@@ -1448,6 +1491,47 @@ function readingVisitCopySummary(book = activeBook()) {
     `bookProgress: ${progressPercent(book)}% · ${book.chunksRead || 0}/${book.chunkCount || state.chunks.length || 0} chunks`,
     `summary: ${readingVisitSummary(book)}`,
   ].join("\n");
+}
+
+function readingVisitHistorySummary(item) {
+  if (!item?.bookId) throw new Error("阅读历史记录无效。");
+  return [
+    `阅读会话: ${item.bookTitle || item.bookId}`,
+    `bookId: ${item.bookId}`,
+    `currentChunk: ${item.currentChunkId || ""}${item.currentChunkTitle ? ` · ${item.currentChunkTitle}` : ""}`,
+    `startedAt: ${item.startedAt ? new Date(item.startedAt).toISOString() : ""}`,
+    `endedAt: ${item.endedAt ? new Date(item.endedAt).toISOString() : ""}`,
+    `progressThisVisit: ${item.completedChunks || 0}/${item.targetChunks || 0}`,
+    "",
+    item.summary || "",
+  ].join("\n").trim();
+}
+
+function renderReadingVisitHistory() {
+  const list = $("sessionHistoryList");
+  if (!list) return;
+  const selected = activeBook();
+  const history = readReadingVisitHistory().filter((item) => !selected || item.bookId === selected.bookId).slice(0, 5);
+  if (!history.length) {
+    list.className = "session-history empty";
+    list.textContent = "结束一次阅读后会保留最近记录。";
+    return;
+  }
+  list.className = "session-history";
+  list.innerHTML = history.map((item) => {
+    const ended = item.endedAt ? formatSavedAt(new Date(item.endedAt).toISOString()) : "";
+    const chunk = item.currentChunkId ? ` · ${escapeHtml(item.currentChunkId)}` : "";
+    return `<article class="session-history-row">
+      <div>
+        <strong>${escapeHtml(item.bookTitle || item.bookId)}${chunk}</strong>
+        <small>${escapeHtml(ended || "刚刚")} · 已读 ${escapeHtml(item.completedChunks || 0)}/${escapeHtml(item.targetChunks || 0)} 段</small>
+      </div>
+      <div>
+        <button class="secondary compact" type="button" data-session-history-action="copy" data-session-history-id="${escapeHtml(item.id)}">复制</button>
+        <button class="secondary compact" type="button" data-session-history-action="sink" data-session-history-id="${escapeHtml(item.id)}">沉淀</button>
+      </div>
+    </article>`;
+  }).join("");
 }
 
 function readingVisitReviewPayload(book = activeBook()) {
@@ -1492,9 +1576,45 @@ function readingVisitReviewPayload(book = activeBook()) {
   };
 }
 
-async function createReadingVisitSinkPreview() {
+function readingVisitHistoryReviewPayload(item) {
+  if (!item?.bookId || !item.currentChunkId) throw new Error("阅读历史缺少书籍或段落。");
+  const targets = currentChunkSinkTargets();
+  const summary = readingVisitHistorySummary(item);
+  return {
+    command: "review_create",
+    bookId: item.bookId,
+    startChunkId: item.currentChunkId,
+    endChunkId: item.currentChunkId,
+    summary: [
+      `历史阅读沉淀：${item.bookTitle || item.bookId}`,
+      `本次已读 ${item.completedChunks || 0}/${item.targetChunks || 0} 段`,
+      `结束位置：${item.currentChunkId}${item.currentChunkTitle ? ` · ${item.currentChunkTitle}` : ""}`,
+    ].join("\n"),
+    observations: [
+      {
+        section: "reading_visit_history",
+        source: "browser-reading-visit-history",
+        kind: "session-summary",
+        chunkId: item.currentChunkId,
+        quote: item.currentChunkId,
+        note: summary,
+        text: summary,
+      }
+    ],
+    tags: ["co-reading", "sidecar", "reading-visit-history"],
+    sinkPolicy: {
+      requireApproval: true,
+      obsidian: targets.includes("obsidian"),
+      dailyNote: targets.includes("dailyNote"),
+      vcpMemory: targets.includes("vcpMemory"),
+    },
+    createdBy: "CoReadingSidecar",
+  };
+}
+
+async function createReadingVisitSinkPreview(item = null) {
   const selected = activeBook();
-  const reviewResult = await command(readingVisitReviewPayload(selected));
+  const reviewResult = await command(item ? readingVisitHistoryReviewPayload(item) : readingVisitReviewPayload(selected));
   const review = reviewResult.data?.review || reviewResult.raw?.review || reviewResult.review || reviewResult.fullReview || null;
   const reviewId = review?.reviewId || reviewResult.data?.reviewId || reviewResult.raw?.reviewId || reviewResult.reviewId;
   if (!reviewId) throw new Error("已创建本次阅读评价，但没有返回 reviewId。");
@@ -1513,7 +1633,7 @@ async function createReadingVisitSinkPreview() {
   renderReadingSession();
   renderReaderProgress();
   focusPanel(".sink-detail", "#sinkPreviewContent");
-  log(`已生成本次阅读沉淀预览: ${reviewId}`);
+  log(`已生成${item ? "历史" : "本次"}阅读沉淀预览: ${reviewId}`);
   return { reviewId, previewResult };
 }
 
@@ -2046,6 +2166,7 @@ function renderReadingSession() {
     kicker.textContent = "当前阅读";
     title.textContent = "还没有选书";
     meta.textContent = "导入或选择一本书开始。";
+    renderReadingVisitHistory();
     return;
   }
   const percent = progressPercent(selected);
@@ -2057,6 +2178,7 @@ function renderReadingSession() {
   meta.textContent = bookSession
     ? `继续阅读 ${bookSession.chunkId}${formatSavedAt(bookSession.savedAt) ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""} · ${visitSummary}`
     : (nextId ? `下一段 ${nextId}${nextTitle ? ` · ${nextTitle}` : ""} · ${visitSummary}` : `这本书暂时没有可继续的段落。 · ${visitSummary}`);
+  renderReadingVisitHistory();
 }
 
 function renderReadingNowBar({ scrollPercent = currentChunkScrollPercent() } = {}) {
@@ -11195,6 +11317,28 @@ $("sessionSinkVisitBtn").addEventListener("click", () => {
   }).finally(renderReadingSession);
 });
 $("sessionEndVisitBtn").addEventListener("click", endReadingVisit);
+$("sessionHistoryList").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-session-history-action][data-session-history-id]");
+  if (!button) return;
+  const item = readReadingVisitHistory().find((historyItem) => historyItem.id === button.dataset.sessionHistoryId);
+  if (!item) {
+    log("这条阅读历史已经不存在。");
+    renderReadingVisitHistory();
+    return;
+  }
+  button.disabled = true;
+  if (button.dataset.sessionHistoryAction === "copy") {
+    void copyTextToClipboard(readingVisitHistorySummary(item)).then(() => {
+      log(`已复制历史阅读摘要: ${item.bookTitle || item.bookId}`);
+    }).catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReadingVisitHistory);
+    return;
+  }
+  void createReadingVisitSinkPreview(item).catch((error) => {
+    log(error.message || String(error));
+  }).finally(renderReadingVisitHistory);
+});
 $("readingNowFocusBtn").addEventListener("click", () => {
   focusPanel(".reader-surface", "#chunkText");
   if (state.selectedChunkId) log(`已回到正文: ${state.selectedChunkId}`);

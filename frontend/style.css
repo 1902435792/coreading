@@ -804,6 +804,37 @@ fieldset input {
   white-space: nowrap;
 }
 
+.session-history {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.session-history.empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.session-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.session-history-row > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.session-history-row button.compact {
+  min-width: 54px;
+}
+
 .session-actions {
   display: flex;
   flex-wrap: wrap;
