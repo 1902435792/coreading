@@ -1180,6 +1180,16 @@ body.reader-toc-open #readerTocList.reader-toc-inline.empty {
   color: var(--muted);
 }
 
+.queue-item.queue-nova .queue-open {
+  border-color: var(--ink);
+  background: var(--accent-soft);
+}
+
+.queue-item.queue-nova .queue-open:disabled {
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+
 .queue-open strong {
   display: -webkit-box;
   overflow: hidden;

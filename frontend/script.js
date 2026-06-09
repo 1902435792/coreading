@@ -2903,6 +2903,40 @@ function queueItemHtml(item) {
   `;
 }
 
+function novaAutonomousCandidateLabel(chunkId) {
+  const title = chunkTitleById(chunkId);
+  return `${chunkId}${title && title !== chunkId ? ` · ${title}` : ""}`;
+}
+
+function novaAutonomousCandidateIds(anchorChunkId = state.selectedChunkId) {
+  if (!state.chunks.length) return [];
+  const currentIndex = chunkOrder(anchorChunkId) ?? 0;
+  const ids = [
+    anchorChunkId,
+    preferredReadingChunkIdFrom(currentIndex),
+    preferredReadingChunkIdFrom(currentIndex + 1),
+    preferredReadingChunkIdFrom(Math.max(0, currentIndex - 2)),
+  ].filter(Boolean);
+  return Array.from(new Set(ids)).slice(0, 4);
+}
+
+function novaAutonomousQueueItem(selected) {
+  if (!selected || !state.selectedChunkId) return null;
+  const candidateIds = novaAutonomousCandidateIds();
+  const pending = state.novaAskPending && novaRequestBelongsToCurrentChunk();
+  const answered = novaReplyBelongsToCurrentChunk() && state.novaReplyContext?.contextMode === "autonomous-reading";
+  return {
+    kind: "queue-nova",
+    action: "queue-nova",
+    id: state.selectedChunkId,
+    kicker: pending ? "Nova 正在先读" : answered ? "Nova 已先读" : "Nova 先读",
+    title: candidateIds.length ? candidateIds.map(novaAutonomousCandidateLabel).join(" / ") : "等待当前段",
+    meta: `${state.novaAutoReadEnabled ? "自动预读开启" : "自动预读暂停"} · Nova 会从候选中自己选角度`,
+    secondary: !pending,
+    disabled: pending || !currentChunkText(),
+  };
+}
+
 function renderReadingQueue() {
   const selected = activeBook();
   const list = $("readingQueueList");
@@ -2920,6 +2954,7 @@ function renderReadingQueue() {
   const planNext = plan ? state.planNextCache[plan.planId]?.nextStep : null;
   const pendingPreview = pendingSinkPreviewsForBook(selected)[0] || null;
   const card = firstCardForBook(selected);
+  const novaItem = novaAutonomousQueueItem(selected);
   const items = [
     resumeId ? {
       kind: "queue-read",
@@ -2929,6 +2964,7 @@ function renderReadingQueue() {
       title: `${resumeId}${chunkTitleById(resumeId) ? ` · ${chunkTitleById(resumeId)}` : ""}`,
       meta: `${selected.chunksRead || 0}/${selected.chunkCount || 0} chunks · ${progressPercent(selected)}%${bookSession?.savedAt ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""}`,
     } : null,
+    novaItem,
     plan ? {
       kind: "queue-plan",
       action: "queue-plan",
@@ -3848,6 +3884,7 @@ function renderNovaReply() {
     autoButton.disabled = true;
     renderImmersiveNovaCard();
     renderReaderNovaAside();
+    renderReadingQueue();
     return;
   }
   if (state.novaAskError) {
@@ -3860,6 +3897,7 @@ function renderNovaReply() {
     autoButton.disabled = !activeBook() || !state.selectedChunkId;
     renderImmersiveNovaCard();
     renderReaderNovaAside();
+    renderReadingQueue();
     return;
   }
   if (!state.novaReply) {
@@ -3872,6 +3910,7 @@ function renderNovaReply() {
     autoButton.disabled = !activeBook() || !state.selectedChunkId;
     renderImmersiveNovaCard();
     renderReaderNovaAside();
+    renderReadingQueue();
     return;
   }
   reply.className = "nova-reply";
@@ -3883,6 +3922,7 @@ function renderNovaReply() {
   autoButton.disabled = !activeBook() || !state.selectedChunkId;
   renderImmersiveNovaCard();
   renderReaderNovaAside();
+  renderReadingQueue();
 }
 
 function novaErrorMessage(error, request) {
@@ -4879,14 +4919,7 @@ function novaTocPreview(limit = 18) {
 
 async function novaAutonomousCandidates(selected) {
   if (!selected || !state.chunks.length) return [];
-  const currentIndex = chunkOrder(state.selectedChunkId) ?? 0;
-  const ids = [
-    state.selectedChunkId,
-    preferredReadingChunkIdFrom(currentIndex),
-    preferredReadingChunkIdFrom(currentIndex + 1),
-    preferredReadingChunkIdFrom(Math.max(0, currentIndex - 2)),
-  ].filter(Boolean);
-  const uniqueIds = Array.from(new Set(ids)).slice(0, 4);
+  const uniqueIds = novaAutonomousCandidateIds();
   const candidates = [];
   for (const chunkId of uniqueIds) {
     try {
@@ -7593,6 +7626,7 @@ async function readSelectedChunk() {
   if (saved?.bookId === state.selectedBookId && saved?.chunkId === state.selectedChunkId) restoreSavedScroll(saved);
   else saveReadingSession();
   renderReaderProgress();
+  renderReadingQueue();
   maybeScheduleNovaAutonomousReading();
 }
 
@@ -7612,6 +7646,7 @@ async function selectChunk(chunkId, autoRead = true, { resetScroll = true } = {}
   renderChunks();
   if (autoRead) await readSelectedChunk();
   renderReaderProgress();
+  renderReadingQueue();
 }
 
 async function moveChunk(delta, { restoreEnd = false } = {}) {
@@ -9024,6 +9059,11 @@ $("readingQueueList").addEventListener("click", async (event) => {
       const saved = validSavedReadingSessionForBook(state.selectedBookId);
       await selectChunk(id, true, { resetScroll: !(saved?.chunkId === id) });
       if (saved?.chunkId === id) restoreSavedScroll(saved);
+      focusPanel(".reader-surface", "#chunkText");
+      return;
+    }
+    if (action === "queue-nova") {
+      await runNovaAutonomousReading({ manual: true });
       focusPanel(".reader-surface", "#chunkText");
       return;
     }
