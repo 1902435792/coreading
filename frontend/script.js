@@ -990,6 +990,7 @@ async function selectBook(bookId, { focusReader = true } = {}) {
     return;
   }
   const saved = readSavedReadingSessionForBook(bookId);
+  const hasStoredBookSession = hasStoredReadingSessionForBook(bookId);
   state.selectedBookId = bookId;
   state.selectedChunkId = saved?.chunkId || "";
   state.currentChunk = null;
@@ -1006,8 +1007,11 @@ async function selectBook(bookId, { focusReader = true } = {}) {
   clearReaderSelection();
   clearEntityPeek();
   await loadChunks(bookId);
-  if (saved?.chunkId && state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)) {
-    state.selectedChunkId = saved.chunkId;
+  const bookSession = validSavedReadingSessionForBook(bookId);
+  if (bookSession?.chunkId) {
+    state.selectedChunkId = bookSession.chunkId;
+  } else if (hasStoredBookSession) {
+    state.selectedChunkId = nextUnreadChunkId(activeBook()) || getChunkId(state.chunks[0]);
   }
   await loadCards(bookId);
   renderAll();
@@ -8511,7 +8515,7 @@ $("sessionRestartBtn").addEventListener("click", async () => {
   }
 });
 $("sessionResumeBtn").addEventListener("click", async () => {
-  const saved = validSavedReadingSessionForBook(state.selectedBookId) || readSavedReadingSession();
+  const saved = validSavedReadingSessionForBook(state.selectedBookId);
   if (!saved) return;
   state.selectedBookId = saved.bookId;
   state.selectedChunkId = saved.chunkId;
