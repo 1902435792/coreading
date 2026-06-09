@@ -1779,7 +1779,26 @@ body.immersive-reading .notes-pane {
   display: none;
 }
 
+body.immersive-reading .reading-tools-pane {
+  display: none;
+}
+
 body.immersive-reading.immersive-notes-open .notes-pane {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  width: var(--reader-assistant-width);
+  max-width: var(--reader-assistant-width);
+  border-left: 1px solid var(--line);
+  padding: 18px;
+  background: var(--surface-3);
+  overflow: auto;
+}
+
+body.immersive-reading.immersive-tools-open .reading-tools-pane {
   position: fixed;
   top: 0;
   right: 0;
@@ -3130,6 +3149,14 @@ pre {
   }
 
   body.immersive-reading.immersive-notes-open .notes-pane {
+    top: 84px;
+    width: 100%;
+    max-width: none;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  body.immersive-reading.immersive-tools-open .reading-tools-pane {
     top: 84px;
     width: 100%;
     max-width: none;

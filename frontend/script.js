@@ -234,6 +234,7 @@ function setupReaderModeControls() {
     '<div class="reader-action-tools" aria-label="本段动作">',
     '  <button id="immersiveAskNovaBtn" type="button">问 Nova</button>',
     '  <button id="immersiveNoteBtn" type="button">记一笔</button>',
+    '  <button id="immersiveSelfCheckBtn" type="button">自测</button>',
     '  <button id="immersiveSinkCurrentBtn" type="button">沉淀本段</button>',
     '  <button id="immersiveOpenSinkBtn" type="button">看沉淀</button>',
     '  <span id="immersiveActionStatus">本段动作</span>',
@@ -277,6 +278,7 @@ function setupReaderModeControls() {
   });
   $("immersiveAskNovaBtn")?.addEventListener("click", prepareNovaPromptFromCurrentReading);
   $("immersiveNoteBtn")?.addEventListener("click", prepareNoteFromCurrentReading);
+  $("immersiveSelfCheckBtn")?.addEventListener("click", openImmersiveSelfCheck);
   $("immersiveSinkCurrentBtn")?.addEventListener("click", () => {
     void createCurrentChunkSinkPreview({ focusSink: false }).catch((error) => {
       log(error.message || String(error));
@@ -372,6 +374,19 @@ function handleReaderKeyboard(event) {
     $("readerFindInput")?.focus();
     return;
   }
+  if (event.key === "Escape" && editable) {
+    event.preventDefault();
+    if (document.body.classList.contains("immersive-notes-open")) {
+      closeImmersiveNotesPane();
+      focusPanel(".reader-surface", "#chunkText");
+    } else if (document.body.classList.contains("immersive-tools-open")) {
+      closeImmersiveToolsPane();
+      focusPanel(".reader-surface", "#chunkText");
+    } else {
+      editable.blur?.();
+    }
+    return;
+  }
   if (editable) return;
   if (["ArrowRight", "PageDown", " "].includes(event.key)) {
     event.preventDefault();
@@ -383,6 +398,9 @@ function handleReaderKeyboard(event) {
     event.preventDefault();
     if (document.body.classList.contains("immersive-notes-open")) {
       closeImmersiveNotesPane();
+      focusPanel(".reader-surface", "#chunkText");
+    } else if (document.body.classList.contains("immersive-tools-open")) {
+      closeImmersiveToolsPane();
       focusPanel(".reader-surface", "#chunkText");
     } else if (document.body.classList.contains("immersive-toc-open")) {
       closeImmersiveToc();
@@ -1355,12 +1373,14 @@ function renderReaderProgress() {
 function renderImmersiveActions({ hasChunk = false, pendingCount = 0, currentChunkPendingSink = null, currentChunkApprovedSink = null } = {}) {
   const ask = $("immersiveAskNovaBtn");
   const note = $("immersiveNoteBtn");
+  const selfCheck = $("immersiveSelfCheckBtn");
   const sink = $("immersiveSinkCurrentBtn");
   const open = $("immersiveOpenSinkBtn");
   const status = $("immersiveActionStatus");
-  if (!ask || !note || !sink || !open || !status) return;
+  if (!ask || !note || !selfCheck || !sink || !open || !status) return;
   ask.disabled = !hasChunk;
   note.disabled = !hasChunk;
+  selfCheck.disabled = !hasChunk;
   sink.disabled = !hasChunk;
   open.disabled = !activeBook();
   open.textContent = pendingCount ? `看沉淀 ${pendingCount}` : "看沉淀";
@@ -1368,6 +1388,15 @@ function renderImmersiveActions({ hasChunk = false, pendingCount = 0, currentChu
   status.textContent = hasChunk
     ? `${state.selectedChunkId} · 笔记 ${state.userNotes.length} · 沉淀 ${sinkPreviewsForCurrentChunk().length}${currentSink ? ` · ${currentSink.status}` : ""}`
     : "未选择段落";
+}
+
+function openImmersiveSelfCheck() {
+  if (!activeBook() || !state.selectedChunkId) {
+    log("请先选择一本书和 chunk。");
+    return;
+  }
+  openImmersiveToolsPane();
+  window.setTimeout(() => focusPanel("#selfCheckCard", "#selfCheckAnswer"), 80);
 }
 
 function renderReadingMap({ scrollPercent = 0 } = {}) {
@@ -5686,12 +5715,23 @@ function focusPanel(selector, focusSelector) {
 }
 
 function openImmersiveNotesPane() {
+  closeImmersiveToolsPane();
   if (!state.immersiveReading) return;
   document.body.classList.add("immersive-notes-open");
 }
 
 function closeImmersiveNotesPane() {
   document.body.classList.remove("immersive-notes-open");
+}
+
+function openImmersiveToolsPane() {
+  closeImmersiveNotesPane();
+  if (!state.immersiveReading) return;
+  document.body.classList.add("immersive-tools-open");
+}
+
+function closeImmersiveToolsPane() {
+  document.body.classList.remove("immersive-tools-open");
 }
 
 function openContainingDrawer(element) {
