@@ -4147,8 +4147,12 @@ function renderObsidianDiffPanel() {
     return;
   }
   if (data.kind === "local-content-diff") {
+    panel.className = data.hasCriticalRemoval ? "obsidian-diff-panel warning" : "obsidian-diff-panel";
+    const warning = data.hasCriticalRemoval
+      ? `警示：${data.criticalRemovedFields.map((field) => `${field.label} -${field.removedLineCount}`).join("、")}，保存/批准前请确认没有丢失来源证据。`
+      : "";
     const fields = (data.fields || []).map((field) => `${field.changed ? "* " : "- "}${field.label}: +${field.addedLineCount || 0} / -${field.removedLineCount || 0}`).join("\n");
-    const detail = [fields, data.preview].filter(Boolean).join("\n\n");
+    const detail = [warning, fields, data.preview].filter(Boolean).join("\n\n");
     panel.innerHTML = `
       <strong>${data.identical ? "正文未改动" : "保存前改动"}</strong>
       <small>新增 ${escapeHtml(data.addedLineCount || 0)} · 移除 ${escapeHtml(data.removedLineCount || 0)}</small>
@@ -6669,6 +6673,7 @@ async function updateSelectedSinkPreviewContent({ status, note }) {
 async function updateSinkPreviewContent(preview, { status, note }) {
   if (!preview?.previewId) return;
   try {
+    if (!confirmSinkCriticalRemoval(preview, { status })) return;
     await command(sinkSavePayload(preview, { status, note }));
     const result = await query({ command: "sink_preview_get", previewId: preview.previewId });
     state.selectedSinkPreview = result.preview || result;
@@ -6691,11 +6696,26 @@ function sinkSavePayload(preview, { status, note }) {
   };
 }
 
+function confirmSinkCriticalRemoval(preview, { status }) {
+  const original = typeof preview.content === "string" ? preview.content : JSON.stringify(preview.content || preview, null, 2);
+  const current = $("sinkPreviewContent").value || "";
+  const diff = localContentDiff(original, current);
+  state.selectedSinkDiff = diff;
+  renderObsidianDiffPanel();
+  if (!diff.hasCriticalRemoval) return true;
+  const fields = diff.criticalRemovedFields.map((field) => `${field.label} -${field.removedLineCount}`).join("、");
+  const action = status === "approved" ? "保存并批准" : "保存";
+  const ok = window.confirm(`检测到关键来源字段被删除：${fields}。\n\n继续${action}可能让沉淀丢失来源证据，确认继续？`);
+  if (!ok) log(`已取消${action}：关键来源字段存在删除。`);
+  return ok;
+}
+
 function localContentDiff(original, current) {
   const beforeLines = String(original || "").split(/\r?\n/);
   const afterLines = String(current || "").split(/\r?\n/);
   const { added, removed } = lineMultisetDiff(beforeLines, afterLines);
   const fields = sinkContentDiffFields(original, current);
+  const criticalRemovedFields = fields.filter((field) => field.critical && field.removedLineCount > 0);
   const preview = [
     ...added.slice(0, 40).map((line) => `+ ${line}`),
     ...removed.slice(0, 40).map((line) => `- ${line}`),
@@ -6708,6 +6728,8 @@ function localContentDiff(original, current) {
     addedPreview: added.slice(0, 40),
     removedPreview: removed.slice(0, 40),
     fields,
+    criticalRemovedFields,
+    hasCriticalRemoval: criticalRemovedFields.length > 0,
     preview,
   };
 }
@@ -6739,9 +6761,9 @@ function lineMultisetDiff(beforeLines, afterLines) {
 function sinkContentDiffFields(original, current) {
   const fields = [
     { label: "摘要", heading: "摘要", next: ["判断", "来源原文", "我的笔记与边注", "Nova 回应", "阅读卡片", "其他观察", "引文与锚点", "问题", "下一步"] },
-    { label: "来源原文", heading: "来源原文", next: ["我的笔记与边注", "Nova 回应", "阅读卡片", "其他观察", "引文与锚点", "问题", "下一步"] },
+    { label: "来源原文", heading: "来源原文", next: ["我的笔记与边注", "Nova 回应", "阅读卡片", "其他观察", "引文与锚点", "问题", "下一步"], critical: true },
     { label: "Nova 回应", heading: "Nova 回应", next: ["阅读卡片", "其他观察", "引文与锚点", "问题", "下一步"] },
-    { label: "引文锚点", heading: "引文与锚点", next: ["问题", "下一步"] },
+    { label: "引文锚点", heading: "引文与锚点", next: ["问题", "下一步"], critical: true },
   ];
   return fields.map((field) => {
     const before = markdownSection(original, field.heading, field.next);

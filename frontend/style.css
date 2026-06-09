@@ -1705,6 +1705,11 @@ blockquote {
   background: #fff;
 }
 
+.obsidian-diff-panel.warning {
+  border-color: #c2410c;
+  background: #fff7ed;
+}
+
 .obsidian-diff-panel strong,
 .obsidian-diff-panel small {
   display: block;
