@@ -1909,6 +1909,27 @@ body.immersive-reading .reader-page-meter {
   overflow: hidden;
 }
 
+body.immersive-reading .reader-immersive-progress {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 18px);
+  bottom: 10px;
+  left: clamp(42px, 6vw, 90px);
+  z-index: 6;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  pointer-events: none;
+}
+
+body.immersive-reading .reader-immersive-progress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--ink);
+  opacity: 0.58;
+  transition: width 180ms ease;
+}
+
 body.immersive-reading .reader-clean-button {
   position: fixed;
   right: calc(var(--reader-assistant-width) + 18px);
@@ -3154,6 +3175,12 @@ pre {
     left: 14px;
     max-width: none;
     justify-content: center;
+  }
+
+  body.immersive-reading .reader-immersive-progress {
+    right: 14px;
+    bottom: 4px;
+    left: 14px;
   }
 
   body.immersive-reading .reader-clean-button {

@@ -196,6 +196,7 @@ function setupReaderModeControls() {
     '  <span id="immersivePageStatus">第 1/1 页</span>',
     '  <span id="immersiveBookStatus">未选择书籍</span>',
     '</div>',
+    '<div class="reader-immersive-progress" aria-hidden="true"><span id="immersiveProgressFill"></span></div>',
     '<button id="immersiveCleanReadBtn" class="reader-clean-button" type="button" aria-pressed="false">净读</button>',
     '<button id="immersiveTocBtn" class="reader-toc-button" type="button" aria-expanded="false" aria-controls="immersiveToc">目录</button>',
     '<div id="immersiveToc" class="reader-toc" hidden>',
@@ -587,6 +588,7 @@ function toggleImmersiveToc() {
 function updateImmersivePageStatus({ current = 1, total = 1, mode = state.readerMode } = {}) {
   const pageStatus = $("immersivePageStatus");
   const bookStatus = $("immersiveBookStatus");
+  const progressFill = $("immersiveProgressFill");
   const selected = activeBook();
   const index = chunkOrder(state.selectedChunkId);
   if (pageStatus) pageStatus.textContent = mode === "paged"
@@ -596,6 +598,15 @@ function updateImmersivePageStatus({ current = 1, total = 1, mode = state.reader
     bookStatus.textContent = selected
       ? `${selected.title || selected.bookId}${index !== null ? ` · ${index + 1}/${state.chunks.length}` : ""}`
       : "未选择书籍";
+  }
+  if (progressFill) {
+    const chunkCount = Math.max(1, state.chunks.length || selected?.chunkCount || 0);
+    const intraChunk = mode === "paged"
+      ? Math.min(1, Math.max(0, Number(current || 1) / Math.max(1, Number(total || 1))))
+      : Math.min(1, Math.max(0, Number(current || 0) / 100));
+    const baseIndex = index === null ? 0 : index;
+    const overall = selected && index !== null ? ((baseIndex + intraChunk) / chunkCount) * 100 : 0;
+    progressFill.style.width = `${clampPercent(overall)}%`;
   }
   renderImmersiveToc();
 }
