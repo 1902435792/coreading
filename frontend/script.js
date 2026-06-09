@@ -498,11 +498,35 @@ function chunkTitleById(chunkId) {
   return chunk?.title || chunk?.sectionTitle || chunkId || "";
 }
 
+const FRONT_MATTER_CHUNK_RE = /^(cover|封面|封底|扉页|版权|题献|目录|插图目录|更新记录)$/i;
+
+function chunkReadableSize(chunk) {
+  return Math.max(Number(chunk?.charCount || 0), Number(chunk?.wordCount || 0));
+}
+
+function normalizedChunkTitle(chunk) {
+  return String(chunk?.title || chunk?.sectionTitle || "").replace(/\s+Part\s+\d+\/\d+$/i, "").trim();
+}
+
+function isPreferredReadingChunk(chunk) {
+  const title = normalizedChunkTitle(chunk);
+  if (!getChunkId(chunk) || FRONT_MATTER_CHUNK_RE.test(title)) return false;
+  return chunkReadableSize(chunk) >= 600;
+}
+
+function preferredReadingChunkIdFrom(startIndex = 0) {
+  const start = Math.max(0, Number(startIndex) || 0);
+  const preferred = state.chunks.slice(start).find(isPreferredReadingChunk);
+  return getChunkId(preferred) || getChunkId(state.chunks[start]) || getChunkId(state.chunks[0]);
+}
+
 function nextUnreadChunkId(book) {
   if (!book || !state.chunks.length) return "";
   const lastIndex = chunkOrder(book.lastChunkId);
-  if (lastIndex !== null && state.chunks[lastIndex + 1]) return getChunkId(state.chunks[lastIndex + 1]);
-  return state.selectedChunkId || getChunkId(state.chunks[0]);
+  if (lastIndex !== null && state.chunks[lastIndex + 1]) return preferredReadingChunkIdFrom(lastIndex + 1);
+  const selected = state.chunks.find((chunk) => getChunkId(chunk) === state.selectedChunkId);
+  if (isPreferredReadingChunk(selected)) return state.selectedChunkId;
+  return preferredReadingChunkIdFrom();
 }
 
 function planPercent(plan) {
@@ -1011,7 +1035,7 @@ async function selectBook(bookId, { focusReader = true } = {}) {
   if (bookSession?.chunkId) {
     state.selectedChunkId = bookSession.chunkId;
   } else if (hasStoredBookSession) {
-    state.selectedChunkId = nextUnreadChunkId(activeBook()) || getChunkId(state.chunks[0]);
+    state.selectedChunkId = nextUnreadChunkId(activeBook()) || preferredReadingChunkIdFrom();
   }
   await loadCards(bookId);
   renderAll();
@@ -1043,7 +1067,7 @@ function renderChunks() {
     select.appendChild(option);
   }
   if (!state.selectedChunkId || !state.chunks.some((chunk) => getChunkId(chunk) === state.selectedChunkId)) {
-    state.selectedChunkId = getChunkId(state.chunks[0]);
+    state.selectedChunkId = preferredReadingChunkIdFrom();
   }
   select.value = state.selectedChunkId;
   renderChunkNavigation();
@@ -4642,7 +4666,7 @@ async function loadChunks(bookId) {
     const saved = validSavedReadingSessionForBook(bookId);
     state.selectedChunkId = saved?.chunkId && state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)
       ? saved.chunkId
-      : getChunkId(state.chunks[0]);
+      : preferredReadingChunkIdFrom();
     state.currentChunk = null;
     state.annotations = [];
     state.userNotes = [];
@@ -4742,7 +4766,10 @@ async function continueReading() {
     log(result.message || "这本书已经读完。");
     return;
   }
-  const nextId = getChunkId(result?.chunk || result);
+  const returnedId = getChunkId(result?.chunk || result);
+  const returnedIndex = chunkOrder(returnedId);
+  const returnedChunk = state.chunks[returnedIndex ?? -1];
+  const nextId = isPreferredReadingChunk(returnedChunk) ? returnedId : preferredReadingChunkIdFrom(returnedIndex ?? 0);
   if (nextId) {
     state.selectedChunkId = nextId;
     $("chunkSelect").value = nextId;
@@ -4838,11 +4865,11 @@ async function loadSnapshot() {
     if (bookSession?.chunkId) {
       state.selectedChunkId = bookSession.chunkId;
     } else if (hasStoredBookSession) {
-      state.selectedChunkId = nextUnreadChunkId(selected) || getChunkId(state.chunks[0]);
+      state.selectedChunkId = nextUnreadChunkId(selected) || preferredReadingChunkIdFrom();
     } else if (savedBookExists && saved?.bookId === state.selectedBookId && saved.chunkId && state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)) {
       state.selectedChunkId = saved.chunkId;
     } else if (selected?.lastChunkId && state.chunks.some((chunk) => getChunkId(chunk) === selected.lastChunkId)) {
-      state.selectedChunkId = selected.lastChunkId;
+      state.selectedChunkId = nextUnreadChunkId(selected) || selected.lastChunkId;
     }
     await loadCards(state.selectedBookId);
     syncCardPreviewStatusesFromSnapshot();
@@ -4999,8 +5026,11 @@ async function openImportedBook(imported) {
   state.searchResults = [];
   await loadSnapshot();
   state.selectedBookId = bookId;
-  if (imported.firstChunkId) state.selectedChunkId = imported.firstChunkId;
   await loadChunks(bookId);
+  const importedFirst = state.chunks.find((chunk) => getChunkId(chunk) === imported.firstChunkId);
+  state.selectedChunkId = isPreferredReadingChunk(importedFirst)
+    ? imported.firstChunkId
+    : preferredReadingChunkIdFrom();
   await loadCards(bookId);
   if (state.selectedChunkId) await readSelectedChunk();
   renderAll();
@@ -8572,7 +8602,7 @@ $("sessionRestartBtn").addEventListener("click", async () => {
     }
     const previous = validSavedReadingSessionForBook(selected.bookId);
     clearSavedReadingSessionForBook(selected.bookId);
-    const firstChunkId = getChunkId(state.chunks[0]);
+    const firstChunkId = preferredReadingChunkIdFrom();
     if (!firstChunkId) throw new Error("当前书没有可读取的段落。");
     await selectChunk(firstChunkId, true);
     saveReadingSession({ chunkId: firstChunkId, scrollTop: 0 });
