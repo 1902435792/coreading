@@ -24,6 +24,7 @@ const MAX_BODY_BYTES = Number(process.env.CO_READING_SIDECAR_MAX_BODY_BYTES || 2
 const NOVA_BRIDGE_URL = process.env.CO_READING_NOVA_BRIDGE_URL || "http://127.0.0.1:3100/v1/chat/completions";
 const NOVA_MODEL = process.env.CO_READING_NOVA_MODEL || "gpt-5.5";
 const NOVA_GUIDE_PATH = process.env.CO_READING_NOVA_GUIDE_PATH || path.join(PROMPTS_DIR, "CoReadingNovaGuide.txt");
+const NOVA_TIMEOUT_MS = Math.max(3000, Math.min(60000, Number(process.env.CO_READING_NOVA_TIMEOUT_MS || 16000)));
 const LOCAL_LIBRARY_DIR = path.resolve(process.env.CO_READING_LIBRARY_DIR || "D:\\书库");
 
 process.env.READING_MCP_DATA_DIR = DATA_DIR;
@@ -470,11 +471,17 @@ function runWrapper(payload) {
   });
 }
 
-function postJson(url, payload, headers = {}) {
+function postJson(url, payload, headers = {}, { timeoutMs = 30000, label = "request" } = {}) {
   return new Promise((resolve, reject) => {
     const endpoint = new URL(url);
     const body = JSON.stringify(payload);
     const client = endpoint.protocol === "https:" ? https : http;
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
     const req = client.request(
       endpoint,
       {
@@ -500,14 +507,21 @@ function postJson(url, payload, headers = {}) {
             const error = new Error(json.error?.message || json.error || `Nova bridge HTTP ${res.statusCode}`);
             error.statusCode = 502;
             error.details = { bridgeStatus: res.statusCode, body: json };
-            reject(error);
+            finish(reject, error);
             return;
           }
-          resolve(json);
+          finish(resolve, json);
         });
       }
     );
-    req.on("error", reject);
+    req.setTimeout(timeoutMs, () => {
+      const error = new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`);
+      error.statusCode = 504;
+      error.details = { timeoutMs, label };
+      finish(reject, error);
+      req.destroy(error);
+    });
+    req.on("error", (error) => finish(reject, error));
     req.write(body);
     req.end();
   });
@@ -573,13 +587,21 @@ async function askNova(body) {
       model: body.model || NOVA_MODEL,
       messages,
       temperature: body.temperature ?? 0.4,
-      stream: false
+      stream: false,
+      maxAttempts: 1,
+      metadata: {
+        source: "CoReadingMCP",
+        interaction: "single-short-reading-ask",
+        timeoutMs: NOVA_TIMEOUT_MS
+      }
     },
-    apiKey ? { authorization: `Bearer ${apiKey}` } : {}
+    apiKey ? { authorization: `Bearer ${apiKey}` } : {},
+    { timeoutMs: NOVA_TIMEOUT_MS, label: "Nova bridge request" }
   );
   return {
     status: "success",
     model: body.model || NOVA_MODEL,
+    timeoutMs: NOVA_TIMEOUT_MS,
     content: String(result.choices?.[0]?.message?.content || result.output_text || result.content || "").trim(),
     raw: result
   };
@@ -860,6 +882,7 @@ async function handleApi(req, res, url) {
       dataDir: DATA_DIR,
       vendorDir: VENDOR_DIR,
       localLibraryDir: LOCAL_LIBRARY_DIR,
+      novaTimeoutMs: NOVA_TIMEOUT_MS,
       sinkDefaults: configuredSinkDefaults(),
       runnerJobsPath: RUNNER_JOBS_PATH,
       runnerCount: BACKGROUND_RUNNERS.size,

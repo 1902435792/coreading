@@ -39,6 +39,7 @@ http://127.0.0.1:3100/v1/chat/completions
 - `VCP_API_KEY` 或 `CO_READING_NOVA_API_KEY`：Nova/VCP 访问 key。
 - `CO_READING_NOVA_BRIDGE_URL`：OpenAI 兼容 chat completions 地址。
 - `CO_READING_NOVA_MODEL`：默认 `gpt-5.5`。
+- `CO_READING_NOVA_TIMEOUT_MS`：Nova 单次请求超时，默认 `16000`；前端默认等待 15 秒，不自动连环重试。
 - `CO_READING_NOVA_GUIDE_PATH`：读书 Nova 操作手册路径；默认 `prompts\CoReadingNovaGuide.txt`。
 
 不要把 key 写入 `config.env`、README、日志或 git 历史。仓库只提交源码、前端、脚本、prompt 和 vendor 必要源码；真实阅读数据默认写到 `D:\VCP\VCPToolBox\data\co-reading-mcp`，不提交。

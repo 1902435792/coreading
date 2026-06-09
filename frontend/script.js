@@ -60,6 +60,7 @@ const SELF_CHECK_DRAFTS_KEY = "vcp-coreading-sidecar.selfCheckDrafts";
 const LIBRARY_SHOW_TEST_BOOKS_KEY = "vcp-coreading-sidecar.showTestBooks";
 const READER_MODE_KEY = "vcp-coreading-sidecar.readerMode";
 const READER_SETTINGS_KEY = "vcp-coreading-sidecar.readerSettings";
+const NOVA_REQUEST_TIMEOUT_MS = 15000;
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
 
 setupAppLayout();
@@ -1745,21 +1746,34 @@ async function query(payload) {
   return result.data;
 }
 
-async function askNova(payload) {
+async function withNovaRequest(task, { timeoutMs = NOVA_REQUEST_TIMEOUT_MS } = {}) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 25000);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await api("/api/nova/ask", {
-      method: "POST",
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+    return await task(controller.signal);
   } catch (error) {
-    if (error?.name === "AbortError") throw new Error("Nova 请求超过 25 秒，已停止等待。");
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error(`Nova 单次请求超过 ${Math.round(timeoutMs / 1000)} 秒，已停止等待。`);
+      timeoutError.code = "NOVA_TIMEOUT";
+      timeoutError.timeoutMs = timeoutMs;
+      throw timeoutError;
+    }
     throw error;
   } finally {
     window.clearTimeout(timeout);
   }
+}
+
+async function askNova(payload) {
+  return withNovaRequest((signal) => api("/api/nova/ask", {
+    method: "POST",
+    body: JSON.stringify({
+      ...payload,
+      maxAttempts: 1,
+      clientTimeoutMs: NOVA_REQUEST_TIMEOUT_MS,
+    }),
+    signal,
+  }));
 }
 
 function activeBook() {
@@ -3189,8 +3203,8 @@ function renderNovaReply() {
   if (!reply || !status || !copyButton || !saveButton || !sinkButton) return;
   if (state.novaAskPending) {
     reply.className = "nova-reply empty";
-    reply.textContent = "Nova 正在读这一段。你可以继续看书，问题会保留在输入框里。";
-    status.textContent = "思考中";
+    reply.textContent = `Nova 正在读这一段。单次最多等待 ${Math.round(NOVA_REQUEST_TIMEOUT_MS / 1000)} 秒，你可以继续看书。`;
+    status.textContent = "单次请求中";
     copyButton.disabled = true;
     saveButton.disabled = true;
     sinkButton.disabled = true;
@@ -3230,11 +3244,13 @@ function novaErrorMessage(error, request) {
   const status = error?.status ? `HTTP ${error.status}` : "请求失败";
   const detail = String(error?.message || error || "Nova 暂时没有返回。").trim();
   const target = request?.chunkId ? `当前段落: ${request.chunkId}` : "当前段落";
+  const timeout = Number(error?.timeoutMs || 0);
+  const timeoutText = timeout ? `${Math.round(timeout / 1000)} 秒` : "短时间";
   return [
-    `Nova 暂时连不上。${status}: ${detail}`,
+    `Nova 这次没有及时回来。${status}: ${detail}`,
     "",
-    `已保留你的问题和 ${target}，稍后直接再点“发送给 Nova”即可重试。`,
-    "这通常是 VCP/Nova 上游超时或 502，不会影响你继续阅读、笔记和沉淀。"
+    `本次只发起了一次请求，并已在 ${timeoutText} 内停止等待。`,
+    `已保留你的问题和 ${target}，可以继续读书，稍后手动点“发送给 Nova”重试。`
   ].join("\n");
 }
 
@@ -4275,7 +4291,7 @@ function renderImmersiveNovaCard() {
   if (state.novaAskPending) {
     if (reply) {
       reply.className = "immersive-nova-reply empty";
-      reply.textContent = "Nova 正在读。你可以继续看原文。";
+      reply.textContent = `Nova 正在读。单次最多等待 ${Math.round(NOVA_REQUEST_TIMEOUT_MS / 1000)} 秒。`;
     }
     if (ask) ask.disabled = true;
     if (save) save.disabled = true;
