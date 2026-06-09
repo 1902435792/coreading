@@ -76,6 +76,12 @@
   line-height: 1.8;
 }
 
+.nova-reply.error {
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
+  background: color-mix(in srgb, var(--danger) 7%, #fff);
+  color: var(--ink);
+}
+
 .tool-drawer {
   margin-top: 14px;
   border-top: 1px solid var(--line);

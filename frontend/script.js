@@ -23,6 +23,9 @@ const state = {
   cardDigestNotice: "",
   novaReply: "",
   novaReplyContext: null,
+  novaAskPending: false,
+  novaAskError: null,
+  novaLastRequest: null,
   readerSelection: { text: "", offset: null },
   entityPeek: null,
   selfCheck: { variant: 0, hintVisible: false },
@@ -969,9 +972,12 @@ async function api(path, options = {}) {
     headers: { "content-type": "application/json" },
     ...options,
   });
-  const data = await response.json();
+  const data = await response.json().catch(() => ({}));
   if (!response.ok || data.status === "error") {
-    throw new Error(data.error || `HTTP ${response.status}`);
+    const error = new Error(data.error || `HTTP ${response.status}`);
+    error.status = response.status;
+    error.data = data;
+    throw error;
   }
   return data;
 }
@@ -994,10 +1000,20 @@ async function query(payload) {
 }
 
 async function askNova(payload) {
-  return api("/api/nova/ask", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 25000);
+  try {
+    return await api("/api/nova/ask", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("Nova 请求超过 25 秒，已停止等待。");
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 function activeBook() {
@@ -2160,6 +2176,24 @@ function renderNovaReply() {
   const saveButton = $("saveNovaReplyNoteBtn");
   const sinkButton = $("sinkNovaReplyBtn");
   if (!reply || !status || !copyButton || !saveButton || !sinkButton) return;
+  if (state.novaAskPending) {
+    reply.className = "nova-reply empty";
+    reply.textContent = "Nova 正在读这一段。你可以继续看书，问题会保留在输入框里。";
+    status.textContent = "思考中";
+    copyButton.disabled = true;
+    saveButton.disabled = true;
+    sinkButton.disabled = true;
+    return;
+  }
+  if (state.novaAskError) {
+    reply.className = "nova-reply error";
+    reply.textContent = state.novaAskError.message;
+    status.textContent = state.novaAskError.statusText || "上游不可用";
+    copyButton.disabled = true;
+    saveButton.disabled = true;
+    sinkButton.disabled = true;
+    return;
+  }
   if (!state.novaReply) {
     reply.className = "nova-reply empty";
     reply.textContent = "Nova 的回应会出现在这里。";
@@ -2175,6 +2209,18 @@ function renderNovaReply() {
   copyButton.disabled = false;
   saveButton.disabled = !activeBook() || !state.selectedChunkId || !novaReplyBelongsToCurrentChunk();
   sinkButton.disabled = !activeBook() || !state.selectedChunkId || !novaReplyBelongsToCurrentChunk();
+}
+
+function novaErrorMessage(error, request) {
+  const status = error?.status ? `HTTP ${error.status}` : "请求失败";
+  const detail = String(error?.message || error || "Nova 暂时没有返回。").trim();
+  const target = request?.chunkId ? `当前段落: ${request.chunkId}` : "当前段落";
+  return [
+    `Nova 暂时连不上。${status}: ${detail}`,
+    "",
+    `已保留你的问题和 ${target}，稍后直接再点“发送给 Nova”即可重试。`,
+    "这通常是 VCP/Nova 上游超时或 502，不会影响你继续阅读、笔记和沉淀。"
+  ].join("\n");
 }
 
 function planFormChunkValue(name) {
@@ -9519,10 +9565,22 @@ $("askNovaBtn").addEventListener("click", async () => {
     if (!text) throw new Error("请先读取当前 chunk。");
     const prompt = String($("novaPrompt").value || "").trim() || "请陪我读这一段：解释重点，指出一句值得停留的话，再给一个下一步。";
     const quote = selectedQuote();
-    const result = await askNova({
+    const request = {
       prompt,
       context: currentNovaContext(selected, chunk, text, quote)
-    });
+    };
+    state.novaLastRequest = {
+      bookId: selected.bookId,
+      chunkId: state.selectedChunkId,
+      prompt,
+      selection: quote.text || "",
+      selectionOffset: quote.offset ?? null,
+      requestedAt: new Date().toISOString(),
+    };
+    state.novaAskError = null;
+    state.novaAskPending = true;
+    renderNovaReply();
+    const result = await askNova(request);
     state.novaReply = result.content || "Nova 暂无文本回复。";
     state.novaReplyContext = {
       bookId: selected.bookId,
@@ -9532,11 +9590,20 @@ $("askNovaBtn").addEventListener("click", async () => {
       selectionOffset: quote.offset ?? null,
       answeredAt: new Date().toISOString(),
     };
+    state.novaAskPending = false;
+    state.novaAskError = null;
     renderNovaReply();
     renderReadingFootprints(readingFootprintRanges(currentChunkText()));
     log("Nova 已回应当前段落。");
   } catch (error) {
-    status.textContent = "失败";
+    state.novaAskPending = false;
+    state.novaAskError = {
+      message: novaErrorMessage(error, state.novaLastRequest),
+      statusText: error?.status === 502 || error?.status === 504 ? "上游超时" : "可重试",
+      at: new Date().toISOString(),
+    };
+    state.novaReply = "";
+    renderNovaReply();
     log(error.message || String(error));
   } finally {
     button.disabled = false;
