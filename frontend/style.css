@@ -771,6 +771,75 @@ fieldset input {
   align-items: center;
 }
 
+.reader-toc-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.reader-toc-search input {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.reader-toc-search span {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.reader-toc-inline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 6px;
+  max-height: 132px;
+  margin-bottom: 8px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.reader-toc-inline.empty {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.reader-toc-inline-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+
+.reader-toc-inline-item.active {
+  border-color: var(--ink);
+}
+
+.reader-toc-inline-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-toc-inline-item span,
+.reader-toc-inline-item small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .reader-tools button.compact {
   min-width: 68px;
   padding-right: 10px;

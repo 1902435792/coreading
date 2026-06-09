@@ -751,6 +751,19 @@ function updateReaderPageStatus() {
   updateImmersivePageStatus({ current, total, mode: "paged" });
 }
 
+function readerTocEntries(queryText = "") {
+  const query = String(queryText || "").trim().toLowerCase();
+  return state.chunks
+    .map((chunk, index) => {
+      const chunkId = getChunkId(chunk);
+      const title = chunk.title || chunk.sectionTitle || chunkId;
+      const progress = Math.round(((index + 1) / Math.max(1, state.chunks.length)) * 100);
+      const haystack = [chunkId, title, String(index + 1), `${progress}%`].join(" ").toLowerCase();
+      return { chunk, index, chunkId, title, progress, hidden: Boolean(query) && !haystack.includes(query) };
+    })
+    .filter((entry) => !entry.hidden);
+}
+
 function renderImmersiveToc() {
   const list = $("immersiveTocList");
   const button = $("immersiveTocBtn");
@@ -764,16 +777,8 @@ function renderImmersiveToc() {
     if (count) count.textContent = "0 项";
     return;
   }
-  const query = String($("immersiveTocSearch")?.value || "").trim().toLowerCase();
-  const entries = state.chunks
-    .map((chunk, index) => {
-      const chunkId = getChunkId(chunk);
-      const title = chunk.title || chunk.sectionTitle || chunkId;
-      const progress = Math.round(((index + 1) / state.chunks.length) * 100);
-      const haystack = [chunkId, title, String(index + 1), `${progress}%`].join(" ").toLowerCase();
-      return { chunk, index, chunkId, title, progress, hidden: Boolean(query) && !haystack.includes(query) };
-    })
-    .filter((entry) => !entry.hidden);
+  const query = String($("immersiveTocSearch")?.value || "").trim();
+  const entries = readerTocEntries(query);
   if (count) count.textContent = query
     ? `${entries.length}/${state.chunks.length} 项`
     : `${state.chunks.length} 项`;
@@ -820,6 +825,36 @@ function closeImmersiveToc() {
 function toggleImmersiveToc() {
   if (document.body.classList.contains("immersive-toc-open")) closeImmersiveToc();
   else openImmersiveToc();
+}
+
+function renderReaderToc() {
+  const list = $("readerTocList");
+  const count = $("readerTocCount");
+  if (!list) return;
+  const selected = activeBook();
+  const query = String($("readerTocSearch")?.value || "").trim();
+  if (!selected || !state.chunks.length) {
+    list.className = "reader-toc-inline empty";
+    list.textContent = "选择书籍后显示目录。";
+    if (count) count.textContent = "0 项";
+    return;
+  }
+  const entries = readerTocEntries(query);
+  if (count) count.textContent = query ? `${entries.length}/${state.chunks.length} 项` : `${state.chunks.length} 项`;
+  if (!entries.length) {
+    list.className = "reader-toc-inline empty";
+    list.textContent = "没有匹配章节。";
+    return;
+  }
+  list.className = "reader-toc-inline";
+  list.innerHTML = entries.slice(0, 24).map(({ index, chunkId, title, progress }) => {
+    const active = chunkId === state.selectedChunkId;
+    return `<button class="reader-toc-inline-item ${active ? "active" : ""}" type="button" data-reader-toc-chunk-id="${escapeHtml(chunkId)}" role="listitem">
+      <span>${escapeHtml(String(index + 1).padStart(2, "0"))}</span>
+      <strong>${escapeHtml(title)}</strong>
+      <small>${escapeHtml(chunkId)} · ${progress}%</small>
+    </button>`;
+  }).join("");
 }
 
 function openImmersivePlan() {
@@ -2871,6 +2906,7 @@ function renderChunks() {
   }
   select.value = state.selectedChunkId;
   renderChunkNavigation();
+  renderReaderToc();
   renderPlanRangeStatus();
 }
 
@@ -6913,6 +6949,7 @@ function renderAll() {
   renderMetrics();
   renderBooks();
   renderChunks();
+  renderReaderToc();
   renderReader();
   renderReadingSession();
   renderReaderProgress();
@@ -11059,6 +11096,17 @@ $("readerBookSelect").addEventListener("change", (event) => {
   }).finally(() => {
     renderReaderBookSelect();
   });
+});
+$("readerTocSearch").addEventListener("input", renderReaderToc);
+$("readerTocList").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-reader-toc-chunk-id]");
+  if (!button) return;
+  button.disabled = true;
+  void selectChunk(button.dataset.readerTocChunkId, true).then(() => {
+    focusPanel(".reader-surface", "#chunkText");
+  }).catch((error) => {
+    log(error.message || String(error));
+  }).finally(renderReaderToc);
 });
 $("showTestBooksToggle")?.addEventListener("change", async (event) => {
   setShowTestBooks(event.target.checked);
