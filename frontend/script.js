@@ -43,6 +43,8 @@ const READING_SESSION_KEY = "vcp-coreading-sidecar.readingSession";
 const READING_BOOK_SESSIONS_KEY = "vcp-coreading-sidecar.readingBookSessions";
 const READING_BOOKMARKS_KEY = "vcp-coreading-sidecar.readingBookmarks";
 const SELF_CHECK_DRAFTS_KEY = "vcp-coreading-sidecar.selfCheckDrafts";
+const LIBRARY_SHOW_TEST_BOOKS_KEY = "vcp-coreading-sidecar.showTestBooks";
+const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
 
 function announce(text) {
   const el = $("statusAnnouncer");
@@ -198,8 +200,26 @@ function hasSavedReadingSession() {
     || state.snapshot?.books?.some((book) => sessions[book.bookId]?.chunkId);
 }
 
+function showTestBooks() {
+  return localStorage.getItem(LIBRARY_SHOW_TEST_BOOKS_KEY) === "true";
+}
+
+function setShowTestBooks(value) {
+  localStorage.setItem(LIBRARY_SHOW_TEST_BOOKS_KEY, value ? "true" : "false");
+}
+
+function isTestBook(book) {
+  const text = [book?.bookId, book?.title, book?.author].filter(Boolean).join(" ");
+  return TEST_BOOK_RE.test(text);
+}
+
+function visibleBooks() {
+  const books = state.snapshot?.books || [];
+  return showTestBooks() ? books : books.filter((book) => !isTestBook(book));
+}
+
 function chooseInitialBook(snapshot, saved) {
-  const books = snapshot?.books || [];
+  const books = (snapshot?.books || []).filter((book) => showTestBooks() || !isTestBook(book));
   if (!books.length) return null;
   const byId = new Map(books.map((book) => [book.bookId, book]));
   if (state.selectedBookId && byId.has(state.selectedBookId)) return byId.get(state.selectedBookId);
@@ -473,7 +493,7 @@ async function askNova(payload) {
 }
 
 function activeBook() {
-  const books = state.snapshot?.books || [];
+  const books = visibleBooks();
   return books.find((book) => book.bookId === state.selectedBookId) || books[0] || null;
 }
 
@@ -955,12 +975,22 @@ function renderPlanGuide() {
 }
 
 function renderBooks() {
-  const books = state.snapshot?.books || [];
+  const allBooks = state.snapshot?.books || [];
+  const books = visibleBooks();
   const list = $("bookList");
   renderReaderBookSelect();
+  const showToggle = $("showTestBooksToggle");
+  const hiddenCount = allBooks.length - books.length;
+  if (showToggle) showToggle.checked = showTestBooks();
+  const hint = $("libraryFilterHint");
+  if (hint) {
+    hint.textContent = hiddenCount > 0 && !showTestBooks()
+      ? `已隐藏 ${hiddenCount} 本验证书`
+      : `${allBooks.length} 本书`;
+  }
   if (!books.length) {
     list.className = "book-list empty";
-    list.textContent = "暂无书籍";
+    list.textContent = allBooks.length ? "当前筛选下暂无书籍" : "暂无书籍";
     $("activeBookLabel").textContent = "未选择";
     return;
   }
@@ -990,7 +1020,7 @@ function renderBooks() {
 function renderReaderBookSelect() {
   const select = $("readerBookSelect");
   if (!select) return;
-  const books = state.snapshot?.books || [];
+  const books = visibleBooks();
   select.innerHTML = "";
   if (!books.length) {
     select.disabled = true;
@@ -8414,6 +8444,17 @@ $("readerBookSelect").addEventListener("change", (event) => {
   }).finally(() => {
     renderReaderBookSelect();
   });
+});
+$("showTestBooksToggle")?.addEventListener("change", async (event) => {
+  setShowTestBooks(event.target.checked);
+  const selected = activeBook();
+  if (selected && selected.bookId !== state.selectedBookId) {
+    await selectBook(selected.bookId, { focusReader: false });
+  } else {
+    renderBooks();
+    renderReaderBookSelect();
+  }
+  log(showTestBooks() ? "已显示验证书。" : "已隐藏验证书。");
 });
 $("chunkText").addEventListener("scroll", () => {
   saveReadingSession();
