@@ -226,6 +226,11 @@ function setupReaderModeControls() {
     '  <button id="readerFindClearBtn" type="button" aria-label="清除查找">×</button>',
     '  <span id="readerFindStatus">0/0</span>',
     '</div>',
+    '<div class="reader-bookmark-tools" aria-label="书签">',
+    '  <button id="immersiveBookmarkBtn" type="button">插书签</button>',
+    '  <button id="immersiveLastBookmarkBtn" type="button" disabled>最近书签</button>',
+    '  <span id="immersiveBookmarkStatus">暂无书签</span>',
+    '</div>',
   ].join("");
   shell.insertAdjacentElement("afterend", chrome);
   $("immersivePrevPageBtn")?.addEventListener("click", () => void turnReaderPage(-1));
@@ -259,6 +264,10 @@ function setupReaderModeControls() {
   $("readerFindPrevBtn")?.addEventListener("click", () => moveReaderFind(-1));
   $("readerFindNextBtn")?.addEventListener("click", () => moveReaderFind(1));
   $("readerFindClearBtn")?.addEventListener("click", clearReaderFind);
+  $("immersiveBookmarkBtn")?.addEventListener("click", saveImmersiveBookmark);
+  $("immersiveLastBookmarkBtn")?.addEventListener("click", () => {
+    void openImmersiveLastBookmark();
+  });
 
   document.addEventListener("fullscreenchange", () => {
     if (!document.fullscreenElement && state.immersiveReading) {
@@ -828,7 +837,7 @@ function saveBookmarkForCurrentChunk() {
   const chunkText = $("chunkText");
   const pageStep = readerPageStep(chunkText);
   const pageTotal = state.readerMode === "paged" && chunkText
-    ? Math.max(1, Math.ceil(Math.max(1, chunkText.scrollWidth - chunkText.clientWidth) / pageStep) + 1)
+    ? Math.max(1, Math.ceil(chunkText.scrollWidth / Math.max(1, pageStep)))
     : 1;
   const pageCurrent = state.readerMode === "paged" && chunkText
     ? Math.min(pageTotal, Math.max(1, Math.round(Number(chunkText.scrollLeft || 0) / pageStep) + 1))
@@ -863,6 +872,38 @@ function bookmarkMeta(bookmark) {
   const saved = formatSavedAt(bookmark.savedAt);
   if (saved) parts.push(saved);
   return parts.join(" · ");
+}
+
+function renderImmersiveBookmarks() {
+  const saveButton = $("immersiveBookmarkBtn");
+  const openButton = $("immersiveLastBookmarkBtn");
+  const status = $("immersiveBookmarkStatus");
+  if (!saveButton || !openButton || !status) return;
+  const selected = activeBook();
+  const latest = bookmarksForBook(selected?.bookId)[0];
+  const canBookmark = Boolean(selected && state.selectedChunkId);
+  saveButton.disabled = !canBookmark;
+  openButton.disabled = !latest?.chunkId;
+  status.textContent = latest?.chunkId
+    ? `${latest.chunkId}${bookmarkMeta(latest) ? ` · ${bookmarkMeta(latest)}` : ""}`
+    : "暂无书签";
+}
+
+function saveImmersiveBookmark() {
+  const bookmark = saveBookmarkForCurrentChunk();
+  renderReaderProgress();
+  renderImmersiveBookmarks();
+  log(bookmark ? `已插入书签: ${bookmark.chunkId}${bookmarkMeta(bookmark) ? ` · ${bookmarkMeta(bookmark)}` : ""}` : "请先选择一本书和 chunk。");
+}
+
+async function openImmersiveLastBookmark() {
+  const bookmark = bookmarksForBook()[0];
+  if (!bookmark?.chunkId) return;
+  await selectChunk(bookmark.chunkId, true);
+  restoreSavedScroll(bookmark);
+  renderImmersiveBookmarks();
+  focusPanel(".reader-surface", "#chunkText");
+  log(`已打开最近书签: ${bookmark.chunkId}${bookmarkMeta(bookmark) ? ` · ${bookmarkMeta(bookmark)}` : ""}`);
 }
 
 function setFormError(form, message) {
@@ -1727,6 +1768,7 @@ function renderReader() {
   renderChunkReview();
   renderReadingSession();
   renderReaderProgress();
+  renderImmersiveBookmarks();
 }
 
 function chunkReviewItems() {
