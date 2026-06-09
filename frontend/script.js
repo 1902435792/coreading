@@ -309,6 +309,7 @@ function setupReaderModeControls() {
     '  <button id="immersiveOpenSinkBtn" type="button">看沉淀</button>',
     '  <span id="immersiveActionStatus">本段动作</span>',
     '</div>',
+    '<div id="immersiveReadingMemory" class="immersive-reading-memory" hidden></div>',
     '<div id="immersiveNovaCard" class="immersive-nova-card" hidden>',
     '  <div class="immersive-nova-head">',
     '    <div>',
@@ -2009,6 +2010,7 @@ function renderImmersiveActions({ hasChunk = false, pendingCount = 0, currentChu
   const footprintCount = currentReaderFootprintCount();
   footprints.disabled = !footprintCount;
   footprints.textContent = footprintCount ? `脚印 ${footprintCount}` : "脚印";
+  renderImmersiveReadingMemory();
   ask.disabled = !hasChunk;
   note.disabled = !hasChunk;
   selfCheck.disabled = !hasChunk;
@@ -2025,6 +2027,52 @@ function currentReaderFootprintCount() {
   const rail = $("readingFootprints");
   if (!rail || rail.classList.contains("empty")) return 0;
   return rail.querySelectorAll(".footprint-card").length;
+}
+
+function currentReadingFootprintItems(limit = 7) {
+  const text = currentChunkText();
+  const anchored = readingFootprintRanges(text).map(({ id, item }) => ({ id, item, anchored: true }));
+  const loose = currentLooseFootprints().map((item) => ({ id: noteFingerprint(item), item, anchored: false }));
+  return [...anchored, ...loose].slice(0, limit);
+}
+
+function readingMemoryLabel(item) {
+  if (item.source === "user-note") return "笔记";
+  if (item.source === "annotation") return "边注";
+  if (item.source === "nova-reply-current") return "Nova";
+  return item.kind || "记忆";
+}
+
+function readingMemoryCounts(items) {
+  const counts = new Map();
+  for (const { item } of items) {
+    const label = readingMemoryLabel(item);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  return [...counts.entries()].map(([label, count]) => `${label} ${count}`).join(" · ");
+}
+
+function renderImmersiveReadingMemory() {
+  const memory = $("immersiveReadingMemory");
+  if (!memory) return;
+  const items = currentReadingFootprintItems(5);
+  if (!state.immersiveReading || !items.length) {
+    memory.hidden = true;
+    memory.innerHTML = "";
+    return;
+  }
+  memory.hidden = false;
+  memory.innerHTML = [
+    `<button class="memory-summary" type="button" data-action="open-reading-memory">${escapeHtml(readingMemoryCounts(items))}</button>`,
+    '<div class="memory-items">',
+    ...items.slice(0, 3).map(({ id, item, anchored }) => {
+      const actionAttrs = anchored
+        ? `data-footprint-id="${escapeHtml(id)}"`
+        : `data-footprint-action="${escapeHtml(item.action || "")}" data-id="${escapeHtml(item.actionId || "")}"`;
+      return `<button class="memory-chip" type="button" ${actionAttrs}><span>${escapeHtml(readingMemoryLabel(item))}</span><strong>${escapeHtml(String(item.note || item.text || item.quote || "").slice(0, 64))}</strong></button>`;
+    }),
+    '</div>',
+  ].join("");
 }
 
 function toggleImmersiveFootprints() {
@@ -3036,12 +3084,11 @@ function clearReaderFind() {
 function renderReadingFootprints(ranges) {
   const rail = $("readingFootprints");
   if (!rail) return;
-  const anchored = ranges.map(({ id, item }) => ({ id, item, anchored: true }));
-  const loose = currentLooseFootprints().map((item) => ({ id: noteFingerprint(item), item, anchored: false }));
-  const items = [...anchored, ...loose].slice(0, 7);
+  const items = currentReadingFootprintItems(7);
   if (!items.length) {
     rail.className = "reading-footprints empty";
     rail.textContent = "暂无高亮足迹";
+    renderImmersiveReadingMemory();
     return;
   }
   rail.className = "reading-footprints";
@@ -3049,6 +3096,7 @@ function renderReadingFootprints(ranges) {
     '<button class="footprints-close" type="button" data-action="close-immersive-footprints">关闭</button>',
     ...items.map((item, index) => renderFootprintButton({ ...item, index })),
   ].join("");
+  renderImmersiveReadingMemory();
 }
 
 function focusReadingFootprint(id) {
@@ -7959,6 +8007,20 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", async (event) => {
+  const summary = event.target.closest("button[data-action='open-reading-memory']");
+  if (summary) {
+    toggleImmersiveFootprints();
+    return;
+  }
+  const loose = event.target.closest("#immersiveReadingMemory button[data-footprint-action]");
+  if (loose) {
+    try {
+      await openLooseFootprint(loose.dataset.footprintAction || "", loose.dataset.id || "");
+    } catch (error) {
+      log(error.message || String(error));
+    }
+    return;
+  }
   const target = event.target.closest("button[data-action='open-search'][data-chunk-id]");
   if (!target) return;
   await selectChunk(target.dataset.chunkId, true);

@@ -1573,6 +1573,8 @@ body.immersive-reading[data-reader-theme="dark"] {
 }
 
 body.immersive-reading .shell {
+  position: fixed;
+  inset: 0;
   width: 100vw;
   max-width: none;
   height: 100vh;
@@ -2802,6 +2804,72 @@ body.immersive-reading .reader-action-tools:focus-within {
   opacity: 1;
 }
 
+body.immersive-reading .immersive-reading-memory {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 18px);
+  bottom: 190px;
+  z-index: 8;
+  display: grid;
+  gap: 5px;
+  width: min(520px, calc(100vw - var(--reader-assistant-width) - 36px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px;
+  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  opacity: 0.42;
+  transition: opacity 180ms ease;
+}
+
+body.immersive-reading .immersive-reading-memory:hover,
+body.immersive-reading .immersive-reading-memory:focus-within {
+  opacity: 1;
+}
+
+body.immersive-reading .memory-summary,
+body.immersive-reading .memory-chip {
+  min-height: 28px;
+  border: 0;
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+body.immersive-reading .memory-items {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+body.immersive-reading .memory-chip {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-3);
+}
+
+body.immersive-reading .memory-chip span,
+body.immersive-reading .memory-chip strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.immersive-reading .memory-chip span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+body.immersive-reading .memory-chip strong {
+  margin-top: 2px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 body.immersive-reading .reader-action-tools button {
   min-height: 28px;
   border: 0;
@@ -3793,12 +3861,24 @@ pre {
     scrollbar-width: thin;
   }
 
-  body.immersive-reading.immersive-footprints-open .reading-footprints {
+  body.immersive-reading .immersive-reading-memory {
     right: 12px;
     bottom: 300px;
     left: 12px;
     width: auto;
-    max-height: 34vh;
+    max-width: none;
+  }
+
+  body.immersive-reading .memory-items {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.immersive-reading.immersive-footprints-open .reading-footprints {
+    right: 12px;
+    bottom: 388px;
+    left: 12px;
+    width: auto;
+    max-height: 26vh;
   }
 
   body.immersive-reading .reader-toc-button {
