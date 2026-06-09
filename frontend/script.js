@@ -6673,8 +6673,9 @@ async function updateSelectedSinkPreviewContent({ status, note }) {
 async function updateSinkPreviewContent(preview, { status, note }) {
   if (!preview?.previewId) return;
   try {
-    if (!confirmSinkCriticalRemoval(preview, { status })) return;
-    await command(sinkSavePayload(preview, { status, note }));
+    const criticalRemoval = confirmSinkCriticalRemoval(preview, { status });
+    if (!criticalRemoval.allowed) return;
+    await command(sinkSavePayload(preview, { status, note: sinkNoteWithCriticalRemovalAudit(note, criticalRemoval) }));
     const result = await query({ command: "sink_preview_get", previewId: preview.previewId });
     state.selectedSinkPreview = result.preview || result;
     renderSinkDetail();
@@ -6702,12 +6703,20 @@ function confirmSinkCriticalRemoval(preview, { status }) {
   const diff = localContentDiff(original, current);
   state.selectedSinkDiff = diff;
   renderObsidianDiffPanel();
-  if (!diff.hasCriticalRemoval) return true;
+  if (!diff.hasCriticalRemoval) return { allowed: true, diff: null };
   const fields = diff.criticalRemovedFields.map((field) => `${field.label} -${field.removedLineCount}`).join("、");
   const action = status === "approved" ? "保存并批准" : "保存";
   const ok = window.confirm(`检测到关键来源字段被删除：${fields}。\n\n继续${action}可能让沉淀丢失来源证据，确认继续？`);
   if (!ok) log(`已取消${action}：关键来源字段存在删除。`);
-  return ok;
+  return { allowed: ok, diff };
+}
+
+function sinkNoteWithCriticalRemovalAudit(note, criticalRemoval) {
+  const fields = (criticalRemoval?.diff?.criticalRemovedFields || [])
+    .map((field) => `${field.label} -${field.removedLineCount}`)
+    .join(", ");
+  if (!fields) return note;
+  return [note, `critical removal confirmed: ${fields}`].filter(Boolean).join("; ");
 }
 
 function localContentDiff(original, current) {
