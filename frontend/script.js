@@ -810,18 +810,20 @@ function renderReadingQueue() {
     return;
   }
   const nextId = nextUnreadChunkId(selected);
+  const bookSession = readSavedReadingSessionForBook(selected.bookId);
+  const resumeId = bookSession?.chunkId || nextId;
   const plan = activePlanForBook(selected);
   const planNext = plan ? state.planNextCache[plan.planId]?.nextStep : null;
   const pendingPreview = pendingSinkPreviewsForBook(selected)[0] || null;
   const card = firstCardForBook(selected);
   const items = [
-    nextId ? {
+    resumeId ? {
       kind: "queue-read",
       action: "queue-read",
-      id: nextId,
-      kicker: "继续读",
-      title: `${nextId}${chunkTitleById(nextId) ? ` · ${chunkTitleById(nextId)}` : ""}`,
-      meta: `${selected.chunksRead || 0}/${selected.chunkCount || 0} chunks · ${progressPercent(selected)}%`,
+      id: resumeId,
+      kicker: bookSession ? "本书断点" : "继续读",
+      title: `${resumeId}${chunkTitleById(resumeId) ? ` · ${chunkTitleById(resumeId)}` : ""}`,
+      meta: `${selected.chunksRead || 0}/${selected.chunkCount || 0} chunks · ${progressPercent(selected)}%${bookSession?.savedAt ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""}`,
     } : null,
     plan ? {
       kind: "queue-plan",
@@ -5844,7 +5846,9 @@ $("readingQueueList").addEventListener("click", async (event) => {
   target.disabled = true;
   try {
     if (action === "queue-read") {
-      await selectChunk(id, true);
+      const saved = readSavedReadingSessionForBook(state.selectedBookId);
+      await selectChunk(id, true, { resetScroll: !(saved?.chunkId === id) });
+      if (saved?.chunkId === id) restoreSavedScroll(saved);
       focusPanel(".reader-surface", "#chunkText");
       return;
     }
