@@ -527,6 +527,9 @@ function saveReadingSession(extra = {}) {
     bookTitle: selected.title || selected.bookId,
     chunkId: state.selectedChunkId,
     scrollTop: Number(chunkText?.scrollTop || 0),
+    scrollLeft: Number(chunkText?.scrollLeft || 0),
+    readerMode: state.readerMode,
+    scrollPercent: currentChunkScrollPercent(),
     savedAt: new Date().toISOString(),
     ...extra
   };
@@ -541,8 +544,11 @@ function restoreSavedScroll(saved) {
   const chunkText = $("chunkText");
   if (!chunkText) return;
   window.setTimeout(() => {
+    if (saved.readerMode) setReaderMode(saved.readerMode, { persist: false });
     chunkText.scrollTop = Number(saved.scrollTop || 0);
+    chunkText.scrollLeft = Number(saved.scrollLeft || 0);
     saveReadingSession();
+    updateReaderPageStatus();
   }, 80);
 }
 
@@ -1512,7 +1518,10 @@ function renderChunkNavigation() {
     ? `当前位置 ${index + 1}/${state.chunks.length} · ${state.selectedChunkId}`
     : "未选择位置";
   $("continueReadingBtn").disabled = !activeBook();
-  $("continueReadingBtn").textContent = bookSession?.chunkId ? `继续 ${bookSession.chunkId}` : "继续读";
+  const sessionPercent = Math.round(Number(bookSession?.scrollPercent || 0));
+  $("continueReadingBtn").textContent = bookSession?.chunkId
+    ? `继续 ${bookSession.chunkId}${sessionPercent ? ` · ${sessionPercent}%` : ""}`
+    : "继续读";
   $("prevChunkBtn").disabled = !hasChunk || index <= 0;
   $("nextChunkBtn").disabled = !hasChunk || index >= state.chunks.length - 1;
   renderReadingSession();
@@ -5164,7 +5173,7 @@ async function selectChunk(chunkId, autoRead = true, { resetScroll = true } = {}
   state.submissions = [];
   state.illustrationSuggestions = [];
   state.selectedChunkId = chunkId;
-  if (resetScroll) saveReadingSession({ chunkId, scrollTop: 0 });
+  if (resetScroll) saveReadingSession({ chunkId, scrollTop: 0, scrollLeft: 0, scrollPercent: 0 });
   $("chunkSelect").value = chunkId;
   renderChunks();
   if (autoRead) await readSelectedChunk();
@@ -5211,7 +5220,7 @@ async function continueReading() {
   state.annotations = [];
   state.userNotes = [];
   state.submissions = [];
-  saveReadingSession({ chunkId: state.selectedChunkId, scrollTop: 0 });
+  saveReadingSession({ chunkId: state.selectedChunkId, scrollTop: 0, scrollLeft: 0, scrollPercent: 0 });
   renderChunks();
   renderReader();
   await readSelectedChunk();
