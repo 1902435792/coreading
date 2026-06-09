@@ -775,6 +775,24 @@ function readerTocSectionProgress(chunk) {
   return `${readCount}/${sameSection.length} 已读`;
 }
 
+function currentSectionRange() {
+  const index = chunkOrder(state.selectedChunkId);
+  const current = index === null ? null : state.chunks[index];
+  if (!current) return null;
+  const sameSection = state.chunks.filter((chunk) => Number(chunk.sectionIndex) === Number(current.sectionIndex));
+  const sectionChunks = sameSection.length ? sameSection : [current];
+  const startChunkId = getChunkId(sectionChunks[0]);
+  const endChunkId = getChunkId(sectionChunks[sectionChunks.length - 1]);
+  if (!startChunkId || !endChunkId) return null;
+  return {
+    title: readerTocSectionLabel(current),
+    sectionIndex: current.sectionIndex,
+    startChunkId,
+    endChunkId,
+    chunkCount: sectionChunks.length,
+  };
+}
+
 function renderImmersiveToc() {
   const list = $("immersiveTocList");
   const button = $("immersiveTocBtn");
@@ -2479,11 +2497,13 @@ function renderReadingMap({ scrollPercent = 0 } = {}) {
   const meta = $("readingMapMeta");
   const bookmarkBtn = $("bookmarkChunkBtn");
   const lastBtn = $("openLastBookmarkBtn");
-  if (!track || !title || !meta || !bookmarkBtn || !lastBtn) return;
+  const planSectionBtn = $("planCurrentSectionBtn");
+  if (!track || !title || !meta || !bookmarkBtn || !lastBtn || !planSectionBtn) return;
   const index = chunkOrder(state.selectedChunkId);
   const bookmarks = bookmarksForBook(selected?.bookId);
   bookmarkBtn.disabled = !selected || index === null;
   lastBtn.disabled = !bookmarks.length;
+  planSectionBtn.disabled = !selected || index === null || !currentSectionRange();
   if (!selected || !state.chunks.length) {
     title.textContent = "选择书籍后显示全书位置。";
     meta.textContent = "目录节点、当前段内位置和本地书签会在这里汇合。";
@@ -3837,6 +3857,34 @@ function buildPlanCreatePayload(selected, form) {
     },
     createdBy: "CoReadingSidecar",
   };
+}
+
+function fillPlanFormForCurrentSection() {
+  const selected = activeBook();
+  const range = currentSectionRange();
+  if (!selected || !range) throw new Error("请先定位到一个章节。");
+  const form = $("planForm");
+  form.elements.mode.value = "range";
+  form.elements.startChunkId.value = range.startChunkId;
+  form.elements.endChunkId.value = range.endChunkId;
+  form.elements.query.value = range.title;
+  renderPlanRangeStatus();
+  return { selected, range };
+}
+
+async function createPlanForCurrentSection() {
+  const { selected, range } = fillPlanFormForCurrentSection();
+  const payload = {
+    ...buildPlanCreatePayload(selected, new FormData($("planForm"))),
+    title: `${selected.title || selected.bookId} · ${range.title} 共读计划`,
+  };
+  const result = await command(payload);
+  await loadSnapshot();
+  renderPlanGuide();
+  renderReaderProgress();
+  focusPanel(".plan-guide", "#planGuideExecuteBtn");
+  log(`已创建本章计划: ${range.title} · ${range.startChunkId} -> ${range.endChunkId}`);
+  return result;
 }
 
 function reviewTargetsFromForm(form) {
@@ -11167,6 +11215,12 @@ $("bookmarkChunkBtn").addEventListener("click", () => {
   const bookmark = saveBookmarkForCurrentChunk();
   renderReaderProgress();
   log(bookmark ? `已插入书签: ${bookmark.chunkId}` : "请先选择一本书和 chunk。");
+});
+$("planCurrentSectionBtn").addEventListener("click", () => {
+  $("planCurrentSectionBtn").disabled = true;
+  void createPlanForCurrentSection().catch((error) => {
+    log(error.message || String(error));
+  }).finally(renderReaderProgress);
 });
 $("waypointBookmarkBtn").addEventListener("click", () => {
   const bookmark = saveBookmarkForCurrentChunk();
