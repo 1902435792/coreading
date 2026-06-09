@@ -764,6 +764,11 @@ function bookmarksForBook(bookId = state.selectedBookId) {
   return Array.isArray(items) ? items : [];
 }
 
+function bookmarkForChunk(chunkId, bookId = state.selectedBookId) {
+  if (!chunkId) return null;
+  return bookmarksForBook(bookId).find((item) => item.chunkId === chunkId) || null;
+}
+
 function readSelfCheckDrafts() {
   try {
     const saved = JSON.parse(localStorage.getItem(SELF_CHECK_DRAFTS_KEY) || "{}");
@@ -796,18 +801,44 @@ function saveBookmarkForCurrentChunk() {
   const selected = activeBook();
   if (!selected || !state.selectedChunkId) return null;
   const bookmarks = readBookmarks();
+  const chunkText = $("chunkText");
+  const pageStep = readerPageStep(chunkText);
+  const pageTotal = state.readerMode === "paged" && chunkText
+    ? Math.max(1, Math.ceil(Math.max(1, chunkText.scrollWidth - chunkText.clientWidth) / pageStep) + 1)
+    : 1;
+  const pageCurrent = state.readerMode === "paged" && chunkText
+    ? Math.min(pageTotal, Math.max(1, Math.round(Number(chunkText.scrollLeft || 0) / pageStep) + 1))
+    : 1;
   const current = {
     bookId: selected.bookId,
     bookTitle: selected.title || selected.bookId,
     chunkId: state.selectedChunkId,
     title: chunkTitleById(state.selectedChunkId),
-    scrollTop: Number($("chunkText")?.scrollTop || 0),
+    scrollTop: Number(chunkText?.scrollTop || 0),
+    scrollLeft: Number(chunkText?.scrollLeft || 0),
+    readerMode: state.readerMode,
+    scrollPercent: currentChunkScrollPercent(),
+    pageCurrent,
+    pageTotal,
     savedAt: new Date().toISOString(),
   };
   const existing = bookmarks[selected.bookId] || [];
   bookmarks[selected.bookId] = [current, ...existing.filter((item) => item.chunkId !== current.chunkId)].slice(0, 24);
   localStorage.setItem(READING_BOOKMARKS_KEY, JSON.stringify(bookmarks));
   return current;
+}
+
+function bookmarkMeta(bookmark) {
+  if (!bookmark) return "";
+  const parts = [];
+  if (bookmark.readerMode === "paged" && bookmark.pageCurrent) {
+    parts.push(`第 ${bookmark.pageCurrent}/${bookmark.pageTotal || "?"} 页`);
+  } else if (Number.isFinite(Number(bookmark.scrollPercent))) {
+    parts.push(`段内 ${clampPercent(bookmark.scrollPercent)}%`);
+  }
+  const saved = formatSavedAt(bookmark.savedAt);
+  if (saved) parts.push(saved);
+  return parts.join(" · ");
 }
 
 function setFormError(form, message) {
@@ -1254,7 +1285,7 @@ function renderReadingMap({ scrollPercent = 0 } = {}) {
   const chapterPercent = index === null ? 0 : Math.round(((index + 1) / total) * 100);
   const latestBookmark = bookmarks[0];
   title.textContent = `${selected.title || selected.bookId} · ${index === null ? "未定位" : `${index + 1}/${total}`}`;
-  meta.textContent = `全书 ${chapterPercent}% · 段内 ${Math.round(scrollPercent)}%${latestBookmark ? ` · 最近书签 ${latestBookmark.chunkId}` : " · 暂无书签"}`;
+  meta.textContent = `全书 ${chapterPercent}% · 段内 ${Math.round(scrollPercent)}%${latestBookmark ? ` · 最近书签 ${latestBookmark.chunkId}${bookmarkMeta(latestBookmark) ? ` · ${bookmarkMeta(latestBookmark)}` : ""}` : " · 暂无书签"}`;
   const bookmarkSet = new Set(bookmarks.map((item) => item.chunkId));
   const step = Math.max(1, Math.ceil(total / 36));
   const visibleChunks = state.chunks.filter((chunk, chunkIndex) => {
@@ -1266,11 +1297,13 @@ function renderReadingMap({ scrollPercent = 0 } = {}) {
     const chunkId = getChunkId(chunk);
     const chunkIndex = chunkOrder(chunkId);
     const active = chunkId === state.selectedChunkId;
+    const bookmark = bookmarkForChunk(chunkId, selected.bookId);
     const bookmarked = bookmarkSet.has(chunkId);
+    const tooltip = [chunk.title || chunk.sectionTitle || chunkId, bookmarked ? `书签 ${bookmarkMeta(bookmark) || bookmark?.chunkId}` : ""].filter(Boolean).join(" · ");
     return `
-      <button class="map-node ${active ? "active" : ""} ${bookmarked ? "bookmarked" : ""}" type="button" data-chunk-id="${escapeHtml(chunkId)}" title="${escapeHtml(chunk.title || chunk.sectionTitle || chunkId)}">
+      <button class="map-node ${active ? "active" : ""} ${bookmarked ? "bookmarked" : ""}" type="button" data-chunk-id="${escapeHtml(chunkId)}" data-bookmark="${bookmarked ? "true" : "false"}" title="${escapeHtml(tooltip)}">
         <span>${escapeHtml(chunkIndex === null ? "" : chunkIndex + 1)}</span>
-        <small>${escapeHtml(chunkId)}</small>
+        <small>${escapeHtml(bookmarked && bookmark?.pageCurrent ? `${chunkId} · P${bookmark.pageCurrent}` : chunkId)}</small>
       </button>
     `;
   }).join("");
@@ -1306,15 +1339,15 @@ function renderWaypoints() {
     waypointItem("当前", currentId, `${index + 1}/${state.chunks.length}`, "current"),
     nextId ? waypointItem("下一段", nextId, `${index + 2}/${state.chunks.length}`) : null,
     latestBookmark?.chunkId ? {
-      ...waypointItem("书签", latestBookmark.chunkId, formatSavedAt(latestBookmark.savedAt) || "最近"),
+      ...waypointItem("书签", latestBookmark.chunkId, bookmarkMeta(latestBookmark) || "最近"),
       action: "bookmark",
     } : null,
   ].filter(Boolean);
   title.textContent = `${selected.title || selected.bookId} · ${currentId}`;
-  meta.textContent = `当前位置 ${index + 1}/${state.chunks.length}${latestBookmark?.chunkId ? ` · 书签 ${latestBookmark.chunkId}` : " · 暂无书签"}`;
+  meta.textContent = `当前位置 ${index + 1}/${state.chunks.length}${latestBookmark?.chunkId ? ` · 书签 ${latestBookmark.chunkId}${bookmarkMeta(latestBookmark) ? ` · ${bookmarkMeta(latestBookmark)}` : ""}` : " · 暂无书签"}`;
   list.className = "waypoint-list";
   list.innerHTML = items.map((item) => `
-    <button class="waypoint-item ${item.action === "current" ? "active" : ""}" type="button" data-waypoint-chunk-id="${escapeHtml(item.chunkId)}">
+    <button class="waypoint-item ${item.action === "current" ? "active" : ""} ${item.action === "bookmark" ? "bookmarked" : ""}" type="button" data-waypoint-chunk-id="${escapeHtml(item.chunkId)}" data-waypoint-action="${escapeHtml(item.action)}">
       <span>${escapeHtml(item.label)}</span>
       <strong>${escapeHtml(item.chunkId)}${item.title && item.title !== item.chunkId ? ` · ${escapeHtml(item.title)}` : ""}</strong>
       <small>${escapeHtml(item.meta || "")}</small>
@@ -9155,12 +9188,18 @@ $("readingMapTrack").addEventListener("click", async (event) => {
   const target = event.target.closest("button[data-chunk-id]");
   if (!target) return;
   await selectChunk(target.dataset.chunkId, true);
+  const bookmark = target.dataset.bookmark === "true" ? bookmarkForChunk(target.dataset.chunkId) : null;
+  if (bookmark) restoreSavedScroll(bookmark);
   focusPanel(".reader-surface", "#chunkText");
 });
 $("waypointList").addEventListener("click", async (event) => {
   const target = event.target.closest("button[data-waypoint-chunk-id]");
   if (!target) return;
   await selectChunk(target.dataset.waypointChunkId, true);
+  if (target.dataset.waypointAction === "bookmark") {
+    const bookmark = bookmarkForChunk(target.dataset.waypointChunkId);
+    if (bookmark) restoreSavedScroll(bookmark);
+  }
   focusPanel(".reader-surface", "#chunkText");
   log(`已打开路标: ${target.dataset.waypointChunkId}`);
 });

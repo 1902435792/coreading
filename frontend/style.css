@@ -1210,6 +1210,11 @@ fieldset input {
   background: var(--accent-soft);
 }
 
+.waypoint-item.bookmarked {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
 .selection-dock {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
