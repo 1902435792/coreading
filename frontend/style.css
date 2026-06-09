@@ -1,20 +1,29 @@
 :root {
   color-scheme: light;
-  --bg: #f7f7f5;
+  --notion-text: #37352f;
+  --notion-text-gray: #9b9a97;
+  --notion-bg: #ffffff;
+  --notion-bg-gray: #f7f6f3;
+  --notion-blue: #2eaadc;
+  --notion-red: #eb5757;
+  --notion-green: #0f7b6c;
+  --notion-yellow: #dfab01;
+  --notion-border: rgba(55, 53, 47, 0.09);
+  --bg: #f7f6f3;
   --surface: #ffffff;
-  --surface-2: #f1f1ef;
-  --surface-3: #fafafa;
-  --ink: #171717;
-  --muted: #6f6f69;
-  --line: #deded9;
-  --line-strong: #b9b9b2;
-  --accent: #111111;
-  --accent-strong: #111111;
-  --accent-2: #77736b;
-  --accent-soft: #eeeeeb;
-  --good: #2f6f4e;
-  --warn: #8a681e;
-  --danger: #9f3b24;
+  --surface-2: rgba(55, 53, 47, 0.04);
+  --surface-3: #f7f6f3;
+  --ink: #37352f;
+  --muted: #787774;
+  --line: rgba(55, 53, 47, 0.09);
+  --line-strong: rgba(55, 53, 47, 0.18);
+  --accent: #37352f;
+  --accent-strong: #37352f;
+  --accent-2: #2eaadc;
+  --accent-soft: rgba(55, 53, 47, 0.06);
+  --good: #0f7b6c;
+  --warn: #dfab01;
+  --danger: #eb5757;
   --shadow: none;
 }
 
@@ -124,7 +133,8 @@ body {
   min-width: 320px;
   background: var(--bg);
   color: var(--ink);
-  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, "Microsoft YaHei", sans-serif;
+  line-height: 1.5;
 }
 
 .sr-only {
@@ -174,7 +184,7 @@ textarea:focus-visible,
 button {
   min-height: 34px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--surface);
   color: var(--ink);
   cursor: pointer;
@@ -182,7 +192,7 @@ button {
 }
 
 button.secondary {
-  background: var(--surface);
+  background: transparent;
   color: var(--muted);
 }
 
@@ -194,13 +204,13 @@ button.primary {
 }
 
 button:not(:disabled):hover {
-  border-color: var(--ink);
+  border-color: var(--line-strong);
   color: var(--ink);
 }
 
 button.secondary:not(:disabled):hover,
 button:not(.primary):not(:disabled):hover {
-  background: var(--surface-2);
+  background: rgba(55, 53, 47, 0.08);
 }
 
 button:disabled {
@@ -218,7 +228,7 @@ button:disabled {
 .panel,
 .metrics > div {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--surface);
   box-shadow: var(--shadow);
 }
@@ -273,7 +283,7 @@ h3 {
 
 .status-pill {
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 7px 10px;
   color: var(--muted);
   background: var(--surface-2);
@@ -484,7 +494,7 @@ legend {
 .annotation-row,
 .search-row {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--surface);
 }
 
@@ -587,7 +597,7 @@ textarea {
   min-width: 0;
   min-height: 36px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 8px 10px;
   background: var(--surface);
   color: var(--ink);
@@ -720,8 +730,8 @@ fieldset input {
   gap: 12px;
   align-items: center;
   margin-bottom: 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   padding: 10px 12px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: none;
@@ -916,7 +926,7 @@ fieldset input {
   align-items: center;
   margin-bottom: 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 10px 12px;
   background: var(--surface-3);
 }
@@ -1021,9 +1031,9 @@ fieldset input {
 }
 
 .map-node.active {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: #fff;
+  border-color: rgba(46, 170, 220, 0.28);
+  background: rgba(46, 170, 220, 0.12);
+  color: var(--ink);
 }
 
 .map-node.bookmarked {
@@ -1033,8 +1043,8 @@ fieldset input {
 }
 
 .map-node.active.bookmarked {
-  background: var(--ink);
-  color: #fff;
+  background: rgba(46, 170, 220, 0.12);
+  color: var(--ink);
 }
 
 .reading-waypoints {
@@ -1199,7 +1209,7 @@ fieldset input {
 .reader-surface {
   margin-bottom: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--surface);
   box-shadow: var(--shadow);
 }
@@ -1248,33 +1258,33 @@ fieldset input {
   padding: 26px 30px;
   background: var(--surface);
   color: var(--ink);
-  font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "Microsoft YaHei", sans-serif;
   font-size: 17px;
   line-height: 2.05;
 }
 
 .reading-mark {
-  border-radius: 4px;
+  border-radius: 3px;
   padding: 1px 2px;
-  background: #eeeeeb;
-  box-shadow: inset 0 -1px 0 var(--line-strong);
+  background: rgba(46, 170, 220, 0.14);
+  box-shadow: inset 0 -1px 0 rgba(46, 170, 220, 0.28);
   color: inherit;
 }
 
 .reading-mark.mine {
-  background: #e4e4df;
-  box-shadow: inset 0 -1px 0 var(--ink);
+  background: rgba(15, 123, 108, 0.12);
+  box-shadow: inset 0 -1px 0 rgba(15, 123, 108, 0.28);
 }
 
 .reading-mark.active {
-  background: var(--ink);
+  background: rgba(46, 170, 220, 0.2);
   box-shadow: none;
-  color: #fff;
+  color: var(--ink);
 }
 
 .reading-mark.mine.active {
-  background: var(--ink);
-  color: #fff;
+  background: rgba(15, 123, 108, 0.18);
+  color: var(--ink);
 }
 
 .reading-footprints {
@@ -1983,10 +1993,10 @@ pre {
   overflow: auto;
   margin: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 12px;
-  background: #171b1d;
-  color: #f2f2ec;
+  background: rgba(135, 131, 120, 0.15);
+  color: var(--ink);
   white-space: pre-wrap;
 }
 
