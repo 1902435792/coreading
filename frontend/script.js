@@ -3772,6 +3772,7 @@ function renderSinkDetail() {
     $("copySinkAuditContextBtn").disabled = true;
     $("copySinkDecisionPacketBtn").disabled = true;
     $("copySinkSavePayloadBtn").disabled = true;
+    $("compactSinkContentBtn").disabled = true;
     $("saveSinkContentBtn").disabled = true;
     $("copySinkSaveApprovePayloadBtn").disabled = true;
     $("saveApproveSinkPreviewBtn").disabled = true;
@@ -3829,6 +3830,7 @@ function renderSinkDetail() {
   $("copySinkAuditContextBtn").disabled = false;
   $("copySinkDecisionPacketBtn").disabled = false;
   $("copySinkSavePayloadBtn").disabled = !editable;
+  $("compactSinkContentBtn").disabled = !editable;
   $("saveSinkContentBtn").disabled = !editable;
   $("copySinkSaveApprovePayloadBtn").disabled = !editable;
   $("saveApproveSinkPreviewBtn").disabled = !editable;
@@ -6597,6 +6599,23 @@ $("copySinkSavePayloadBtn").addEventListener("click", async () => {
   }
 });
 
+$("compactSinkContentBtn").addEventListener("click", () => {
+  const preview = state.selectedSinkPreview;
+  if (!preview || preview.status === "exported") {
+    log("请先选择可编辑的沉淀预览。");
+    return;
+  }
+  const before = $("sinkPreviewContent").value || "";
+  const compacted = compactSinkPreviewContent(before);
+  if (!compacted || compacted === before) {
+    log("当前正文无需精简。");
+    return;
+  }
+  $("sinkPreviewContent").value = compacted;
+  $("sinkPreviewContent").focus();
+  log("已精简当前正文，确认后请保存或保存并批准。");
+});
+
 $("copySinkSaveApprovePayloadBtn").addEventListener("click", async () => {
   $("copySinkSaveApprovePayloadBtn").disabled = true;
   try {
@@ -6645,6 +6664,64 @@ function sinkSavePayload(preview, { status, note }) {
     note,
     updatedBy: "CoReadingSidecar",
   };
+}
+
+function compactSinkPreviewContent(content) {
+  const source = String(content || "").trim();
+  if (!source) return "";
+  const frontmatterMatch = source.match(/^---[\s\S]*?---\s*/);
+  const frontmatter = frontmatterMatch ? frontmatterMatch[0].trim() : "";
+  const body = frontmatter ? source.slice(frontmatterMatch[0].length) : source;
+  const title = (body.match(/^# .+$/m) || ["# 共读沉淀"])[0];
+  const summary = markdownSection(body, "摘要", ["判断", "来源原文", "我的笔记与边注", "Nova 回应", "阅读卡片", "其他观察", "引文与锚点", "问题", "下一步"]);
+  const sourceQuote = markdownSection(body, "来源原文", ["我的笔记与边注", "Nova 回应", "阅读卡片", "其他观察", "引文与锚点", "问题", "下一步"]);
+  const novaReply = markdownSection(body, "Nova 回应", ["阅读卡片", "其他观察", "引文与锚点", "问题", "下一步"]);
+  const anchors = markdownSection(body, "引文与锚点", ["问题", "下一步"]);
+  return [
+    frontmatter,
+    title,
+    "",
+    "## 摘要",
+    "",
+    clampMarkdownBlock(summary, 600) || "待补摘要。",
+    "",
+    "## 来源原文",
+    "",
+    clampMarkdownBlock(sourceQuote, 900) || "待补来源。",
+    "",
+    "## Nova 回应",
+    "",
+    clampMarkdownBlock(novaReply, 1200) || "待补 Nova 回应。",
+    "",
+    "## 引文与锚点",
+    "",
+    clampMarkdownBlock(anchors, 600) || "待补锚点。",
+    "",
+  ].filter((part, index, parts) => part || parts[index - 1] !== "").join("\n").trim() + "\n";
+}
+
+function markdownSection(markdown, heading, nextHeadings = []) {
+  const escaped = escapeRegExp(heading);
+  const start = new RegExp(`^##\\s+${escaped}\\s*$`, "m").exec(markdown);
+  if (!start) return "";
+  const afterHeading = start.index + start[0].length;
+  const rest = markdown.slice(afterHeading);
+  const nextPattern = nextHeadings.length
+    ? new RegExp(`^##\\s+(?:${nextHeadings.map(escapeRegExp).join("|")})\\s*$`, "m")
+    : /^##\s+/m;
+  const next = nextPattern.exec(rest);
+  return rest.slice(0, next ? next.index : undefined).trim();
+}
+
+function clampMarkdownBlock(text, maxLength) {
+  const value = String(text || "").trim();
+  if (value.length <= maxLength) return value;
+  const clipped = value.slice(0, maxLength).trimEnd();
+  return `${clipped}\n\n...`;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function sinkSavePayloadPacket(preview, { status, note, type }) {
