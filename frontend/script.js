@@ -35,6 +35,7 @@ const state = {
   snapshotLoadId: 0,
   readerMode: "scroll",
   immersiveReading: false,
+  readerSettings: { fontScale: 1, measure: "medium", theme: "light" },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -47,11 +48,13 @@ const READING_BOOKMARKS_KEY = "vcp-coreading-sidecar.readingBookmarks";
 const SELF_CHECK_DRAFTS_KEY = "vcp-coreading-sidecar.selfCheckDrafts";
 const LIBRARY_SHOW_TEST_BOOKS_KEY = "vcp-coreading-sidecar.showTestBooks";
 const READER_MODE_KEY = "vcp-coreading-sidecar.readerMode";
+const READER_SETTINGS_KEY = "vcp-coreading-sidecar.readerSettings";
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
 
 setupAppLayout();
 setupReaderModeControls();
 loadReaderMode();
+loadReaderSettings();
 
 function setupAppLayout() {
   const workspace = $("mainContent");
@@ -179,16 +182,98 @@ function setupReaderModeControls() {
   $("readerPagePrevBtn")?.addEventListener("click", () => turnReaderPage(-1));
   $("readerPageNextBtn")?.addEventListener("click", () => turnReaderPage(1));
 
+  const chrome = document.createElement("div");
+  chrome.className = "reader-chrome";
+  chrome.setAttribute("aria-label", "沉浸阅读控制");
+  chrome.innerHTML = [
+    '<button id="immersivePrevPageBtn" class="reader-page-turn prev" type="button" aria-label="上一页">‹</button>',
+    '<button id="immersiveNextPageBtn" class="reader-page-turn next" type="button" aria-label="下一页">›</button>',
+    '<div class="reader-page-meter" aria-live="polite">',
+    '  <span id="immersivePageStatus">第 1/1 页</span>',
+    '  <span id="immersiveBookStatus">未选择书籍</span>',
+    '</div>',
+    '<div class="reader-settings" aria-label="阅读设置">',
+    '  <button type="button" data-reader-font="-1" aria-label="缩小字号">A-</button>',
+    '  <button type="button" data-reader-font="1" aria-label="放大字号">A+</button>',
+    '  <button type="button" data-reader-measure="narrow">窄</button>',
+    '  <button type="button" data-reader-measure="medium">中</button>',
+    '  <button type="button" data-reader-measure="wide">宽</button>',
+    '  <button type="button" data-reader-theme="light">白</button>',
+    '  <button type="button" data-reader-theme="paper">纸</button>',
+    '  <button type="button" data-reader-theme="dark">夜</button>',
+    '</div>',
+  ].join("");
+  shell.insertAdjacentElement("afterend", chrome);
+  $("immersivePrevPageBtn")?.addEventListener("click", () => turnReaderPage(-1));
+  $("immersiveNextPageBtn")?.addEventListener("click", () => turnReaderPage(1));
+  chrome.querySelector(".reader-settings")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    if (button.dataset.readerFont) adjustReaderFont(Number(button.dataset.readerFont || 0));
+    if (button.dataset.readerMeasure) setReaderMeasure(button.dataset.readerMeasure);
+    if (button.dataset.readerTheme) setReaderTheme(button.dataset.readerTheme);
+  });
+
   document.addEventListener("fullscreenchange", () => {
     if (!document.fullscreenElement && state.immersiveReading) {
       void setImmersiveReading(false, { skipFullscreen: true });
     }
   });
+  document.addEventListener("keydown", handleReaderKeyboard);
 }
 
 function loadReaderMode() {
   const saved = localStorage.getItem(READER_MODE_KEY);
   setReaderMode(saved === "paged" ? "paged" : "scroll", { persist: false });
+}
+
+function loadReaderSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(READER_SETTINGS_KEY) || "{}");
+    state.readerSettings = normalizeReaderSettings(saved);
+  } catch {
+    state.readerSettings = normalizeReaderSettings();
+    localStorage.removeItem(READER_SETTINGS_KEY);
+  }
+  applyReaderSettings({ persist: false });
+}
+
+function normalizeReaderSettings(settings = {}) {
+  return {
+    fontScale: Math.max(0.86, Math.min(1.28, Number(settings.fontScale) || 1)),
+    measure: ["narrow", "medium", "wide"].includes(settings.measure) ? settings.measure : "medium",
+    theme: ["light", "paper", "dark"].includes(settings.theme) ? settings.theme : "light",
+  };
+}
+
+function applyReaderSettings({ persist = true } = {}) {
+  state.readerSettings = normalizeReaderSettings(state.readerSettings);
+  document.documentElement.style.setProperty("--reader-font-scale", String(state.readerSettings.fontScale));
+  document.body.dataset.readerMeasure = state.readerSettings.measure;
+  document.body.dataset.readerTheme = state.readerSettings.theme;
+  document.querySelectorAll("[data-reader-measure]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.readerMeasure === state.readerSettings.measure);
+  });
+  document.querySelectorAll("[data-reader-theme]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.readerTheme === state.readerSettings.theme);
+  });
+  if (persist) localStorage.setItem(READER_SETTINGS_KEY, JSON.stringify(state.readerSettings));
+  window.setTimeout(updateReaderPageStatus, 80);
+}
+
+function adjustReaderFont(delta) {
+  state.readerSettings.fontScale = Math.max(0.86, Math.min(1.28, state.readerSettings.fontScale + (delta * 0.06)));
+  applyReaderSettings();
+}
+
+function setReaderMeasure(measure) {
+  state.readerSettings.measure = measure;
+  applyReaderSettings();
+}
+
+function setReaderTheme(theme) {
+  state.readerSettings.theme = theme;
+  applyReaderSettings();
 }
 
 function setReaderMode(mode, { persist = true } = {}) {
@@ -205,13 +290,43 @@ function setReaderMode(mode, { persist = true } = {}) {
   updateReaderPageStatus();
 }
 
+function handleReaderKeyboard(event) {
+  if (!state.immersiveReading) return;
+  const editable = event.target?.closest?.("input, textarea, select, [contenteditable='true']");
+  if (editable) return;
+  if (["ArrowRight", "PageDown", " "].includes(event.key)) {
+    event.preventDefault();
+    turnReaderPage(1);
+  } else if (["ArrowLeft", "PageUp"].includes(event.key)) {
+    event.preventDefault();
+    turnReaderPage(-1);
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    void setImmersiveReading(false);
+  } else if (event.key === "]") {
+    event.preventDefault();
+    adjustReaderFont(1);
+  } else if (event.key === "[") {
+    event.preventDefault();
+    adjustReaderFont(-1);
+  }
+}
+
 function turnReaderPage(direction) {
   const chunkText = $("chunkText");
   if (!chunkText) return;
   if (state.readerMode !== "paged") setReaderMode("paged");
-  const step = Math.max(220, chunkText.clientWidth * 0.92);
+  const step = readerPageStep(chunkText);
   chunkText.scrollBy({ left: direction * step, behavior: "smooth" });
   window.setTimeout(updateReaderPageStatus, 180);
+}
+
+function readerPageStep(chunkText = $("chunkText")) {
+  if (!chunkText) return 0;
+  const styles = window.getComputedStyle(chunkText);
+  const columnGap = Number.parseFloat(styles.columnGap) || 0;
+  const columnWidth = Number.parseFloat(styles.columnWidth) || chunkText.clientWidth;
+  return Math.max(220, Math.min(chunkText.clientWidth, columnWidth + columnGap));
 }
 
 function updateReaderPageStatus() {
@@ -224,14 +339,32 @@ function updateReaderPageStatus() {
     status.textContent = "上下滚动";
     prev.disabled = true;
     next.disabled = true;
+    updateImmersivePageStatus({ current: Math.max(1, Math.round(currentChunkScrollPercent()) || 1), total: 100, mode: "scroll" });
     return;
   }
   const maxLeft = Math.max(0, chunkText.scrollWidth - chunkText.clientWidth);
-  const total = Math.max(1, Math.ceil(chunkText.scrollWidth / Math.max(1, chunkText.clientWidth)));
-  const current = Math.min(total, Math.max(1, Math.round(chunkText.scrollLeft / Math.max(1, chunkText.clientWidth)) + 1));
+  const step = Math.max(1, readerPageStep(chunkText));
+  const total = Math.max(1, Math.ceil(chunkText.scrollWidth / step));
+  const current = Math.min(total, Math.max(1, Math.round(chunkText.scrollLeft / step) + 1));
   status.textContent = `第 ${current}/${total} 屏`;
   prev.disabled = chunkText.scrollLeft <= 1;
   next.disabled = chunkText.scrollLeft >= maxLeft - 1;
+  updateImmersivePageStatus({ current, total, mode: "paged" });
+}
+
+function updateImmersivePageStatus({ current = 1, total = 1, mode = state.readerMode } = {}) {
+  const pageStatus = $("immersivePageStatus");
+  const bookStatus = $("immersiveBookStatus");
+  const selected = activeBook();
+  const index = chunkOrder(state.selectedChunkId);
+  if (pageStatus) pageStatus.textContent = mode === "paged"
+    ? `第 ${current}/${total} 页`
+    : `段内 ${current}%`;
+  if (bookStatus) {
+    bookStatus.textContent = selected
+      ? `${selected.title || selected.bookId}${index !== null ? ` · ${index + 1}/${state.chunks.length}` : ""}`
+      : "未选择书籍";
+  }
 }
 
 async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
@@ -800,8 +933,12 @@ function planPercent(plan) {
 
 function currentChunkScrollPercent() {
   const scrollEl = $("chunkText");
-  const scrollMax = Math.max(0, Number(scrollEl?.scrollHeight || 0) - Number(scrollEl?.clientHeight || 0));
-  return scrollMax ? clampPercent((Number(scrollEl?.scrollTop || 0) / scrollMax) * 100) : 0;
+  const horizontal = state.readerMode === "paged";
+  const scrollMax = horizontal
+    ? Math.max(0, Number(scrollEl?.scrollWidth || 0) - Number(scrollEl?.clientWidth || 0))
+    : Math.max(0, Number(scrollEl?.scrollHeight || 0) - Number(scrollEl?.clientHeight || 0));
+  const scrollValue = horizontal ? Number(scrollEl?.scrollLeft || 0) : Number(scrollEl?.scrollTop || 0);
+  return scrollMax ? clampPercent((scrollValue / scrollMax) * 100) : 0;
 }
 
 function renderReadingSession() {
@@ -944,6 +1081,7 @@ function renderReaderProgress() {
   renderReadingNowBar({ scrollPercent });
   renderReadingMap({ scrollPercent });
   renderWaypoints();
+  updateReaderPageStatus();
 }
 
 function renderReadingMap({ scrollPercent = 0 } = {}) {
