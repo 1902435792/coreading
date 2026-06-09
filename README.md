@@ -204,6 +204,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-autostart.
 - `CO_READING_SIDECAR_MAX_BODY_BYTES`：sidecar 单次请求体上限，默认约 2MB。
 - `READING_IMPORT_MAX_BYTES`：导入文件大小上限，wrapper 默认约 100MB。
 - `CO_READING_DATA_DIR`：阅读数据目录；可指向临时目录做无污染测试。
+- `CO_READING_NOVA_AGENT_HISTORY_LIMIT`：后端 Nova Agent 运行记录保留条数，默认 `80`。
 - `PYTHON`：导入器使用的 Python 命令；Windows 默认 `python`，其它平台默认 `python3`。
 
 Sidecar 页面支持：
@@ -211,6 +212,7 @@ Sidecar 页面支持：
 - 查看书库、计划、评价、沉淀预览。
 - 从浏览器选择 TXT/Markdown/EPUB 文件导入书库；超过单次请求体上限的大书会自动走分片导入。
 - 打开或切换段落后默认触发一次 Nova 自动预读；可关闭“自动预读”，也可点“Nova 自主读”手动重读。
+- Nova 自主预读由 sidecar 后端 Agent 层执行，不由前端拼流程；运行记录写入数据目录的 `nova_agent_runs.json`。
 - Nova 面板可收起、恢复、切换窄/宽；沉浸模式默认净读并收起 Nova，阅读中可按需打开。
 - 创建范围/全书/兴趣线索/自由共读计划。
 - 读取 chunk 原文、搜索兴趣点、按选区/偏移写入和查看 Nova/AI 边注。
@@ -274,6 +276,16 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8791/api/runner/stop -Body 
 ```
 
 后台 runner job 写入 `runner_jobs.json`；sidecar 重启时会恢复 `running/waiting` job。它每轮调用一次 `plan_run`，尊重 plan pause/completed/error 状态，支持有限自动重试，并把最近结果、错误、tick、retry 和执行数暴露给 UI 的“后台跑 / 停止后台 / 重试”按钮。它仍依赖 sidecar 进程本身运行，不是系统服务级常驻 worker。
+
+## Nova Agent 后端层
+
+Sidecar 提供轻量 Agent API，用现有 VCP/Nova 接口执行读书任务：
+
+- `POST /api/agent/run`：执行单次 Agent action。当前支持 `{"action":"pre_read","bookId":"...","chunkId":"..."}`。
+- `GET /api/agent/runs?bookId=...&chunkId=...&action=pre_read`：读取 Agent 运行历史。
+- `/api/snapshot` 会带出最近 `agentRuns`，前端据此显示“Nova 已先读”、本段回看和阅读足迹。
+
+`pre_read` 会由后端读取 `list_chunks/read_chunk`，挑选当前段附近候选段，再调用 `/api/nova/ask` 所用的 Nova bridge。相同 `action/bookId/chunkId` 正在执行时，sidecar 复用同一个运行 promise，不会并发重复请求 Nova；需要强制重跑时可传 `force:true`。
 
 暂停和恢复：
 
