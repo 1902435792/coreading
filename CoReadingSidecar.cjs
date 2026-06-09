@@ -12,6 +12,7 @@ const { pathToFileURL } = require("node:url");
 const PLUGIN_DIR = __dirname;
 const FRONTEND_DIR = path.join(PLUGIN_DIR, "frontend");
 const PROMPTS_DIR = path.join(PLUGIN_DIR, "prompts");
+const NOVA_SKILL_PROMPTS_DIR = process.env.CO_READING_NOVA_SKILL_PROMPTS_DIR || path.join(PROMPTS_DIR, "skills");
 const WRAPPER_PATH = path.join(PLUGIN_DIR, "CoReadingMCP.cjs");
 const PROJECT_ROOT = process.env.PROJECT_BASE_PATH || path.resolve(PLUGIN_DIR, "..", "..");
 const DEFAULT_DATA_DIR = path.join(PROJECT_ROOT, "data", "co-reading-mcp");
@@ -532,12 +533,37 @@ function compactText(value, maxChars = 7000) {
   return text.length > maxChars ? `${text.slice(0, maxChars)}\n\n[已截断 ${text.length - maxChars} 字]` : text;
 }
 
-function readNovaGuide() {
+function readTextFileIfExists(filePath) {
   try {
-    return fs.existsSync(NOVA_GUIDE_PATH) ? fs.readFileSync(NOVA_GUIDE_PATH, "utf8").trim() : "";
+    return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8").trim() : "";
   } catch {
     return "";
   }
+}
+
+function readNovaSkillGuides() {
+  try {
+    if (!fs.existsSync(NOVA_SKILL_PROMPTS_DIR)) return { count: 0, content: "" };
+    const files = fs.readdirSync(NOVA_SKILL_PROMPTS_DIR, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /\.(txt|md)$/iu.test(entry.name))
+      .map((entry) => entry.name)
+      .sort((left, right) => left.localeCompare(right));
+    const sections = files
+      .map((name) => {
+        const content = readTextFileIfExists(path.join(NOVA_SKILL_PROMPTS_DIR, name));
+        return content ? `## Nova skill: ${name}\n\n${content}` : "";
+      })
+      .filter(Boolean);
+    return { count: sections.length, content: sections.join("\n\n") };
+  } catch {
+    return { count: 0, content: "" };
+  }
+}
+
+function readNovaGuide() {
+  const baseGuide = readTextFileIfExists(NOVA_GUIDE_PATH);
+  const skillGuides = readNovaSkillGuides();
+  return [baseGuide, skillGuides.content].filter(Boolean).join("\n\n");
 }
 
 async function askNova(body) {
@@ -618,6 +644,22 @@ const RUNNER_JOBS_PATH = path.join(DATA_DIR, "runner_jobs.json");
 const NOVA_AGENT_RUNS_PATH = path.join(DATA_DIR, "nova_agent_runs.json");
 const NOVA_AGENT_HISTORY_LIMIT = Math.max(20, Math.min(300, Number(process.env.CO_READING_NOVA_AGENT_HISTORY_LIMIT || 80)));
 const NOVA_AGENT_ACTIVE_RUNS = new Map();
+const VCP_PLUGIN_DIR = path.join(PROJECT_ROOT, "Plugin");
+const VCP_AGENT_PLUGIN_TOOLS = new Map();
+
+const AGENT_SCHEMA = {
+  anyObject: { type: "object", additionalProperties: true },
+  bookQuery: {
+    type: "object",
+    required: ["bookId", "query"],
+    properties: {
+      bookId: { type: "string" },
+      query: { type: "string" },
+      limit: { type: "number" }
+    },
+    additionalProperties: true
+  }
+};
 
 function readJsonFile(filePath, fallback) {
   if (!fs.existsSync(filePath)) return fallback;
@@ -643,22 +685,590 @@ function normalizeListLimit(value, fallback = 50, min = 1, max = NOVA_AGENT_HIST
   return Math.max(min, Math.min(max, Math.floor(number)));
 }
 
+function normalizeAgentToolName(name) {
+  return String(name || "").trim().toLowerCase().replace(/[.\-\s]+/g, "_");
+}
+
+function compactStructuredValue(value, maxChars = 30000) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  try {
+    const json = JSON.stringify(value);
+    if (json.length <= maxChars) return JSON.parse(json);
+    return {
+      truncated: true,
+      originalChars: json.length,
+      preview: compactText(json, maxChars)
+    };
+  } catch {
+    return compactText(String(value), maxChars);
+  }
+}
+
+function safeToolDetails(result = {}) {
+  const data = result.data ?? result.result ?? null;
+  const details = {
+    command: result.command || "",
+    data: compactStructuredValue(data, 18000),
+    stderr: result.stderr || null
+  };
+  if (Array.isArray(data)) details.count = data.length;
+  if (data && typeof data === "object" && Array.isArray(data.books)) details.count = data.books.length;
+  if (data && typeof data === "object" && Array.isArray(data.previews)) details.previewCount = data.previews.length;
+  return details;
+}
+
+function piToolText(result = {}) {
+  if (typeof result.raw === "string" && result.raw.trim()) return compactText(result.raw, 12000);
+  if (typeof result.content === "string" && result.content.trim()) return compactText(result.content, 12000);
+  return compactText(JSON.stringify(result.data ?? result.result ?? result, null, 2), 12000);
+}
+
+function buildPiToolResult(definition, result) {
+  return {
+    tool: definition.name,
+    label: definition.label,
+    category: definition.category,
+    source: definition.source,
+    readOnly: definition.readOnly === true,
+    requiresApproval: definition.requiresApproval === true,
+    content: [{ type: "text", text: piToolText(result) }],
+    details: safeToolDetails(result)
+  };
+}
+
+function agentToolDefinition(definition) {
+  return {
+    name: definition.name,
+    label: definition.label,
+    description: definition.description,
+    category: definition.category,
+    source: definition.source,
+    command: definition.command || definition.vcpCommand || definition.sidecarAction || "",
+    aliases: definition.aliases || [],
+    readOnly: definition.readOnly === true,
+    mutates: definition.mutates === true,
+    requiresApproval: definition.requiresApproval === true,
+    parameters: definition.parameters || AGENT_SCHEMA.anyObject
+  };
+}
+
+const AGENT_TOOL_DEFINITIONS = [
+  {
+    name: "reading_list_books",
+    label: "共读书库",
+    category: "reading",
+    source: "coreading",
+    command: "list_books",
+    aliases: ["list_books", "books"],
+    readOnly: true,
+    description: "列出已经导入 CoReadingMCP 的书籍。",
+    parameters: AGENT_SCHEMA.anyObject
+  },
+  {
+    name: "reading_list_chunks",
+    label: "章节/段落列表",
+    category: "reading",
+    source: "coreading",
+    command: "list_chunks",
+    aliases: ["list_chunks", "chunks"],
+    readOnly: true,
+    description: "列出一本书的 chunk/章节索引。",
+    parameters: {
+      type: "object",
+      required: ["bookId"],
+      properties: { bookId: { type: "string" } },
+      additionalProperties: true
+    }
+  },
+  {
+    name: "reading_read_chunk",
+    label: "读取段落",
+    category: "reading",
+    source: "coreading",
+    command: "read_chunk",
+    aliases: ["read_chunk", "read"],
+    readOnly: true,
+    description: "读取一本书中的单个 chunk 原文。",
+    parameters: {
+      type: "object",
+      required: ["bookId", "chunkId"],
+      properties: {
+        bookId: { type: "string" },
+        chunkId: { type: "string" }
+      },
+      additionalProperties: true
+    }
+  },
+  {
+    name: "reading_search",
+    label: "书内搜索",
+    category: "search",
+    source: "coreading",
+    command: "search",
+    aliases: ["search", "reading.search", "reading_search_chunks"],
+    readOnly: true,
+    description: "在当前导入书籍内搜索关键词，返回命中 chunk 和片段。",
+    parameters: AGENT_SCHEMA.bookQuery
+  },
+  {
+    name: "interest_backtrack",
+    label: "兴趣点回溯",
+    category: "search",
+    source: "coreading",
+    command: "interest_backtrack",
+    aliases: ["backtrack_interest", "trace_interest"],
+    readOnly: true,
+    description: "围绕关键词或锚点 chunk 做 bounded evidence 回溯。",
+    parameters: {
+      type: "object",
+      required: ["bookId"],
+      properties: {
+        bookId: { type: "string" },
+        query: { type: "string" },
+        anchorChunkId: { type: "string" },
+        before: { type: "number" },
+        after: { type: "number" },
+        maxRanges: { type: "number" },
+        mergeGap: { type: "number" },
+        includeEvidence: { type: "boolean" },
+        createPlan: { type: "boolean" }
+      },
+      additionalProperties: true
+    }
+  },
+  {
+    name: "local_library_list",
+    label: "本地书库列表",
+    category: "file",
+    source: "sidecar",
+    sidecarAction: "local_library_list",
+    aliases: ["library_list", "file_list_books", "local_books"],
+    readOnly: true,
+    description: "列出 sidecar 授权书库目录内可导入的 EPUB/TXT/Markdown。",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        limit: { type: "number" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "local_book_import",
+    label: "导入本地书",
+    category: "file",
+    source: "sidecar",
+    sidecarAction: "local_book_import",
+    aliases: ["import_local_book", "file_import_book"],
+    mutates: true,
+    description: "从授权书库目录导入一本书到 CoReadingMCP 数据目录。",
+    parameters: {
+      type: "object",
+      required: ["relativePath"],
+      properties: {
+        relativePath: { type: "string" },
+        bookId: { type: "string" },
+        title: { type: "string" },
+        author: { type: "string" },
+        overwrite: { type: "boolean" }
+      },
+      additionalProperties: true
+    }
+  },
+  {
+    name: "obsidian_note_read",
+    label: "读取 Obsidian 笔记",
+    category: "file",
+    source: "coreading",
+    command: "obsidian_note_read",
+    aliases: ["read_obsidian_note", "file_read_obsidian"],
+    readOnly: true,
+    description: "在配置的 vault 中读取与沉淀预览相关的 Obsidian 笔记。",
+    parameters: AGENT_SCHEMA.anyObject
+  },
+  {
+    name: "obsidian_note_diff",
+    label: "比较 Obsidian 笔记",
+    category: "file",
+    source: "coreading",
+    command: "obsidian_note_diff",
+    aliases: ["diff_obsidian_note", "file_diff_obsidian"],
+    readOnly: true,
+    description: "比较现有 Obsidian 笔记与沉淀预览，不写入文件。",
+    parameters: AGENT_SCHEMA.anyObject
+  },
+  {
+    name: "vcp_any_search",
+    label: "VCP AnySearch",
+    category: "search",
+    source: "vcp-plugin",
+    plugin: "AnySearch",
+    aliases: ["anysearch", "web_search", "search_web"],
+    readOnly: true,
+    description: "通过 VCP AnySearch 插件做网页/垂直搜索或正文提取。",
+    parameters: AGENT_SCHEMA.anyObject
+  },
+  {
+    name: "vcp_jina_reader",
+    label: "VCP JinaReader",
+    category: "search",
+    source: "vcp-plugin",
+    plugin: "JinaReader",
+    aliases: ["jina_reader", "web_read", "read_webpage"],
+    readOnly: true,
+    description: "通过 VCP JinaReader 插件读取网页 URL 并转成 Markdown。",
+    parameters: AGENT_SCHEMA.anyObject
+  },
+  {
+    name: "vcp_file_allowed_dirs",
+    label: "VCP 文件授权目录",
+    category: "file",
+    source: "vcp-plugin",
+    plugin: "FileOperator",
+    vcpCommand: "ListAllowedDirectories",
+    aliases: ["file_allowed_dirs", "list_allowed_directories"],
+    readOnly: true,
+    description: "通过 VCP FileOperator 查看授权根目录。",
+    parameters: AGENT_SCHEMA.anyObject
+  },
+  {
+    name: "vcp_file_read",
+    label: "VCP 文件读取",
+    category: "file",
+    source: "vcp-plugin",
+    plugin: "FileOperator",
+    vcpCommand: "ReadFile",
+    aliases: ["file_read", "read_file"],
+    readOnly: true,
+    description: "通过 VCP FileOperator 读取单个文件；只暴露只读能力。",
+    parameters: {
+      type: "object",
+      required: ["filePath"],
+      properties: {
+        filePath: { type: "string" },
+        encoding: { type: "string" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "vcp_file_search",
+    label: "VCP 文件搜索",
+    category: "file",
+    source: "vcp-plugin",
+    plugin: "FileOperator",
+    vcpCommand: "SearchFiles",
+    aliases: ["file_search", "search_files"],
+    readOnly: true,
+    description: "通过 VCP FileOperator 搜索文件名；不执行写入/移动/删除。",
+    parameters: AGENT_SCHEMA.anyObject
+  },
+  {
+    name: "sink_preview_create",
+    label: "创建沉淀预览",
+    category: "diary",
+    source: "coreading",
+    command: "sink_preview_create",
+    aliases: ["diary_preview_create", "daily_note_preview", "memory_preview"],
+    mutates: true,
+    requiresApproval: true,
+    description: "从 review 创建 Obsidian/DailyNote/VCPMemory 沉淀预览，仍需批准。",
+    parameters: AGENT_SCHEMA.anyObject
+  },
+  {
+    name: "backtrack_sink_preview_create",
+    label: "回溯证据沉淀预览",
+    category: "diary",
+    source: "coreading",
+    command: "sink_preview_create_from_backtrack",
+    aliases: ["sink_preview_create_from_backtrack", "diary_backtrack_preview"],
+    mutates: true,
+    requiresApproval: true,
+    description: "把兴趣回溯 evidence 包装为待批准沉淀预览。",
+    parameters: AGENT_SCHEMA.anyObject
+  },
+  {
+    name: "sink_preview_approve",
+    label: "批准沉淀预览",
+    category: "diary",
+    source: "coreading",
+    command: "sink_preview_update",
+    aliases: ["approve_sink_preview", "diary_preview_approve"],
+    mutates: true,
+    requiresApproval: true,
+    description: "把指定沉淀预览标记为 approved；执行写入仍需 sink_execute。",
+    mapArgs: (args) => ({ ...args, status: "approved", updatedBy: args.updatedBy || "Nova Agent" }),
+    parameters: {
+      type: "object",
+      required: ["previewId"],
+      properties: {
+        previewId: { type: "string" },
+        note: { type: "string" }
+      },
+      additionalProperties: true
+    }
+  },
+  {
+    name: "sink_execute",
+    label: "执行已批准沉淀",
+    category: "diary",
+    source: "coreading",
+    command: "sink_execute",
+    aliases: ["diary_execute", "daily_note_write_approved", "memory_execute"],
+    mutates: true,
+    requiresApproval: true,
+    description: "执行已经 approved 的沉淀预览，写入 Obsidian、DailyNote 或 VCPMemory。",
+    parameters: AGENT_SCHEMA.anyObject
+  }
+];
+
+for (const definition of AGENT_TOOL_DEFINITIONS) {
+  VCP_AGENT_PLUGIN_TOOLS.set(normalizeAgentToolName(definition.name), definition);
+  for (const alias of definition.aliases || []) {
+    VCP_AGENT_PLUGIN_TOOLS.set(normalizeAgentToolName(alias), definition);
+  }
+}
+
+function listPiAgentTools(filters = {}) {
+  const seen = new Set();
+  return AGENT_TOOL_DEFINITIONS
+    .filter((tool) => !filters.category || tool.category === filters.category)
+    .filter((tool) => {
+      if (seen.has(tool.name)) return false;
+      seen.add(tool.name);
+      return true;
+    })
+    .map(agentToolDefinition);
+}
+
+function findPiAgentTool(name) {
+  const tool = VCP_AGENT_PLUGIN_TOOLS.get(normalizeAgentToolName(name));
+  if (!tool) {
+    const error = new Error(`Unsupported Nova/Pi agent tool: ${name || "<empty>"}`);
+    error.statusCode = 400;
+    error.details = { availableTools: listPiAgentTools().map((item) => item.name) };
+    throw error;
+  }
+  return tool;
+}
+
+function parseEnvFile(filePath) {
+  const env = {};
+  const content = readTextFileIfExists(filePath);
+  if (!content) return env;
+  for (const rawLine of content.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/u);
+    if (!match) continue;
+    let value = match[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    env[match[1]] = value;
+  }
+  return env;
+}
+
+function vcpPluginEnv(pluginName) {
+  const pluginDir = path.join(VCP_PLUGIN_DIR, pluginName);
+  return {
+    ...parseEnvFile(path.join(PROJECT_ROOT, "config.env")),
+    ...parseEnvFile(path.join(pluginDir, "config.env")),
+    ...process.env
+  };
+}
+
+function parseVcpPluginStdout(pluginName, stdout) {
+  const text = String(stdout || "").trim();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    const lines = text.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      try {
+        return JSON.parse(lines[index]);
+      } catch {
+        // Continue scanning because some VCP plugins may emit debug text before JSON.
+      }
+    }
+  }
+  throw new Error(`${pluginName} returned non-JSON stdout: ${text.slice(0, 1000)}`);
+}
+
+function runVcpPlugin(pluginName, payload, { timeoutMs = 60000 } = {}) {
+  const scripts = {
+    AnySearch: path.join(VCP_PLUGIN_DIR, "AnySearch", "AnySearch.js"),
+    JinaReader: path.join(VCP_PLUGIN_DIR, "JinaReader", "JinaReader.js"),
+    FileOperator: path.join(VCP_PLUGIN_DIR, "FileOperator", "FileOperator.js")
+  };
+  const scriptPath = scripts[pluginName];
+  if (!scriptPath || !fs.existsSync(scriptPath)) {
+    const error = new Error(`VCP plugin is unavailable: ${pluginName}`);
+    error.statusCode = 404;
+    throw error;
+  }
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [scriptPath], {
+      cwd: path.dirname(scriptPath),
+      env: vcpPluginEnv(pluginName),
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
+    const timer = setTimeout(() => {
+      const error = new Error(`${pluginName} timed out after ${Math.round(timeoutMs / 1000)}s`);
+      error.statusCode = 504;
+      child.kill();
+      finish(reject, error);
+    }, timeoutMs);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", (error) => finish(reject, error));
+    child.on("close", (code) => {
+      let outer = null;
+      try {
+        outer = parseVcpPluginStdout(pluginName, stdout);
+      } catch (error) {
+        finish(reject, error);
+        return;
+      }
+      if (code !== 0 || outer.status === "error") {
+        const error = new Error(outer.error || outer.message || `${pluginName} failed with exit code ${code}`);
+        error.statusCode = 502;
+        error.details = { outer, stderr };
+        finish(reject, error);
+        return;
+      }
+      finish(resolve, {
+        status: "success",
+        command: pluginName,
+        data: outer.result ?? outer.data ?? outer,
+        raw: outer,
+        stderr: stderr.trim() || null
+      });
+    });
+    child.stdin.end(`${JSON.stringify(payload || {})}\n`);
+  });
+}
+
+async function runSidecarAgentTool(definition, args) {
+  if (definition.sidecarAction === "local_library_list") {
+    const result = await listLocalLibraryBooks();
+    const query = String(args.query || "").trim().toLowerCase();
+    const limit = normalizeListLimit(args.limit, 80, 1, 200);
+    const books = result.books
+      .filter((book) => !query || `${book.name} ${book.relativePath} ${book.format}`.toLowerCase().includes(query))
+      .slice(0, limit);
+    return { ...result, command: definition.name, data: { ...result, books, count: books.length } };
+  }
+  if (definition.sidecarAction === "local_book_import") {
+    return importLocalLibraryBook(args);
+  }
+  const error = new Error(`Unsupported sidecar agent tool: ${definition.sidecarAction}`);
+  error.statusCode = 400;
+  throw error;
+}
+
+async function executePiAgentTool(toolName, args = {}, run = null) {
+  const definition = findPiAgentTool(toolName);
+  const payload = definition.mapArgs ? definition.mapArgs({ ...args }) : { ...args };
+  if (definition.vcpCommand) payload.command = definition.vcpCommand;
+  const startedAt = new Date().toISOString();
+  if (run) {
+    run.events.push({
+      type: "tool_start",
+      tool: definition.name,
+      category: definition.category,
+      source: definition.source,
+      at: startedAt
+    });
+  }
+  try {
+    let result = null;
+    if (definition.source === "coreading") {
+      result = await runWrapper({ ...payload, command: definition.command });
+    } else if (definition.source === "sidecar") {
+      result = await runSidecarAgentTool(definition, payload);
+    } else if (definition.source === "vcp-plugin") {
+      result = await runVcpPlugin(definition.plugin, payload, { timeoutMs: definition.plugin === "AnySearch" ? 45000 : 60000 });
+    } else {
+      throw new Error(`Unsupported agent tool source: ${definition.source}`);
+    }
+    const toolResult = buildPiToolResult(definition, result);
+    if (run) {
+      run.toolResults.push(publicToolResult(definition.name, "success", {
+        category: definition.category,
+        source: definition.source,
+        command: definition.command || definition.vcpCommand || definition.sidecarAction || "",
+        readOnly: definition.readOnly === true,
+        requiresApproval: definition.requiresApproval === true,
+        details: compactStructuredValue(toolResult.details, 6000)
+      }));
+      run.events.push({ type: "tool_end", tool: definition.name, status: "success", at: new Date().toISOString() });
+    }
+    return { definition: agentToolDefinition(definition), result, toolResult };
+  } catch (error) {
+    if (run) {
+      run.toolResults.push(publicToolResult(definition.name, "error", {
+        category: definition.category,
+        source: definition.source,
+        message: error.message || String(error)
+      }));
+      run.events.push({ type: "tool_end", tool: definition.name, status: "error", at: new Date().toISOString() });
+    }
+    throw error;
+  }
+}
+
 function normalizeAgentAction(action) {
   const raw = String(action || "pre_read").trim().toLowerCase().replace(/[-\s]+/g, "_");
   const aliases = {
     autonomous_reading: "pre_read",
     nova_pre_read: "pre_read",
     preread: "pre_read",
-    pre_read_current: "pre_read"
+    pre_read_current: "pre_read",
+    backtrack_interest: "interest_backtrack",
+    trace_interest: "interest_backtrack",
+    tool: "tool_call",
+    execute_tool: "tool_call",
+    vcp_tool: "tool_call",
+    vcp_tool_call: "tool_call"
   };
   return aliases[raw] || raw;
 }
 
 function novaAgentActiveKey(action, payload) {
+  const normalized = normalizeAgentAction(action);
+  const variableParts = [];
+  if (normalized === "interest_backtrack") {
+    variableParts.push(payload.query || "", payload.anchorChunkId || "", payload.before || "", payload.after || "", payload.maxRanges || "");
+  }
+  if (normalized === "tool_call") {
+    variableParts.push(payload.tool || payload.toolName || payload.name || payload.command || "");
+    variableParts.push(JSON.stringify(payload.arguments || payload.args || payload.input || payload.payload || {}));
+  }
+  const digest = variableParts.length
+    ? crypto.createHash("sha1").update(variableParts.join("|")).digest("hex").slice(0, 12)
+    : "";
   return [
-    normalizeAgentAction(action),
+    normalized,
     String(payload.bookId || "").trim(),
-    String(payload.chunkId || "").trim()
+    String(payload.chunkId || payload.anchorChunkId || "").trim(),
+    digest
   ].join(":");
 }
 
@@ -713,7 +1323,12 @@ function normalizeNovaAgentRun(run = {}) {
       chosenChunkId: String(result.chosenChunkId || run.chunkId || ""),
       candidates: Array.isArray(result.candidates) ? result.candidates.slice(0, 8) : [],
       contextMode: String(result.contextMode || run.contextMode || "agent"),
-      prompt: compactText(result.prompt || run.prompt || "", 1200)
+      prompt: compactText(result.prompt || run.prompt || "", 1200),
+      backtrack: compactStructuredValue(result.backtrack, 26000),
+      tool: compactStructuredValue(result.tool, 8000),
+      toolResult: compactStructuredValue(result.toolResult, 18000),
+      sinkPreview: compactStructuredValue(result.sinkPreview, 16000),
+      review: compactStructuredValue(result.review, 12000)
     },
     events: Array.isArray(run.events) ? run.events.slice(0, 80) : [],
     toolResults: Array.isArray(run.toolResults) ? run.toolResults.slice(0, 30) : [],
@@ -907,6 +1522,144 @@ async function runNovaPreReadAgent(payload) {
   }
 }
 
+function backtrackSummary(backtrack = {}) {
+  const title = backtrack.evidence?.title || backtrack.query || backtrack.anchorChunkId || "兴趣点回溯";
+  const rangeCount = Array.isArray(backtrack.ranges) ? backtrack.ranges.length : 0;
+  const chunkCount = Array.isArray(backtrack.chunkIds) ? backtrack.chunkIds.length : 0;
+  const anchorCount = Array.isArray(backtrack.anchors) ? backtrack.anchors.length : 0;
+  return [
+    `Nova Agent 已完成回溯: ${title}`,
+    `锚点 ${anchorCount} 个，范围 ${rangeCount} 组，涉及 ${chunkCount} 个 chunk。`,
+    backtrack.evidenceMarkdown ? compactText(backtrack.evidenceMarkdown, 5000) : ""
+  ].filter(Boolean).join("\n\n");
+}
+
+async function runNovaInterestBacktrackAgent(payload) {
+  const bookId = String(payload.bookId || "").trim();
+  const anchorChunkId = String(payload.anchorChunkId || payload.chunkId || "").trim();
+  const query = String(payload.query || payload.prompt || "").trim();
+  if (!bookId || (!anchorChunkId && !query)) {
+    const error = new Error("interest_backtrack 需要 bookId，并且至少提供 query 或 anchorChunkId。");
+    error.statusCode = 400;
+    throw error;
+  }
+  const startedAtMs = Date.now();
+  const run = normalizeNovaAgentRun({
+    action: "interest_backtrack",
+    label: "Nova 兴趣点回溯",
+    status: "running",
+    bookId,
+    bookTitle: payload.bookTitle || "",
+    chunkId: anchorChunkId || String(payload.chunkId || ""),
+    chunkTitle: payload.chunkTitle || "",
+    contextMode: "interest-backtrack",
+    prompt: compactText(payload.prompt || query || "围绕当前兴趣点回溯相关段落。", 1400),
+    startedAt: new Date(startedAtMs).toISOString(),
+    result: { contextMode: "interest-backtrack" }
+  });
+  upsertNovaAgentRun(run);
+
+  try {
+    const args = {
+      bookId,
+      query: query || undefined,
+      anchorChunkId: anchorChunkId || undefined,
+      before: payload.before,
+      after: payload.after,
+      limit: payload.limit,
+      maxRanges: payload.maxRanges,
+      mergeGap: payload.mergeGap,
+      includeEvidence: payload.includeEvidence !== false,
+      createPlan: payload.createPlan === true,
+      budget: payload.budget,
+      annotationDensity: payload.annotationDensity,
+      sinkPolicy: payload.sinkPolicy,
+      createdBy: payload.createdBy || "Nova Agent"
+    };
+    const { result } = await executePiAgentTool("interest_backtrack", args, run);
+    const backtrack = result.data || result.raw || result;
+    run.status = "success";
+    run.completedAt = new Date().toISOString();
+    run.durationMs = Date.now() - startedAtMs;
+    run.result = {
+      content: backtrackSummary(backtrack),
+      note: backtrackSummary(backtrack),
+      chosenChunkId: anchorChunkId || backtrack.anchorChunkId || "",
+      backtrack,
+      contextMode: "interest-backtrack",
+      prompt: run.prompt
+    };
+    run.events.push({ type: "agent_end", status: "success", at: run.completedAt });
+    const saved = upsertNovaAgentRun(run);
+    return { status: "success", run: saved, result: saved.result };
+  } catch (error) {
+    run.status = "error";
+    run.completedAt = new Date().toISOString();
+    run.durationMs = Date.now() - startedAtMs;
+    run.error = { message: error.message || String(error), details: error.details || null };
+    run.events.push({ type: "agent_end", status: "error", at: run.completedAt });
+    const saved = upsertNovaAgentRun(run);
+    error.details = { ...(error.details || {}), run: saved };
+    throw error;
+  }
+}
+
+async function runNovaToolCallAgent(payload) {
+  const toolName = String(payload.tool || payload.toolName || payload.name || payload.command || "").trim();
+  const args = payload.arguments || payload.args || payload.input || payload.payload || {};
+  if (!toolName) {
+    const error = new Error("tool_call 需要 tool/toolName。");
+    error.statusCode = 400;
+    throw error;
+  }
+  const definition = findPiAgentTool(toolName);
+  const startedAtMs = Date.now();
+  const run = normalizeNovaAgentRun({
+    action: "tool_call",
+    label: `Nova 工具调用: ${definition.label || definition.name}`,
+    status: "running",
+    bookId: payload.bookId || args.bookId || "",
+    bookTitle: payload.bookTitle || "",
+    chunkId: payload.chunkId || args.chunkId || args.anchorChunkId || "",
+    chunkTitle: payload.chunkTitle || "",
+    contextMode: `tool:${definition.category}`,
+    prompt: compactText(payload.prompt || `调用工具 ${definition.name}`, 1400),
+    startedAt: new Date(startedAtMs).toISOString(),
+    result: { contextMode: `tool:${definition.category}` }
+  });
+  upsertNovaAgentRun(run);
+
+  try {
+    const { toolResult, result } = await executePiAgentTool(definition.name, args, run);
+    run.status = "success";
+    run.completedAt = new Date().toISOString();
+    run.durationMs = Date.now() - startedAtMs;
+    run.result = {
+      content: toolResult.content?.[0]?.text || "",
+      note: `${definition.label || definition.name} 已执行。`,
+      chosenChunkId: run.chunkId || "",
+      tool: agentToolDefinition(definition),
+      toolResult,
+      backtrack: definition.name === "interest_backtrack" ? (result.data || result.raw || result) : undefined,
+      sinkPreview: definition.category === "diary" ? (result.data || result.raw || result) : undefined,
+      contextMode: `tool:${definition.category}`,
+      prompt: run.prompt
+    };
+    run.events.push({ type: "agent_end", status: "success", at: run.completedAt });
+    const saved = upsertNovaAgentRun(run);
+    return { status: "success", run: saved, result: saved.result, toolResult };
+  } catch (error) {
+    run.status = "error";
+    run.completedAt = new Date().toISOString();
+    run.durationMs = Date.now() - startedAtMs;
+    run.error = { message: error.message || String(error), details: error.details || null };
+    run.events.push({ type: "agent_end", status: "error", at: run.completedAt });
+    const saved = upsertNovaAgentRun(run);
+    error.details = { ...(error.details || {}), run: saved };
+    throw error;
+  }
+}
+
 async function runNovaAgent(payload) {
   const action = normalizeAgentAction(payload.action || payload.task);
   if (action === "pre_read") {
@@ -915,6 +1668,21 @@ async function runNovaAgent(payload) {
       return NOVA_AGENT_ACTIVE_RUNS.get(key);
     }
     const promise = runNovaPreReadAgent({ ...payload, action });
+    if (!payload.force) NOVA_AGENT_ACTIVE_RUNS.set(key, promise);
+    try {
+      return await promise;
+    } finally {
+      if (NOVA_AGENT_ACTIVE_RUNS.get(key) === promise) NOVA_AGENT_ACTIVE_RUNS.delete(key);
+    }
+  }
+  if (action === "interest_backtrack" || action === "tool_call") {
+    const key = novaAgentActiveKey(action, payload);
+    if (!payload.force && NOVA_AGENT_ACTIVE_RUNS.has(key)) {
+      return NOVA_AGENT_ACTIVE_RUNS.get(key);
+    }
+    const promise = action === "interest_backtrack"
+      ? runNovaInterestBacktrackAgent({ ...payload, action })
+      : runNovaToolCallAgent({ ...payload, action });
     if (!payload.force) NOVA_AGENT_ACTIVE_RUNS.set(key, promise);
     try {
       return await promise;
@@ -1182,7 +1950,11 @@ async function handleApi(req, res, url) {
       vendorDir: VENDOR_DIR,
       localLibraryDir: LOCAL_LIBRARY_DIR,
       novaTimeoutMs: NOVA_TIMEOUT_MS,
+      novaGuidePath: NOVA_GUIDE_PATH,
+      novaSkillPromptDir: NOVA_SKILL_PROMPTS_DIR,
+      novaSkillGuideCount: readNovaSkillGuides().count,
       sinkDefaults: configuredSinkDefaults(),
+      agentToolCount: listPiAgentTools().length,
       runnerJobsPath: RUNNER_JOBS_PATH,
       novaAgentRunsPath: NOVA_AGENT_RUNS_PATH,
       novaAgentRunCount: listNovaAgentRuns({ limit: NOVA_AGENT_HISTORY_LIMIT }).length,
@@ -1240,6 +2012,13 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, await askNova(await readJsonBody(req)));
   }
 
+  if (req.method === "GET" && url.pathname === "/api/agent/tools") {
+    return sendJson(res, 200, {
+      status: "success",
+      tools: listPiAgentTools({ category: url.searchParams.get("category") || "" })
+    });
+  }
+
   if (req.method === "GET" && url.pathname === "/api/agent/runs") {
     return sendJson(res, 200, {
       status: "success",
@@ -1254,6 +2033,10 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/agent/run") {
     return sendJson(res, 200, await runNovaAgent(await readJsonBody(req)));
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/agent/tool") {
+    return sendJson(res, 200, await runNovaAgent({ ...(await readJsonBody(req)), action: "tool_call" }));
   }
 
   if (req.method === "GET" && url.pathname === "/api/runner/status") {

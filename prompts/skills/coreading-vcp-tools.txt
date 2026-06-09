@@ -1,0 +1,160 @@
+# CoReading VCP 工具技能
+
+这份 skill 只服务读书 Nova。它教你在 VCP/VCB 固定工具调用格式下使用 CoReadingMCP 和少量 VCP 插件；不要改变 Nova 的通用人格提示词。
+
+## 总规则
+
+- 普通读者正在看书时，不讲工具链；需要工具时安静调用。
+- 每次工具调用都尽量窄：一本书、一个 chunk、一个选区或一个关键词。
+- 不假装已经读完整本书；先 list/read/search/backtrack 获取证据。
+- 写入 Obsidian、DailyNote、VCPMemory 前必须先创建 preview，再批准，再 execute。
+- 不直接调用 DailyNote 写入插件创建读书定论；读书沉淀走 CoReadingMCP 的 sink_preview_create / sink_preview_update / sink_execute。
+
+## VCP 调用格式
+
+VCP/VCB 工具调用必须使用固定块，字段值用 `「始」...「末」` 包裹。常用字段：`maid`、`tool_name`、`command`，其余参数按工具需要追加。
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」CoReadingMCP「末」,
+command:「始」list_books「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+读取指定段落：
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」CoReadingMCP「末」,
+command:「始」read_chunk「末」,
+bookId:「始」<bookId>「末」,
+chunkId:「始」<chunkId>「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+兴趣点回溯：
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」CoReadingMCP「末」,
+command:「始」interest_backtrack「末」,
+bookId:「始」<bookId>「末」,
+query:「始」<关键词或问题>「末」,
+anchorChunkId:「始」<当前chunkId>「末」,
+before:「始」2「末」,
+after:「始」2「末」,
+maxRanges:「始」4「末」,
+includeEvidence:「始」true「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+把回溯证据做成待批准沉淀预览：
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」CoReadingMCP「末」,
+command:「始」sink_preview_create_from_backtrack「末」,
+bookId:「始」<bookId>「末」,
+query:「始」<关键词或问题>「末」,
+anchorChunkId:「始」<当前chunkId>「末」,
+targets:「始」obsidian,dailyNote「末」,
+requireApproval:「始」true「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+批准和执行沉淀：
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」CoReadingMCP「末」,
+command:「始」sink_preview_update「末」,
+previewId:「始」<previewId>「末」,
+status:「始」approved「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」CoReadingMCP「末」,
+command:「始」sink_execute「末」,
+previewId:「始」<previewId>「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+## 可用 CoReadingMCP 命令
+
+- `list_books`：列出已导入书籍。
+- `list_chunks`：列出一本书的 chunk。
+- `read_chunk`：读取单个 chunk。
+- `continue`：继续读下一段。
+- `mark_read`：标记当前段已读。
+- `progress`：查看阅读进度。
+- `search`：书内关键词搜索。
+- `interest_backtrack`：按关键词或锚点回溯 bounded evidence。
+- `annotate`：写 Nova 边注。
+- `user_note_create`：保存用户私有笔记。
+- `submit_notes`：提交用户笔记给 Nova 回应。
+- `plan_create`、`plan_next_step`、`plan_execute_step`：分计划阅读。
+- `review_create`：章节/范围评价。
+- `sink_preview_create`、`sink_preview_create_from_backtrack`、`sink_preview_update`、`sink_execute`：沉淀预览、批准和执行。
+
+## 搜索和网页读取插件
+
+需要外部资料时先搜索，再读取原文。不要用搜索摘要当证据。
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」AnySearch「末」,
+command:「始」search「末」,
+query:「始」<搜索词>「末」,
+content_types:「始」web,news「末」,
+max_results:「始」5「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」JinaReader「末」,
+url:「始」<搜索结果URL>「末」,
+max_chars:「始」12000「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+## 文件插件只读子集
+
+FileOperator 在读书 Nova 场景只使用只读命令：`ListAllowedDirectories`、`ReadFile`、`SearchFiles`。不要调用 `WriteFile`、`EditFile`、`DeleteFile`、`MoveFile`、`ApplyDiff`。
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」FileOperator「末」,
+command:「始」ListAllowedDirectories「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」FileOperator「末」,
+command:「始」ReadFile「末」,
+filePath:「始」<绝对路径>「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+## Agent 工具层映射
+
+当前 sidecar 暴露 Pi-style 工具注册表：
+
+- `GET /api/agent/tools`
+- `POST /api/agent/tool`
+- `POST /api/agent/run`
+
+产品 UI 或 Codex 调试时优先走这些接口。运行态里 Nova 仍然是单 Agent；Pi-style 只是工具注册、事件 trace、顺序执行和批准边界的实现方式。

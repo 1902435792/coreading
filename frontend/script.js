@@ -115,9 +115,12 @@ function setupAppLayout() {
   ]);
   assistantPane.appendChild(novaPane);
 
-  moveExisting(assistantPane, [
-    ".library-panel",
-  ]);
+  const skillsPane = createSkillPagePanel();
+  const skillsBody = skillsPane.querySelector(".skill-page-body");
+
+  const libraryGroup = createSkillGroup("书库", "导入与切换书籍", true);
+  moveExisting(libraryGroup.body, [".library-panel"]);
+  skillsBody.appendChild(libraryGroup.group);
 
   const notesPane = createAssistantPanel("notes-pane");
   moveExisting(notesPane, [
@@ -130,7 +133,9 @@ function setupAppLayout() {
     "#userNoteList",
     "#submissionList",
   ]);
-  assistantPane.appendChild(notesPane);
+  const notesGroup = createSkillGroup("边注与笔记", "私有笔记、边注和提交批次", false);
+  notesGroup.body.appendChild(notesPane);
+  skillsBody.appendChild(notesGroup.group);
 
   const toolsPane = createAssistantPanel("reading-tools-pane");
   moveExisting(toolsPane, [
@@ -148,12 +153,39 @@ function setupAppLayout() {
     "#backtrackEvidence",
     ".plan-panel > details.tool-drawer",
   ]);
-  assistantPane.appendChild(toolsPane);
+  const toolsGroup = createSkillGroup("计划与回溯", "计划、评价、线索和段落回看", false);
+  toolsGroup.body.appendChild(toolsPane);
+  skillsBody.appendChild(toolsGroup.group);
 
-  moveExisting(assistantPane, [
-    ".sink-panel",
-    ".command-panel",
-  ]);
+  const sinkGroup = createSkillGroup("沉淀", "预览、批准和执行写入", false);
+  moveExisting(sinkGroup.body, [".sink-panel"]);
+  skillsBody.appendChild(sinkGroup.group);
+
+  const commandGroup = createSkillGroup("回执", "调试日志与后台回执", false);
+  moveExisting(commandGroup.body, [".command-panel"]);
+  skillsBody.appendChild(commandGroup.group);
+
+  document.body.appendChild(skillsPane);
+  const skillsToggle = document.createElement("button");
+  skillsToggle.id = "skillsPageToggleBtn";
+  skillsToggle.className = "secondary compact";
+  skillsToggle.type = "button";
+  skillsToggle.textContent = "技能";
+  skillsToggle.setAttribute("aria-expanded", "false");
+  skillsToggle.addEventListener("click", () => {
+    const nextOpen = skillsPane.hidden;
+    skillsPane.hidden = !nextOpen;
+    document.body.classList.toggle("skills-pane-open", nextOpen);
+    skillsToggle.setAttribute("aria-expanded", String(nextOpen));
+    if (nextOpen) skillsPane.querySelector("summary, button, input, textarea, select")?.focus();
+  });
+  skillsPane.querySelector("#skillsPageCloseBtn")?.addEventListener("click", () => {
+    skillsPane.hidden = true;
+    document.body.classList.remove("skills-pane-open");
+    skillsToggle.setAttribute("aria-expanded", "false");
+    skillsToggle.focus();
+  });
+  document.querySelector(".top-actions")?.insertBefore(skillsToggle, $("refreshBtn") || null);
   workspace.dataset.layout = "reader-assistant";
 }
 
@@ -161,6 +193,29 @@ function createAssistantPanel(className) {
   const panel = document.createElement("section");
   panel.className = `panel assistant-panel ${className}`;
   return panel;
+}
+
+function createSkillPagePanel() {
+  const panel = document.createElement("aside");
+  panel.className = "panel skills-pane";
+  panel.hidden = true;
+  panel.setAttribute("aria-label", "技能页");
+  panel.innerHTML = [
+    '<header class="skill-page-header"><div><strong>技能页</strong><small>书库、笔记、计划、沉淀与调试</small></div><button id="skillsPageCloseBtn" class="secondary compact" type="button">收起</button></header>',
+    '<div class="skill-page-body"></div>'
+  ].join("");
+  return panel;
+}
+
+function createSkillGroup(title, subtitle = "", open = false) {
+  const group = document.createElement("details");
+  group.className = "skill-group";
+  if (open) group.open = true;
+  group.innerHTML = [
+    `<summary><span>${escapeHtml(title)}</span><small>${escapeHtml(subtitle)}</small></summary>`,
+    '<div class="skill-group-body"></div>'
+  ].join("");
+  return { group, body: group.querySelector(".skill-group-body") };
 }
 
 function moveExisting(target, selectors) {
@@ -7163,18 +7218,38 @@ function renderSinkGuide() {
 }
 
 function previewIdFromResult(result) {
-  const data = result?.data || result?.raw || result || {};
-  if (data.previewId) return data.previewId;
-  const direct = data.preview || data.previews?.[0] || data.sinkPreviews?.[0] || data.execution?.sinkPreviews?.[0];
-  if (direct?.previewId) return direct.previewId;
-  const artifact = data.recorded?.plan?.history
-    ?.flatMap((item) => item.artifacts || [])
-    ?.find((item) => item.type === "sink_preview" && item.previewId);
-  if (artifact?.previewId) return artifact.previewId;
-  const runPreviewId = (data.runs || [])
-    .flatMap((run) => run.sinkPreviewIds || [])
-    .find(Boolean);
-  return runPreviewId || null;
+  const queue = [
+    result,
+    result?.data,
+    result?.raw,
+    result?.details,
+    result?.details?.data,
+    result?.toolResult,
+    result?.toolResult?.details,
+    result?.toolResult?.details?.data,
+    result?.sinkPreview,
+    result?.sinkPreview?.data,
+    result?.sinkPreview?.raw,
+  ];
+  const seen = new Set();
+  while (queue.length) {
+    const data = queue.shift();
+    if (!data || typeof data !== "object" || seen.has(data)) continue;
+    seen.add(data);
+    if (data.previewId) return data.previewId;
+    const direct = data.preview || data.previews?.[0] || data.sinkPreviews?.[0] || data.execution?.sinkPreviews?.[0];
+    if (direct?.previewId) return direct.previewId;
+    const artifact = data.recorded?.plan?.history
+      ?.flatMap((item) => item.artifacts || [])
+      ?.find((item) => item.type === "sink_preview" && item.previewId);
+    if (artifact?.previewId) return artifact.previewId;
+    const runPreviewId = (data.runs || [])
+      .flatMap((run) => run.sinkPreviewIds || [])
+      .find(Boolean);
+    if (runPreviewId) return runPreviewId;
+    queue.push(data.data, data.raw, data.details, data.result, data.result?.data);
+  }
+  return null;
 }
 
 async function openPreviewFromResult(result, { refreshSnapshot = false } = {}) {
@@ -9802,19 +9877,24 @@ async function createBacktrackPlan(anchorChunkId) {
   if (!selected || !anchorChunkId) return;
   const payload = backtrackPayload(selected.bookId, anchorChunkId);
   try {
-    const result = await command({
+    const response = await runNovaAgent({
       ...payload,
-      command: "interest_backtrack",
+      action: "interest_backtrack",
       createPlan: true,
       budget: { maxChunksPerStep: 2, maxAnnotationsPerChunk: 2 },
       annotationDensity: "medium",
       sinkPolicy: { requireApproval: true, obsidian: true },
+      bookTitle: selected.title || selected.bookId,
+      chunkTitle: chunkTitleById(anchorChunkId),
       createdBy: "CoReadingSidecar",
     });
-    state.backtrackEvidence = result.data || result.raw || result;
+    const run = response.run || {};
+    const result = response.result || run.result || {};
+    state.backtrackEvidence = result.backtrack || response.backtrack || result.data || result.raw || result;
+    if (run.id) mergeNovaAgentRun(run);
     renderBacktrackEvidence();
     await loadSnapshot();
-    log(result.raw || result.data || result);
+    log(result.backtrack || result);
   } catch (error) {
     log(error.message || String(error));
   }
@@ -9825,13 +9905,19 @@ async function runTrailGuideBacktrack() {
   if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
   const query = trailGuideQuery();
   if (query) $("searchInput").value = query;
-  const result = await command({
+  const response = await runNovaAgent({
     ...backtrackPayload(selected.bookId, state.selectedChunkId),
-    command: "interest_backtrack",
+    action: "interest_backtrack",
+    chunkId: state.selectedChunkId,
+    bookTitle: selected.title || selected.bookId,
+    chunkTitle: chunkTitleById(state.selectedChunkId),
     createPlan: false,
     includeEvidence: true,
   });
-  state.backtrackEvidence = result.data || result.raw || result;
+  const run = response.run || {};
+  const result = response.result || run.result || {};
+  state.backtrackEvidence = result.backtrack || response.backtrack || result.data || result.raw || result;
+  if (run.id) mergeNovaAgentRun(run);
   renderBacktrackEvidence();
   focusPanel(".trail-guide", "#trailGuideOpenBtn");
 }
@@ -9866,16 +9952,22 @@ async function sinkTrailGuide({ openPreview = true } = {}) {
   const evidence = state.backtrackEvidence;
   if (!evidence) throw new Error("当前没有回溯证据。");
   saveSinkSettings();
-  const result = await command({
+  const response = await runNovaAgent({
+    action: "tool_call",
+    tool: "backtrack_sink_preview_create",
     ...backtrackPayload(selected.bookId, evidence.anchorChunkId || state.selectedChunkId),
-    command: "sink_preview_create_from_backtrack",
     vaultPath: $("vaultPath").value || undefined,
     requireApproval: true,
+    bookTitle: selected.title || selected.bookId,
+    chunkTitle: chunkTitleById(evidence.anchorChunkId || state.selectedChunkId),
     createdBy: "CoReadingSidecar",
   });
-  state.backtrackEvidence = result.data?.backtrack || result.raw?.backtrack || evidence;
+  const run = response.run || {};
+  const result = response.result || run.result || {};
+  state.backtrackEvidence = result.backtrack || response.backtrack || evidence;
+  if (run.id) mergeNovaAgentRun(run);
   renderBacktrackEvidence();
-  const previewId = previewIdFromResult(result);
+  const previewId = previewIdFromResult(response.toolResult || result.toolResult || result);
   if (previewId && openPreview) await openQueueSink(previewId);
   return previewId;
 }
@@ -12539,28 +12631,10 @@ $("backtrackCurrentBtn").addEventListener("click", async () => {
   await createBacktrackPlan(state.selectedChunkId);
 });
 $("sinkBacktrackBtn").addEventListener("click", async () => {
-  const selected = activeBook();
-  if (!selected || !state.selectedChunkId) return;
   try {
-    saveSinkSettings();
-    const result = await command({
-      ...backtrackPayload(selected.bookId, state.selectedChunkId),
-      command: "sink_preview_create_from_backtrack",
-      requireApproval: true,
-      vaultPath: $("vaultPath").value || undefined,
-      createdBy: "CoReadingSidecar"
-    });
-    state.backtrackEvidence = result.data?.backtrack || result.raw?.backtrack || null;
-    renderBacktrackEvidence();
+    const previewId = await sinkTrailGuide({ openPreview: true });
     await loadSnapshot();
-    const preview = result.data?.preview || result.data?.previews?.[0] || result.raw?.preview || result.raw?.previews?.[0] || null;
-    if (preview?.previewId) {
-      const full = await query({ command: "sink_preview_get", previewId: preview.previewId });
-      state.selectedSinkPreview = full.preview || full;
-      state.selectedSinkDiff = null;
-      renderSinkDetail();
-    }
-    log(result.raw || result.data || result);
+    log(previewId ? `已创建回溯沉淀预览: ${previewId}` : "已请求回溯沉淀预览。");
   } catch (error) {
     log(error.message || String(error));
   }

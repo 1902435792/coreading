@@ -281,11 +281,17 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8791/api/runner/stop -Body 
 
 Sidecar 提供轻量 Agent API，用现有 VCP/Nova 接口执行读书任务：
 
-- `POST /api/agent/run`：执行单次 Agent action。当前支持 `{"action":"pre_read","bookId":"...","chunkId":"..."}`。
+- `GET /api/agent/tools`：读取 Pi-style 工具清单，按 `reading`、`search`、`file`、`diary` 分类。
+- `POST /api/agent/tool`：执行单个工具调用，适合把 Nova/VCP 工具调用统一成一个后端入口。
+- `POST /api/agent/run`：执行单次 Agent action。当前支持 `{"action":"pre_read","bookId":"...","chunkId":"..."}`、`{"action":"interest_backtrack",...}` 和 `{"action":"tool_call",...}`。
 - `GET /api/agent/runs?bookId=...&chunkId=...&action=pre_read`：读取 Agent 运行历史。
 - `/api/snapshot` 会带出最近 `agentRuns`，前端据此显示“Nova 已先读”、本段回看和阅读足迹。
 
 `pre_read` 会由后端读取 `list_chunks/read_chunk`，挑选当前段附近候选段，再调用 `/api/nova/ask` 所用的 Nova bridge。相同 `action/bookId/chunkId` 正在执行时，sidecar 复用同一个运行 promise，不会并发重复请求 Nova；需要强制重跑时可传 `force:true`。
+
+`interest_backtrack` 会把搜索/回溯/沉淀都记成一条 Agent trace，默认通过 `interest_backtrack` 工具返回 bounded evidence，再由 `backtrack_sink_preview_create` 或 `sink_preview_create` 进入沉淀链路。`tool_call` 则把 `AnySearch`、`JinaReader`、`FileOperator` 的只读子集，以及 `sink_preview_*`、`obsidian_note_*` 这类共读动作统一成一层 Pi 风格工具背包。直接 spawn VCP 插件时，sidecar 会合并 VCP 根 `config.env` 和插件自己的 `config.env`，模拟 VCP 主程序加载配置的方式。
+
+日记类能力不直接暴露 `DailyNote.create/update` 给 Nova。读书沉淀统一走 `sink_preview_create` / `sink_preview_update` / `sink_execute`，所以写入 Obsidian、DailyNote、VCPMemory 前仍有预览和批准边界。
 
 暂停和恢复：
 
@@ -486,11 +492,14 @@ npm run check
 D:\VCP\VCPToolBox\Plugin\CoReadingMCP\prompts\nova-co-reading-reader.txt
 D:\VCP\VCPToolBox\Plugin\CoReadingMCP\prompts\nova-reader-vcp-bridge.txt
 D:\VCP\VCPToolBox\Plugin\CoReadingMCP\prompts\CoReadingNovaGuide.txt
+D:\VCP\VCPToolBox\Plugin\CoReadingMCP\prompts\skills\coreading-vcp-tools.txt
 ```
 
 `nova-co-reading-reader.txt` 面向普通 OpenAI 兼容前端和 MCP 工具前端，不要求 `始/末` 工具语法。
 
-`CoReadingNovaGuide.txt` 是读书 Nova 的操作手册，包含书库、选区问 Nova、笔记/边注、计划阅读、兴趣回溯、Obsidian/DailyNote/VCPMemory 沉淀和记忆写入边界。Sidecar 的 `/api/nova/ask` 会默认读取它。
+`CoReadingNovaGuide.txt` 是读书 Nova 的操作手册，包含书库、选区问 Nova、笔记/边注、计划阅读、兴趣回溯、Obsidian/DailyNote/VCPMemory 沉淀和记忆写入边界。Sidecar 的 `/api/nova/ask` 会默认读取它，并自动追加 `prompts\skills\*.txt|*.md`。
+
+`prompts\skills\coreading-vcp-tools.txt` 是读书 Nova 的工具技能页，专门说明 VCP/VCB 的 `<<<[TOOL_REQUEST]>>>` 固定调用块、CoReadingMCP 命令、AnySearch/JinaReader、FileOperator 只读子集，以及 DailyNote 必须经沉淀预览链路落地。
 
 `nova-reader-vcp-bridge.txt` 是 VCPBridgeServer 的备选读书模式 prompt，可按需手动复制或引用；本仓库不会覆盖用户本地 `VCPBridgeServer\nova.txt`。如果要让 3100 bridge 专门进入读书模式，可以在 `D:\VCP\VCPToolBox\Plugin\VCPBridgeServer\config.env` 中临时设置：
 
@@ -499,7 +508,7 @@ BRIDGE_SYSTEM_PROMPT=nova-reader.txt
 BRIDGE_HIJACK_MODE=prepend
 ```
 
-也可以把本手册注册为 VCP TVS 变量：把 `CoReadingNovaGuide.txt` 放到 `D:\VCP\VCPToolBox\TVStxt\CoReadingNovaGuide.txt`，再在 VCP 根 `config.env` 里追加：
+也可以把本手册注册为 VCP TVS 变量：把合并后的 `CoReadingNovaGuide.txt` 放到 `D:\VCP\VCPToolBox\TVStxt\CoReadingNovaGuide.txt`，再在 VCP 根 `config.env` 里追加：
 
 ```env
 VarCoReadingNovaGuide=CoReadingNovaGuide.txt

@@ -9,6 +9,7 @@
 - 默认本地书库源目录：`D:\书库`
 - CoReading 运行数据目录：`D:\VCP\VCPToolBox\data\co-reading-mcp`
 - 产品源码目录：`D:\VCP\VCPToolBox\Plugin\CoReadingMCP`
+- 读书技能提示词目录：`D:\VCP\VCPToolBox\Plugin\CoReadingMCP\prompts\skills`
 - 读书提示词变量：VCP 根 `config.env` 中应有 `VarCoReadingNovaGuide=CoReadingNovaGuide.txt`，文件位于 `D:\VCP\VCPToolBox\TVStxt\CoReadingNovaGuide.txt`。
 - 3100 读书入口：`D:\VCP\VCPToolBox\Plugin\VCPBridgeServer\config.env` 的 `BRIDGE_SYSTEM_PROMPT` 可切到 `nova-reader.txt`；该文件应包含 `{{VarCoReadingNovaGuide}}`。
 
@@ -121,6 +122,20 @@
 
 VCP/CoReading 常见命令名可能有 wrapper 别名。忘记参数时先用 `list_tools`。
 不要自造命令名。尤其不要说 `create_annotation`、`create_note`、`create_sink`；边注用 `annotate` 或 `reading_annotate_passage`，用户笔记用 `user_note_create`，沉淀预览用 `sink_preview_create`。
+
+如果处在 VCP/VCB 工具调用环境，必须使用固定块：
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」CoReadingMCP「末」,
+command:「始」read_chunk「末」,
+bookId:「始」<bookId>「末」,
+chunkId:「始」<chunkId>「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+更多搜索、FileOperator 只读、AnySearch/JinaReader 和沉淀调用示例在 `prompts/skills/coreading-vcp-tools.txt`。Sidecar 的 `/api/nova/ask` 会自动加载该目录；VCPBridgeServer 若只展开 TVS 变量，应把同等内容同步进 `TVStxt\CoReadingNovaGuide.txt`。
 
 - `list_books` / `reading_list_books`：列书库和进度。
 - `list_chunks` / `reading_list_chunks`：列一本书的 chunk。
