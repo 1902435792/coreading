@@ -28,6 +28,11 @@ const state = {
   novaAskPending: false,
   novaAskError: null,
   novaLastRequest: null,
+  novaPaneCollapsed: false,
+  novaPaneWidth: "medium",
+  novaAutoReadEnabled: true,
+  novaAutoReadSeen: new Set(),
+  novaAutoReadTimer: 0,
   immersiveNovaCardOpen: false,
   readerSelection: { text: "", offset: null, rect: null },
   selectionCaptureTimer: 0,
@@ -63,7 +68,8 @@ const READER_MODE_KEY = "vcp-coreading-sidecar.readerMode";
 const READER_SETTINGS_KEY = "vcp-coreading-sidecar.readerSettings";
 const READING_VISIT_KEY = "vcp-coreading-sidecar.readingVisit";
 const READING_VISIT_HISTORY_KEY = "vcp-coreading-sidecar.readingVisitHistory";
-const NOVA_REQUEST_TIMEOUT_MS = 15000;
+const NOVA_AUTO_READ_KEY = "vcp-coreading-sidecar.novaAutoRead";
+const NOVA_REQUEST_TIMEOUT_MS = 240000;
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
 
 setupAppLayout();
@@ -71,6 +77,8 @@ setupReaderModeControls();
 loadReaderMode();
 loadReaderSettings();
 loadReadingVisit();
+loadNovaAutoReadSetting();
+setNovaPaneWidth("medium");
 
 function setupAppLayout() {
   const workspace = $("mainContent");
@@ -1215,6 +1223,10 @@ async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
     closeImmersiveLibrary();
     closeImmersivePlan();
   }
+  if (state.immersiveReading) {
+    setImmersiveCleanRead(true);
+    setImmersiveAssistantCollapsed(true);
+  }
   const button = $("immersiveReadingBtn");
   if (button) {
     button.textContent = state.immersiveReading ? "退出沉浸" : "沉浸";
@@ -1276,6 +1288,32 @@ function revealNovaForReadingAction() {
   if (state.immersiveReading && document.body.classList.contains("immersive-assistant-collapsed")) {
     setImmersiveAssistantCollapsed(false);
   }
+  if (state.novaPaneCollapsed) setNovaPaneCollapsed(false);
+}
+
+function setNovaPaneCollapsed(collapsed) {
+  state.novaPaneCollapsed = Boolean(collapsed);
+  document.body.classList.toggle("nova-pane-collapsed", state.novaPaneCollapsed);
+  const button = $("toggleNovaPaneBtn");
+  if (button) button.textContent = state.novaPaneCollapsed ? "打开 Nova" : "收起 Nova";
+}
+
+function setNovaPaneWidth(width) {
+  state.novaPaneWidth = width === "wide" ? "wide" : "medium";
+  document.body.dataset.novaPaneWidth = state.novaPaneWidth;
+}
+
+function loadNovaAutoReadSetting() {
+  const saved = localStorage.getItem(NOVA_AUTO_READ_KEY);
+  state.novaAutoReadEnabled = saved === null ? true : saved === "true";
+}
+
+function setNovaAutoReadEnabled(enabled) {
+  state.novaAutoReadEnabled = Boolean(enabled);
+  localStorage.setItem(NOVA_AUTO_READ_KEY, String(state.novaAutoReadEnabled));
+  const input = $("novaAutoReadToggle");
+  if (input) input.checked = state.novaAutoReadEnabled;
+  renderNovaReply();
 }
 
 function announce(text) {
@@ -2116,7 +2154,7 @@ async function withNovaRequest(task, { timeoutMs = NOVA_REQUEST_TIMEOUT_MS } = {
     return await task(controller.signal);
   } catch (error) {
     if (error?.name === "AbortError") {
-      const timeoutError = new Error(`Nova 单次请求超过 ${Math.round(timeoutMs / 1000)} 秒，已停止等待。`);
+      const timeoutError = new Error(`Nova 请求超过 ${Math.round(timeoutMs / 1000)} 秒仍未返回。`);
       timeoutError.code = "NOVA_TIMEOUT";
       timeoutError.timeoutMs = timeoutMs;
       throw timeoutError;
@@ -3579,14 +3617,19 @@ function renderNovaReply() {
   const copyButton = $("copyNovaReplyBtn");
   const saveButton = $("saveNovaReplyNoteBtn");
   const sinkButton = $("sinkNovaReplyBtn");
-  if (!reply || !status || !copyButton || !saveButton || !sinkButton) return;
+  const autoButton = $("novaAutoReadBtn");
+  const autoToggle = $("novaAutoReadToggle");
+  if (!reply || !status || !copyButton || !saveButton || !sinkButton || !autoButton || !autoToggle) return;
+  autoToggle.checked = state.novaAutoReadEnabled;
+  autoToggle.disabled = state.novaAskPending;
   if (state.novaAskPending) {
     reply.className = "nova-reply empty";
-    reply.textContent = `Nova 正在读这一段。单次最多等待 ${Math.round(NOVA_REQUEST_TIMEOUT_MS / 1000)} 秒，你可以继续看书。`;
-    status.textContent = "单次请求中";
+    reply.textContent = `Nova 正在读。最长会等 ${Math.round(NOVA_REQUEST_TIMEOUT_MS / 60000)} 分钟，你可以继续看书。`;
+    status.textContent = "Nova 阅读中";
     copyButton.disabled = true;
     saveButton.disabled = true;
     sinkButton.disabled = true;
+    autoButton.disabled = true;
     renderImmersiveNovaCard();
     return;
   }
@@ -3597,6 +3640,7 @@ function renderNovaReply() {
     copyButton.disabled = true;
     saveButton.disabled = true;
     sinkButton.disabled = true;
+    autoButton.disabled = !activeBook() || !state.selectedChunkId;
     renderImmersiveNovaCard();
     return;
   }
@@ -3607,6 +3651,7 @@ function renderNovaReply() {
     copyButton.disabled = true;
     saveButton.disabled = true;
     sinkButton.disabled = true;
+    autoButton.disabled = !activeBook() || !state.selectedChunkId;
     renderImmersiveNovaCard();
     return;
   }
@@ -3616,6 +3661,7 @@ function renderNovaReply() {
   copyButton.disabled = false;
   saveButton.disabled = !activeBook() || !state.selectedChunkId || !novaReplyBelongsToCurrentChunk();
   sinkButton.disabled = !activeBook() || !state.selectedChunkId || !novaReplyBelongsToCurrentChunk();
+  autoButton.disabled = !activeBook() || !state.selectedChunkId;
   renderImmersiveNovaCard();
 }
 
@@ -3626,27 +3672,32 @@ function novaErrorMessage(error, request) {
   const timeout = Number(error?.timeoutMs || 0);
   const timeoutText = timeout ? `${Math.round(timeout / 1000)} 秒` : "短时间";
   return [
-    `Nova 这次没有及时回来。${status}: ${detail}`,
+    `Nova 这次还没有回来。${status}: ${detail}`,
     "",
-    `本次只发起了一次请求，并已在 ${timeoutText} 内停止等待。`,
-    `已保留你的问题和 ${target}，可以继续读书，稍后手动点“发送给 Nova”重试。`
+    `已经等待 ${timeoutText}。`,
+    `已保留你的问题和 ${target}，可以继续读书，稍后点“发送给 Nova”重试。`
   ].join("\n");
 }
 
-async function askNovaWithPrompt(prompt) {
+async function askNovaWithPrompt(prompt, { extraContext = {} } = {}) {
   const selected = activeBook();
   if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
+  const requestBookId = selected.bookId;
+  const requestChunkId = state.selectedChunkId;
   const chunk = state.currentChunk?.chunk || state.currentChunk || {};
   const text = currentChunkText();
   if (!text) throw new Error("请先读取当前 chunk。");
   const quote = selectedQuote();
   const request = {
     prompt,
-    context: currentNovaContext(selected, chunk, text, quote)
+    context: {
+      ...currentNovaContext(selected, chunk, text, quote, { chunkId: requestChunkId }),
+      ...extraContext,
+    }
   };
   state.novaLastRequest = {
-    bookId: selected.bookId,
-    chunkId: state.selectedChunkId,
+    bookId: requestBookId,
+    chunkId: requestChunkId,
     prompt,
     selection: quote.text || "",
     selectionOffset: quote.offset ?? null,
@@ -3660,8 +3711,8 @@ async function askNovaWithPrompt(prompt) {
     const result = await askNova(request);
     state.novaReply = result.content || "Nova 暂无文本回复。";
     state.novaReplyContext = {
-      bookId: selected.bookId,
-      chunkId: state.selectedChunkId,
+      bookId: requestBookId,
+      chunkId: requestChunkId,
       prompt,
       selection: quote.text || "",
       selectionOffset: quote.offset ?? null,
@@ -3670,8 +3721,10 @@ async function askNovaWithPrompt(prompt) {
     state.novaAskPending = false;
     state.novaAskError = null;
     renderNovaReply();
-    renderReadingFootprints(readingFootprintRanges(currentChunkText()));
-    log("Nova 已回应当前段落。");
+    if (requestBookId === state.selectedBookId && requestChunkId === state.selectedChunkId) {
+      renderReadingFootprints(readingFootprintRanges(currentChunkText()));
+    }
+    log(`Nova 已回应 ${requestChunkId}。`);
     return state.novaReply;
   } catch (error) {
     state.novaAskPending = false;
@@ -3687,6 +3740,36 @@ async function askNovaWithPrompt(prompt) {
   } finally {
     renderImmersiveNovaCard();
   }
+}
+
+async function runNovaAutonomousReading({ manual = false } = {}) {
+  const selected = activeBook();
+  if (!selected || !state.selectedChunkId || !currentChunkText()) return;
+  const key = `${selected.bookId}:${state.selectedChunkId}`;
+  if (!manual) {
+    if (!state.novaAutoReadEnabled || state.novaAskPending || state.novaAutoReadSeen.has(key)) return;
+    state.novaAutoReadSeen.add(key);
+  }
+  const prompt = buildNovaAutonomousReadingPrompt();
+  $("novaPrompt").value = prompt;
+  const candidates = await novaAutonomousCandidates(selected);
+  await askNovaWithPrompt(prompt, {
+    extraContext: {
+      contextMode: "autonomous-reading",
+      tocPreview: novaTocPreview(),
+      autonomousCandidates: candidates,
+      instructionBoundary: "Nova 可以在 autonomousCandidates 中自行选择先读哪里；只能评论传入候选段和当前段，不要假装读完整本书。",
+    }
+  });
+}
+
+function maybeScheduleNovaAutonomousReading() {
+  window.clearTimeout(state.novaAutoReadTimer);
+  state.novaAutoReadTimer = window.setTimeout(() => {
+    void runNovaAutonomousReading().catch((error) => {
+      log(error.message || String(error));
+    });
+  }, 700);
 }
 
 function planFormChunkValue(name) {
@@ -4450,6 +4533,48 @@ function currentChunkText() {
   return String(current?.text || chunk.text || "");
 }
 
+function compactText(value, maxChars = 1800) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > maxChars ? `${text.slice(0, maxChars)}...` : text;
+}
+
+function novaTocPreview(limit = 18) {
+  return state.chunks.slice(0, limit).map((chunk, index) => ({
+    chunkId: getChunkId(chunk),
+    title: chunk.title || chunk.sectionTitle || getChunkId(chunk),
+    sectionTitle: chunk.sectionTitle || chunk.title || "",
+    position: `${index + 1}/${state.chunks.length}`,
+    read: Boolean(chunk.read),
+  }));
+}
+
+async function novaAutonomousCandidates(selected) {
+  if (!selected || !state.chunks.length) return [];
+  const currentIndex = chunkOrder(state.selectedChunkId) ?? 0;
+  const ids = [
+    state.selectedChunkId,
+    preferredReadingChunkIdFrom(currentIndex),
+    preferredReadingChunkIdFrom(currentIndex + 1),
+    preferredReadingChunkIdFrom(Math.max(0, currentIndex - 2)),
+  ].filter(Boolean);
+  const uniqueIds = Array.from(new Set(ids)).slice(0, 4);
+  const candidates = [];
+  for (const chunkId of uniqueIds) {
+    try {
+      const result = await query({ command: "read_chunk", bookId: selected.bookId, chunkId });
+      const chunk = result?.chunk || result || {};
+      candidates.push({
+        chunkId,
+        title: chunk.title || chunk.sectionTitle || chunkTitleById(chunkId),
+        text: compactText(String(result?.text || chunk.text || ""), 1800),
+      });
+    } catch {
+      // 候选段失败时跳过，保留其它可读上下文。
+    }
+  }
+  return candidates;
+}
+
 function selectedQuote() {
   if (state.readerSelection?.text) return state.readerSelection;
   const selection = window.getSelection?.();
@@ -4651,6 +4776,19 @@ function buildNovaPromptFromSelection() {
   return `请解释这段选区，并告诉我它和当前段落的关系：\n\n${quote.text}`;
 }
 
+function buildNovaAutonomousReadingPrompt() {
+  return [
+    "请你作为 Nova 自主阅读当前段落，不等我指定问题。",
+    "你可以自己选择最值得看的角度：概念、隐喻、结构、疑点、值得停留的句子或后续线索。",
+    "输出保持短而有用：",
+    "1. 你决定先看哪里，为什么；",
+    "2. 对这一段做一条具体评论，必须锚定原文；",
+    "3. 选一句值得摘下来的话；",
+    "4. 给我一个下一步阅读动作。",
+    "不要泛泛总结，不要假装读了未传入的后文。"
+  ].join("\n");
+}
+
 function prepareNovaPromptFromCurrentReading() {
   if (!state.readerSelection?.text) captureReaderSelection();
   const quote = selectedQuote();
@@ -4698,7 +4836,7 @@ function renderImmersiveNovaCard() {
   if (state.novaAskPending) {
     if (reply) {
       reply.className = "immersive-nova-reply empty";
-      reply.textContent = `Nova 正在读。单次最多等待 ${Math.round(NOVA_REQUEST_TIMEOUT_MS / 1000)} 秒。`;
+      reply.textContent = `Nova 正在读。最长会等 ${Math.round(NOVA_REQUEST_TIMEOUT_MS / 60000)} 分钟。`;
     }
     if (ask) ask.disabled = true;
     if (save) save.disabled = true;
@@ -4814,8 +4952,8 @@ async function saveAnnotation({ quote, quoteOffset, note, kind = "annotation" })
   });
 }
 
-function currentNovaContext(selected, chunk, text, quote) {
-  const index = chunkOrder(state.selectedChunkId);
+function currentNovaContext(selected, chunk, text, quote, { chunkId = state.selectedChunkId } = {}) {
+  const index = chunkOrder(chunkId);
   return {
     coReadingContextVersion: "2026-06-selection-dock",
     contextMode: quote?.text ? "chunk+selection" : "chunk",
@@ -4823,8 +4961,8 @@ function currentNovaContext(selected, chunk, text, quote) {
     productMode: "single-agent-reader",
     bookId: selected.bookId,
     bookTitle: selected.title || selected.bookId,
-    chunkId: state.selectedChunkId,
-    chunkTitle: chunk.title || chunk.sectionTitle || state.selectedChunkId,
+    chunkId,
+    chunkTitle: chunk.title || chunk.sectionTitle || chunkId,
     chunkPosition: index === null ? "" : `${index + 1}/${state.chunks.length}`,
     text,
     selection: quote?.text || "",
@@ -7123,6 +7261,7 @@ async function readSelectedChunk() {
   if (saved?.bookId === state.selectedBookId && saved?.chunkId === state.selectedChunkId) restoreSavedScroll(saved);
   else saveReadingSession();
   renderReaderProgress();
+  maybeScheduleNovaAutonomousReading();
 }
 
 async function selectChunk(chunkId, autoRead = true, { resetScroll = true } = {}) {
@@ -11633,10 +11772,29 @@ $("askNovaBtn").addEventListener("click", async () => {
     button.disabled = false;
   }
 });
+$("novaAutoReadBtn").addEventListener("click", async () => {
+  const button = $("novaAutoReadBtn");
+  button.disabled = true;
+  try {
+    await runNovaAutonomousReading({ manual: true });
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    button.disabled = false;
+    renderNovaReply();
+  }
+});
 $("askNovaSelectionBtn").addEventListener("click", () => {
   if (!$("novaPrompt").value.trim() || selectedQuote().text) $("novaPrompt").value = buildNovaPromptFromSelection();
   $("askNovaBtn").click();
 });
+$("novaAutoReadToggle").addEventListener("change", (event) => {
+  setNovaAutoReadEnabled(event.target.checked);
+  if (state.novaAutoReadEnabled) maybeScheduleNovaAutonomousReading();
+});
+$("toggleNovaPaneBtn").addEventListener("click", () => setNovaPaneCollapsed(!state.novaPaneCollapsed));
+$("narrowNovaPaneBtn").addEventListener("click", () => setNovaPaneWidth("medium"));
+$("wideNovaPaneBtn").addEventListener("click", () => setNovaPaneWidth("wide"));
 $("copyNovaReplyBtn").addEventListener("click", async () => {
   try {
     await copyTextToClipboard(state.novaReply);

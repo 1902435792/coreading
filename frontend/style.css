@@ -336,10 +336,18 @@ legend {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 38vw);
+  grid-template-columns: minmax(0, 1fr) var(--nova-pane-width, minmax(360px, 38vw));
   gap: 16px;
   align-items: stretch;
   min-height: calc(100vh - 136px);
+}
+
+body[data-nova-pane-width="wide"] {
+  --nova-pane-width: minmax(480px, 44vw);
+}
+
+body.nova-pane-collapsed {
+  --nova-pane-width: 48px;
 }
 
 .workspace:focus {
@@ -353,6 +361,43 @@ legend {
 .reader-pane,
 .assistant-pane {
   min-width: 0;
+}
+
+body.nova-pane-collapsed .assistant-pane > :not(.nova-pane),
+body.nova-pane-collapsed .nova-reading-box > :not(.panel-head):not(.nova-layout-actions) {
+  display: none;
+}
+
+body.nova-pane-collapsed .assistant-pane {
+  overflow: hidden;
+}
+
+body.nova-pane-collapsed .nova-reading-box {
+  writing-mode: vertical-rl;
+  min-height: 180px;
+  padding: 10px 6px;
+}
+
+.nova-layout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.nova-auto-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nova-auto-toggle input {
+  accent-color: var(--ink);
 }
 
 .reader-pane {
@@ -1778,8 +1823,8 @@ body.immersive-reading .reader-nav-tools {
   margin: 0;
   border-bottom: 1px solid var(--line);
   padding: 7px 24px;
-  background: var(--surface);
-  opacity: 0.08;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  opacity: 0;
   transition: opacity 180ms ease;
 }
 
@@ -2241,7 +2286,8 @@ body.immersive-reading .reader-page-meter {
   gap: 12px;
   align-items: center;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+  opacity: 0.38;
   pointer-events: none;
   max-width: calc(100vw - var(--reader-assistant-width) - 280px);
   white-space: nowrap;
@@ -2279,7 +2325,7 @@ body.immersive-reading .reader-position-nav {
   gap: 6px;
   width: min(560px, calc(100vw - var(--reader-assistant-width) - 430px));
   color: var(--muted);
-  opacity: 0.36;
+  opacity: 0.08;
   transition: opacity 180ms ease;
 }
 
@@ -2325,13 +2371,13 @@ body.immersive-reading .reader-clean-button {
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   color: var(--muted);
   font-size: 12px;
-  opacity: 0.32;
+  opacity: 0.12;
   transition: opacity 180ms ease;
 }
 
 body.immersive-reading .reader-assistant-toggle {
   position: fixed;
-  right: calc(var(--reader-assistant-width) + 86px);
+  right: calc(var(--reader-assistant-width) + 18px);
   bottom: 62px;
   z-index: 9;
   min-height: 30px;
@@ -2341,7 +2387,7 @@ body.immersive-reading .reader-assistant-toggle {
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   color: var(--muted);
   font-size: 12px;
-  opacity: 0.32;
+  opacity: 0.18;
   transition: opacity 180ms ease;
 }
 

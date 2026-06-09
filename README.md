@@ -39,7 +39,7 @@ http://127.0.0.1:3100/v1/chat/completions
 - `VCP_API_KEY` 或 `CO_READING_NOVA_API_KEY`：Nova/VCP 访问 key。
 - `CO_READING_NOVA_BRIDGE_URL`：OpenAI 兼容 chat completions 地址。
 - `CO_READING_NOVA_MODEL`：默认 `gpt-5.5`。
-- `CO_READING_NOVA_TIMEOUT_MS`：Nova 单次请求超时，默认 `16000`；前端默认等待 15 秒，不自动连环重试。
+- `CO_READING_NOVA_TIMEOUT_MS`：Nova 单次请求超时，默认 `240000`；前端默认等待 4 分钟，不自动连环重试。
 - `CO_READING_NOVA_GUIDE_PATH`：读书 Nova 操作手册路径；默认 `prompts\CoReadingNovaGuide.txt`。
 
 不要把 key 写入 `config.env`、README、日志或 git 历史。仓库只提交源码、前端、脚本、prompt 和 vendor 必要源码；真实阅读数据默认写到 `D:\VCP\VCPToolBox\data\co-reading-mcp`，不提交。
@@ -210,6 +210,8 @@ Sidecar 页面支持：
 
 - 查看书库、计划、评价、沉淀预览。
 - 从浏览器选择 TXT/Markdown/EPUB 文件导入书库；超过单次请求体上限的大书会自动走分片导入。
+- 打开或切换段落后默认触发一次 Nova 自动预读；可关闭“自动预读”，也可点“Nova 自主读”手动重读。
+- Nova 面板可收起、恢复、切换窄/宽；沉浸模式默认净读并收起 Nova，阅读中可按需打开。
 - 创建范围/全书/兴趣线索/自由共读计划。
 - 读取 chunk 原文、搜索兴趣点、按选区/偏移写入和查看 Nova/AI 边注。
 - 用阅读地图查看全书 chunk 节点、当前全书/段内进度；本地插书签并返回最近书签。

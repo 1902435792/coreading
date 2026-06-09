@@ -522,8 +522,15 @@
               <h2 id="novaReadingTitle">问 Nova</h2>
               <span id="novaAskStatus">待提问</span>
             </div>
+            <div class="nova-layout-actions" aria-label="Nova 面板布局">
+              <button id="toggleNovaPaneBtn" class="secondary compact" type="button">收起 Nova</button>
+              <button id="narrowNovaPaneBtn" class="secondary compact" type="button">窄</button>
+              <button id="wideNovaPaneBtn" class="secondary compact" type="button">宽</button>
+              <label class="nova-auto-toggle"><input id="novaAutoReadToggle" type="checkbox" checked> 自动预读</label>
+            </div>
             <textarea id="novaPrompt" rows="3" placeholder="写下你想问 Nova 的问题，或选中原文后请她解释、追问、陪你继续读。"></textarea>
             <div class="nova-actions">
+              <button id="novaAutoReadBtn" class="primary" type="button">Nova 自主读</button>
               <button id="askNovaBtn" type="button">发送给 Nova</button>
               <button id="askNovaSelectionBtn" class="secondary" type="button">用选区提问</button>
               <button id="copyNovaReplyBtn" class="secondary" type="button" disabled>复制回复</button>

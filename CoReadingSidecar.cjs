@@ -24,7 +24,7 @@ const MAX_BODY_BYTES = Number(process.env.CO_READING_SIDECAR_MAX_BODY_BYTES || 2
 const NOVA_BRIDGE_URL = process.env.CO_READING_NOVA_BRIDGE_URL || "http://127.0.0.1:3100/v1/chat/completions";
 const NOVA_MODEL = process.env.CO_READING_NOVA_MODEL || "gpt-5.5";
 const NOVA_GUIDE_PATH = process.env.CO_READING_NOVA_GUIDE_PATH || path.join(PROMPTS_DIR, "CoReadingNovaGuide.txt");
-const NOVA_TIMEOUT_MS = Math.max(3000, Math.min(60000, Number(process.env.CO_READING_NOVA_TIMEOUT_MS || 16000)));
+const NOVA_TIMEOUT_MS = Math.max(3000, Math.min(300000, Number(process.env.CO_READING_NOVA_TIMEOUT_MS || 240000)));
 const LOCAL_LIBRARY_DIR = path.resolve(process.env.CO_READING_LIBRARY_DIR || "D:\\书库");
 
 process.env.READING_MCP_DATA_DIR = DATA_DIR;
@@ -572,6 +572,12 @@ async function askNova(body) {
         "",
         "选区:",
         compactText(context.selection || "", 1200),
+        "",
+        "目录预览:",
+        compactText(JSON.stringify(context.tocPreview || [], null, 2), 1800),
+        "",
+        "Nova 可自主选择的候选段:",
+        compactText(JSON.stringify(context.autonomousCandidates || [], null, 2), 5000),
         "",
         "用户问题/笔记:",
         compactText(body.prompt || "", 1800),
