@@ -1480,6 +1480,80 @@ function normalizeObjectArray(value, textKey = "text") {
     .filter(Boolean);
 }
 
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function markdownSection(markdown, heading, nextHeadings = []) {
+  const escaped = escapeRegExp(heading);
+  const start = new RegExp(`^##\\s+${escaped}\\s*$`, "m").exec(String(markdown || ""));
+  if (!start) return "";
+  const afterHeading = start.index + start[0].length;
+  const rest = String(markdown || "").slice(afterHeading);
+  const nextPattern = nextHeadings.length
+    ? new RegExp(`^##\\s+(?:${nextHeadings.map(escapeRegExp).join("|")})\\s*$`, "m")
+    : /^##\s+/m;
+  const next = nextPattern.exec(rest);
+  return rest.slice(0, next ? next.index : undefined).trim();
+}
+
+function lineMultisetDiff(beforeLines, afterLines) {
+  const beforeSet = new Map();
+  const afterSet = new Map();
+  for (const line of beforeLines) beforeSet.set(line, (beforeSet.get(line) || 0) + 1);
+  for (const line of afterLines) afterSet.set(line, (afterSet.get(line) || 0) + 1);
+  const added = [];
+  const removed = [];
+  const seenAdded = new Map();
+  const seenRemoved = new Map();
+  for (const line of afterLines) {
+    const used = seenAdded.get(line) || 0;
+    const baseline = beforeSet.get(line) || 0;
+    if (used >= baseline) added.push(line);
+    seenAdded.set(line, used + 1);
+  }
+  for (const line of beforeLines) {
+    const used = seenRemoved.get(line) || 0;
+    const baseline = afterSet.get(line) || 0;
+    if (used >= baseline) removed.push(line);
+    seenRemoved.set(line, used + 1);
+  }
+  return { added, removed };
+}
+
+function computeCriticalSinkRemovals(original, current) {
+  const fields = [
+    { field: "来源原文", heading: "来源原文", next: ["我的笔记与边注", "Nova 回应", "阅读卡片", "其他观察", "引文与锚点", "问题", "下一步"] },
+    { field: "引文锚点", heading: "引文与锚点", next: ["问题", "下一步"] },
+  ];
+  return fields.map((field) => {
+    const before = markdownSection(original, field.heading, field.next);
+    const after = markdownSection(current, field.heading, field.next);
+    const { added, removed } = lineMultisetDiff(before.split(/\r?\n/), after.split(/\r?\n/));
+    return {
+      ...field,
+      removedLineCount: removed.filter((line) => line.trim()).length,
+      addedLineCount: added.filter((line) => line.trim()).length,
+    };
+  }).filter((field) => field.removedLineCount > 0);
+}
+
+function assertCriticalRemovalsMatch(original, current, reportedRemovals) {
+  const expected = computeCriticalSinkRemovals(original, current);
+  if (!expected.length) return [];
+  const reported = new Map(normalizeObjectArray(reportedRemovals).map((item) => [String(item.field || item.label || ""), item]));
+  const mismatches = expected.filter((item) => {
+    const seen = reported.get(item.field);
+    return !seen
+      || Number(seen.removedLineCount || 0) !== item.removedLineCount
+      || (seen.heading && String(seen.heading) !== item.heading);
+  });
+  if (mismatches.length) {
+    fail("criticalRemovals 与实际关键字段删除不一致。", { expected, reported: normalizeObjectArray(reportedRemovals) });
+  }
+  return expected;
+}
+
 function slugPart(value) {
   return String(value || "plan")
     .toLowerCase()
@@ -5016,6 +5090,9 @@ function handleSinkPreviewUpdate(args, dataDir) {
   }
   const now = new Date().toISOString();
   const contentChanged = args.content !== undefined && JSON.stringify(args.content) !== JSON.stringify(preview.content);
+  const criticalRemovals = contentChanged
+    ? assertCriticalRemovalsMatch(preview.content, args.content, args.criticalRemovals)
+    : normalizeObjectArray(args.criticalRemovals);
   if (contentChanged) preview.content = args.content;
   preview.status = args.status;
   preview.updatedAt = now;
@@ -5026,7 +5103,7 @@ function handleSinkPreviewUpdate(args, dataDir) {
     status: args.status,
     by: args.updatedBy || "nova",
     note: args.note || null,
-    criticalRemovals: normalizeObjectArray(args.criticalRemovals),
+    criticalRemovals,
     contentChanged
   });
   saveSinkPreviewStore(dataDir, store);
