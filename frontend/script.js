@@ -202,6 +202,20 @@ function setupReaderModeControls() {
     '<div class="reader-immersive-progress" aria-hidden="true"><span id="immersiveProgressFill"></span></div>',
     '<button id="immersiveCleanReadBtn" class="reader-clean-button" type="button" aria-pressed="false">净读</button>',
     '<button id="immersiveAssistantBtn" class="reader-assistant-toggle" type="button" aria-pressed="false">收起 Nova</button>',
+    '<button id="immersivePlanBtn" class="reader-plan-button" type="button" aria-expanded="false" aria-controls="immersivePlan">计划</button>',
+    '<div id="immersivePlan" class="reader-plan-card" hidden>',
+    '  <div>',
+    '    <span id="immersivePlanStep">当前计划</span>',
+    '    <strong id="immersivePlanTitle">暂无活跃计划</strong>',
+    '    <small id="immersivePlanMeta">创建计划后会在这里显示下一步。</small>',
+    '  </div>',
+    '  <div class="reader-plan-actions">',
+    '    <button id="immersivePlanOpenRangeBtn" class="primary compact" type="button" disabled>打开范围</button>',
+    '    <button id="immersivePlanExecuteBtn" class="secondary compact" type="button" disabled>执行一步</button>',
+    '    <button id="immersivePlanReviewBtn" class="secondary compact" type="button" disabled>填评价</button>',
+    '    <button id="immersivePlanCloseBtn" class="secondary compact" type="button">关闭</button>',
+    '  </div>',
+    '</div>',
     '<button id="immersiveTocBtn" class="reader-toc-button" type="button" aria-expanded="false" aria-controls="immersiveToc">目录</button>',
     '<div id="immersiveToc" class="reader-toc" hidden>',
     '  <div class="reader-toc-head">',
@@ -255,6 +269,26 @@ function setupReaderModeControls() {
   $("immersiveNextPageBtn")?.addEventListener("click", () => void turnReaderPage(1));
   $("immersiveCleanReadBtn")?.addEventListener("click", toggleImmersiveCleanRead);
   $("immersiveAssistantBtn")?.addEventListener("click", toggleImmersiveAssistant);
+  $("immersivePlanBtn")?.addEventListener("click", toggleImmersivePlan);
+  $("immersivePlanCloseBtn")?.addEventListener("click", closeImmersivePlan);
+  $("immersivePlanOpenRangeBtn")?.addEventListener("click", () => {
+    $("immersivePlanOpenRangeBtn").disabled = true;
+    void openPlanGuideRange().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+  });
+  $("immersivePlanExecuteBtn")?.addEventListener("click", () => {
+    $("immersivePlanExecuteBtn").disabled = true;
+    void executePlanGuideStep().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+  });
+  $("immersivePlanReviewBtn")?.addEventListener("click", () => {
+    $("immersivePlanReviewBtn").disabled = true;
+    void reviewPlanGuideStep().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+  });
   $("immersiveTocBtn")?.addEventListener("click", toggleImmersiveToc);
   $("immersiveTocCloseBtn")?.addEventListener("click", closeImmersiveToc);
   $("immersiveTocSearch")?.addEventListener("input", renderImmersiveToc);
@@ -416,6 +450,9 @@ function handleReaderKeyboard(event) {
     } else if (document.body.classList.contains("immersive-footprints-open")) {
       closeImmersiveFootprints();
       focusPanel(".reader-surface", "#chunkText");
+    } else if (document.body.classList.contains("immersive-plan-open")) {
+      closeImmersivePlan();
+      focusPanel(".reader-surface", "#chunkText");
     } else {
       editable.blur?.();
     }
@@ -438,6 +475,9 @@ function handleReaderKeyboard(event) {
       focusPanel(".reader-surface", "#chunkText");
     } else if (document.body.classList.contains("immersive-toc-open")) {
       closeImmersiveToc();
+      focusPanel(".reader-surface", "#chunkText");
+    } else if (document.body.classList.contains("immersive-plan-open")) {
+      closeImmersivePlan();
       focusPanel(".reader-surface", "#chunkText");
     } else if (document.body.classList.contains("immersive-footprints-open")) {
       closeImmersiveFootprints();
@@ -599,6 +639,31 @@ function toggleImmersiveToc() {
   else openImmersiveToc();
 }
 
+function openImmersivePlan() {
+  if (!state.immersiveReading) return;
+  closeImmersiveToc();
+  closeImmersiveFootprints();
+  renderImmersivePlan();
+  document.body.classList.add("immersive-plan-open");
+  const card = $("immersivePlan");
+  const button = $("immersivePlanBtn");
+  if (card) card.hidden = false;
+  if (button) button.setAttribute("aria-expanded", "true");
+}
+
+function closeImmersivePlan() {
+  document.body.classList.remove("immersive-plan-open");
+  const card = $("immersivePlan");
+  const button = $("immersivePlanBtn");
+  if (card) card.hidden = true;
+  if (button) button.setAttribute("aria-expanded", "false");
+}
+
+function toggleImmersivePlan() {
+  if (document.body.classList.contains("immersive-plan-open")) closeImmersivePlan();
+  else openImmersivePlan();
+}
+
 function updateImmersivePageStatus({ current = 1, total = 1, mode = state.readerMode } = {}) {
   const pageStatus = $("immersivePageStatus");
   const bookStatus = $("immersiveBookStatus");
@@ -631,6 +696,7 @@ async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
   if (!state.immersiveReading) {
     setImmersiveCleanRead(false);
     setImmersiveAssistantCollapsed(false);
+    closeImmersivePlan();
   }
   const button = $("immersiveReadingBtn");
   if (button) {
@@ -663,6 +729,7 @@ function setImmersiveCleanRead(enabled) {
   if (active) {
     closeImmersiveFootprints();
     closeImmersiveToc();
+    closeImmersivePlan();
   }
   document.body.classList.toggle("immersive-clean-reading", active);
   const button = $("immersiveCleanReadBtn");
@@ -1801,6 +1868,7 @@ function renderPlanGuide() {
     executeBtn.disabled = true;
     reviewBtn.disabled = true;
     fullBtn.disabled = true;
+    renderImmersivePlan();
     return;
   }
   const total = plan.stepCount || plan.steps?.length || 0;
@@ -1817,6 +1885,43 @@ function renderPlanGuide() {
   executeBtn.disabled = !nextStep || plan.status === "completed" || plan.status === "paused";
   reviewBtn.disabled = !nextStep;
   fullBtn.disabled = false;
+  renderImmersivePlan();
+}
+
+function renderImmersivePlan() {
+  const button = $("immersivePlanBtn");
+  const card = $("immersivePlan");
+  if (!button || !card) return;
+  const { plan, nextStep } = planGuideSelection();
+  const stepEl = $("immersivePlanStep");
+  const titleEl = $("immersivePlanTitle");
+  const metaEl = $("immersivePlanMeta");
+  const openBtn = $("immersivePlanOpenRangeBtn");
+  const executeBtn = $("immersivePlanExecuteBtn");
+  const reviewBtn = $("immersivePlanReviewBtn");
+  const hasRange = !!(nextStep?.chunkIds?.length || nextStep?.range?.startChunkId || nextStep?.startChunkId);
+  button.disabled = !plan;
+  button.textContent = plan ? "计划" : "无计划";
+  if (!plan) {
+    if (stepEl) stepEl.textContent = "当前计划";
+    if (titleEl) titleEl.textContent = "暂无活跃计划";
+    if (metaEl) metaEl.textContent = "创建计划后会在这里显示下一步。";
+    if (openBtn) openBtn.disabled = true;
+    if (executeBtn) executeBtn.disabled = true;
+    if (reviewBtn) reviewBtn.disabled = true;
+    return;
+  }
+  const total = plan.stepCount || plan.steps?.length || 0;
+  const current = plan.currentStepIndex || 0;
+  const chunkLabel = planStepChunkLabel(nextStep);
+  if (stepEl) stepEl.textContent = `${current}/${total} · ${nextStep?.status || plan.status || "计划"}`;
+  if (titleEl) titleEl.textContent = nextStep?.title || plan.title || plan.planId;
+  if (metaEl) metaEl.textContent = nextStep
+    ? `${nextStep.type || "step"} · ${chunkLabel || "未给出范围"} · ${nextStep.intent || "按计划继续阅读。"}`
+    : `${plan.status || ""} · 正在读取下一步。`;
+  if (openBtn) openBtn.disabled = !nextStep || !hasRange;
+  if (executeBtn) executeBtn.disabled = !nextStep || plan.status === "completed" || plan.status === "paused";
+  if (reviewBtn) reviewBtn.disabled = !nextStep;
 }
 
 function renderBooks() {

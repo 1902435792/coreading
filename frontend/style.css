@@ -2072,6 +2072,8 @@ body.immersive-reading.immersive-clean-reading .reader-settings,
 body.immersive-reading.immersive-clean-reading .reader-find,
 body.immersive-reading.immersive-clean-reading .reader-bookmark-tools,
 body.immersive-reading.immersive-clean-reading .reader-action-tools,
+body.immersive-reading.immersive-clean-reading .reader-plan-button,
+body.immersive-reading.immersive-clean-reading .reader-plan-card,
 body.immersive-reading.immersive-clean-reading .reader-toc-button,
 body.immersive-reading.immersive-clean-reading .reader-toc,
 body.immersive-reading.immersive-clean-reading .reading-footprints {
@@ -2080,8 +2082,8 @@ body.immersive-reading.immersive-clean-reading .reading-footprints {
 
 body.immersive-reading .reader-toc-button {
   position: fixed;
-  right: calc(var(--reader-assistant-width) + 326px);
-  bottom: 18px;
+  right: calc(var(--reader-assistant-width) + 18px);
+  top: 18px;
   z-index: 8;
   min-height: 38px;
   border: 1px solid var(--line);
@@ -2091,6 +2093,68 @@ body.immersive-reading .reader-toc-button {
   color: var(--muted);
   opacity: 0.34;
   transition: opacity 180ms ease;
+}
+
+body.immersive-reading .reader-plan-button {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 92px);
+  top: 18px;
+  z-index: 8;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 12px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--muted);
+  opacity: 0.34;
+  transition: opacity 180ms ease;
+}
+
+body.immersive-reading .reader-plan-button:hover,
+body.immersive-reading .reader-plan-button:focus-visible,
+body.immersive-reading.immersive-plan-open .reader-plan-button {
+  opacity: 1;
+  color: var(--ink);
+}
+
+body.immersive-reading .reader-plan-card {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 18px);
+  bottom: 62px;
+  z-index: 11;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  width: min(520px, calc(100vw - var(--reader-assistant-width) - 70px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 13px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 16px 36px rgba(15, 15, 15, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+body.immersive-reading .reader-plan-card[hidden] {
+  display: none;
+}
+
+body.immersive-reading .reader-plan-card span,
+body.immersive-reading .reader-plan-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+body.immersive-reading .reader-plan-card strong {
+  display: block;
+  margin: 3px 0;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+body.immersive-reading .reader-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 body.immersive-reading .reader-toc-button:hover,
@@ -3347,7 +3411,21 @@ pre {
 
   body.immersive-reading .reader-toc-button {
     right: 12px;
-    bottom: 214px;
+    top: 12px;
+    bottom: auto;
+  }
+
+  body.immersive-reading .reader-plan-button {
+    right: 84px;
+    top: 12px;
+    bottom: auto;
+  }
+
+  body.immersive-reading .reader-plan-card {
+    right: 12px;
+    bottom: 128px;
+    left: 12px;
+    width: auto;
   }
 
   body.immersive-reading .reader-toc {
