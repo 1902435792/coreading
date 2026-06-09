@@ -106,10 +106,17 @@ function readBookReadingSessions() {
 function readSavedReadingSessionForBook(bookId) {
   if (!bookId) return null;
   const sessions = readBookReadingSessions();
+  const hasBookSession = Object.prototype.hasOwnProperty.call(sessions, bookId);
   const saved = sessions[bookId];
   if (saved?.bookId === bookId && saved.chunkId) return saved;
+  if (hasBookSession) return null;
   const legacy = readSavedReadingSession();
   return legacy?.bookId === bookId ? legacy : null;
+}
+
+function hasStoredReadingSessionForBook(bookId) {
+  if (!bookId) return false;
+  return Object.prototype.hasOwnProperty.call(readBookReadingSessions(), bookId);
 }
 
 function validSavedReadingSessionForBook(bookId) {
@@ -4817,7 +4824,13 @@ async function loadSnapshot() {
     const selected = chooseInitialBook(state.snapshot, saved);
     state.selectedBookId = selected?.bookId || "";
     await loadChunks(state.selectedBookId);
-    if (savedBookExists && saved.chunkId && state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)) {
+    const bookSession = validSavedReadingSessionForBook(state.selectedBookId);
+    const hasStoredBookSession = hasStoredReadingSessionForBook(state.selectedBookId);
+    if (bookSession?.chunkId) {
+      state.selectedChunkId = bookSession.chunkId;
+    } else if (hasStoredBookSession) {
+      state.selectedChunkId = nextUnreadChunkId(selected) || getChunkId(state.chunks[0]);
+    } else if (savedBookExists && saved?.bookId === state.selectedBookId && saved.chunkId && state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)) {
       state.selectedChunkId = saved.chunkId;
     } else if (selected?.lastChunkId && state.chunks.some((chunk) => getChunkId(chunk) === selected.lastChunkId)) {
       state.selectedChunkId = selected.lastChunkId;
