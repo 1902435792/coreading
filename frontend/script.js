@@ -4147,10 +4147,12 @@ function renderObsidianDiffPanel() {
     return;
   }
   if (data.kind === "local-content-diff") {
+    const fields = (data.fields || []).map((field) => `${field.changed ? "* " : "- "}${field.label}: +${field.addedLineCount || 0} / -${field.removedLineCount || 0}`).join("\n");
+    const detail = [fields, data.preview].filter(Boolean).join("\n\n");
     panel.innerHTML = `
       <strong>${data.identical ? "正文未改动" : "保存前改动"}</strong>
       <small>新增 ${escapeHtml(data.addedLineCount || 0)} · 移除 ${escapeHtml(data.removedLineCount || 0)}</small>
-      <pre>${escapeHtml(data.preview || "无差异")}</pre>
+      <pre>${escapeHtml(detail || "无差异")}</pre>
     `;
     return;
   }
@@ -6692,6 +6694,25 @@ function sinkSavePayload(preview, { status, note }) {
 function localContentDiff(original, current) {
   const beforeLines = String(original || "").split(/\r?\n/);
   const afterLines = String(current || "").split(/\r?\n/);
+  const { added, removed } = lineMultisetDiff(beforeLines, afterLines);
+  const fields = sinkContentDiffFields(original, current);
+  const preview = [
+    ...added.slice(0, 40).map((line) => `+ ${line}`),
+    ...removed.slice(0, 40).map((line) => `- ${line}`),
+  ].join("\n");
+  return {
+    kind: "local-content-diff",
+    identical: String(original || "") === String(current || ""),
+    addedLineCount: added.length,
+    removedLineCount: removed.length,
+    addedPreview: added.slice(0, 40),
+    removedPreview: removed.slice(0, 40),
+    fields,
+    preview,
+  };
+}
+
+function lineMultisetDiff(beforeLines, afterLines) {
   const beforeSet = new Map();
   const afterSet = new Map();
   for (const line of beforeLines) beforeSet.set(line, (beforeSet.get(line) || 0) + 1);
@@ -6712,19 +6733,27 @@ function localContentDiff(original, current) {
     if (used >= baseline) removed.push(line);
     seenRemoved.set(line, used + 1);
   }
-  const preview = [
-    ...added.slice(0, 40).map((line) => `+ ${line}`),
-    ...removed.slice(0, 40).map((line) => `- ${line}`),
-  ].join("\n");
-  return {
-    kind: "local-content-diff",
-    identical: String(original || "") === String(current || ""),
-    addedLineCount: added.length,
-    removedLineCount: removed.length,
-    addedPreview: added.slice(0, 40),
-    removedPreview: removed.slice(0, 40),
-    preview,
-  };
+  return { added, removed };
+}
+
+function sinkContentDiffFields(original, current) {
+  const fields = [
+    { label: "摘要", heading: "摘要", next: ["判断", "来源原文", "我的笔记与边注", "Nova 回应", "阅读卡片", "其他观察", "引文与锚点", "问题", "下一步"] },
+    { label: "来源原文", heading: "来源原文", next: ["我的笔记与边注", "Nova 回应", "阅读卡片", "其他观察", "引文与锚点", "问题", "下一步"] },
+    { label: "Nova 回应", heading: "Nova 回应", next: ["阅读卡片", "其他观察", "引文与锚点", "问题", "下一步"] },
+    { label: "引文锚点", heading: "引文与锚点", next: ["问题", "下一步"] },
+  ];
+  return fields.map((field) => {
+    const before = markdownSection(original, field.heading, field.next);
+    const after = markdownSection(current, field.heading, field.next);
+    const { added, removed } = lineMultisetDiff(before.split(/\r?\n/), after.split(/\r?\n/));
+    return {
+      ...field,
+      changed: before !== after,
+      addedLineCount: added.filter((line) => line.trim()).length,
+      removedLineCount: removed.filter((line) => line.trim()).length,
+    };
+  });
 }
 
 function compactSinkPreviewContent(content) {
