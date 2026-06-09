@@ -1876,6 +1876,33 @@ body.immersive-reading .reader-toc-head {
   padding: 10px 12px;
 }
 
+body.immersive-reading .reader-toc-search {
+  display: grid;
+  gap: 5px;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 12px;
+}
+
+body.immersive-reading .reader-toc-search span,
+body.immersive-reading .reader-toc-count {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+body.immersive-reading .reader-toc-search input {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+body.immersive-reading .reader-toc-count {
+  display: block;
+  padding: 8px 12px 0;
+}
+
 body.immersive-reading .reader-toc-list {
   flex: 1 1 auto;
   overflow: auto;

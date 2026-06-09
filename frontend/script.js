@@ -198,6 +198,11 @@ function setupReaderModeControls() {
     '    <strong>目录</strong>',
     '    <button id="immersiveTocCloseBtn" class="secondary compact" type="button">关闭</button>',
     '  </div>',
+    '  <label class="reader-toc-search">',
+    '    <span>查找章节</span>',
+    '    <input id="immersiveTocSearch" type="search" placeholder="输入标题、chunk 或序号">',
+    '  </label>',
+    '  <small id="immersiveTocCount" class="reader-toc-count">0 项</small>',
     '  <div id="immersiveTocList" class="reader-toc-list" role="list"></div>',
     '</div>',
     '<div class="reader-settings" aria-label="阅读设置">',
@@ -216,6 +221,7 @@ function setupReaderModeControls() {
   $("immersiveNextPageBtn")?.addEventListener("click", () => void turnReaderPage(1));
   $("immersiveTocBtn")?.addEventListener("click", toggleImmersiveToc);
   $("immersiveTocCloseBtn")?.addEventListener("click", closeImmersiveToc);
+  $("immersiveTocSearch")?.addEventListener("input", renderImmersiveToc);
   $("immersiveTocList")?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-toc-chunk-id]");
     if (!button) return;
@@ -403,20 +409,37 @@ function updateReaderPageStatus() {
 function renderImmersiveToc() {
   const list = $("immersiveTocList");
   const button = $("immersiveTocBtn");
+  const count = $("immersiveTocCount");
   if (!list || !button) return;
   const selected = activeBook();
   button.disabled = !selected || !state.chunks.length;
   if (!selected || !state.chunks.length) {
     list.className = "reader-toc-list empty";
     list.textContent = "暂无目录";
+    if (count) count.textContent = "0 项";
+    return;
+  }
+  const query = String($("immersiveTocSearch")?.value || "").trim().toLowerCase();
+  const entries = state.chunks
+    .map((chunk, index) => {
+      const chunkId = getChunkId(chunk);
+      const title = chunk.title || chunk.sectionTitle || chunkId;
+      const progress = Math.round(((index + 1) / state.chunks.length) * 100);
+      const haystack = [chunkId, title, String(index + 1), `${progress}%`].join(" ").toLowerCase();
+      return { chunk, index, chunkId, title, progress, hidden: Boolean(query) && !haystack.includes(query) };
+    })
+    .filter((entry) => !entry.hidden);
+  if (count) count.textContent = query
+    ? `${entries.length}/${state.chunks.length} 项`
+    : `${state.chunks.length} 项`;
+  if (!entries.length) {
+    list.className = "reader-toc-list empty";
+    list.textContent = "没有匹配章节";
     return;
   }
   list.className = "reader-toc-list";
-  list.innerHTML = state.chunks.map((chunk, index) => {
-    const chunkId = getChunkId(chunk);
+  list.innerHTML = entries.map(({ index, chunkId, title, progress }) => {
     const active = chunkId === state.selectedChunkId;
-    const title = chunk.title || chunk.sectionTitle || chunkId;
-    const progress = Math.round(((index + 1) / state.chunks.length) * 100);
     return `
       <button class="reader-toc-item ${active ? "active" : ""}" type="button" data-toc-chunk-id="${escapeHtml(chunkId)}" role="listitem">
         <span>${escapeHtml(String(index + 1).padStart(2, "0"))}</span>
@@ -437,6 +460,7 @@ function openImmersiveToc() {
   const button = $("immersiveTocBtn");
   if (toc) toc.hidden = false;
   if (button) button.setAttribute("aria-expanded", "true");
+  window.setTimeout(() => $("immersiveTocSearch")?.focus(), 80);
 }
 
 function closeImmersiveToc() {
