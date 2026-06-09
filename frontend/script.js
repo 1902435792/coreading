@@ -196,6 +196,7 @@ function setupReaderModeControls() {
     '  <span id="immersivePageStatus">第 1/1 页</span>',
     '  <span id="immersiveBookStatus">未选择书籍</span>',
     '</div>',
+    '<button id="immersiveCleanReadBtn" class="reader-clean-button" type="button" aria-pressed="false">净读</button>',
     '<button id="immersiveTocBtn" class="reader-toc-button" type="button" aria-expanded="false" aria-controls="immersiveToc">目录</button>',
     '<div id="immersiveToc" class="reader-toc" hidden>',
     '  <div class="reader-toc-head">',
@@ -247,6 +248,7 @@ function setupReaderModeControls() {
   shell.insertAdjacentElement("afterend", chrome);
   $("immersivePrevPageBtn")?.addEventListener("click", () => void turnReaderPage(-1));
   $("immersiveNextPageBtn")?.addEventListener("click", () => void turnReaderPage(1));
+  $("immersiveCleanReadBtn")?.addEventListener("click", toggleImmersiveCleanRead);
   $("immersiveTocBtn")?.addEventListener("click", toggleImmersiveToc);
   $("immersiveTocCloseBtn")?.addEventListener("click", closeImmersiveToc);
   $("immersiveTocSearch")?.addEventListener("input", renderImmersiveToc);
@@ -445,6 +447,9 @@ function handleReaderKeyboard(event) {
   } else if (event.key === "[") {
     event.preventDefault();
     adjustReaderFont(-1);
+  } else if (event.key.toLowerCase() === "h") {
+    event.preventDefault();
+    toggleImmersiveCleanRead();
   }
 }
 
@@ -598,6 +603,7 @@ function updateImmersivePageStatus({ current = 1, total = 1, mode = state.reader
 async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
   state.immersiveReading = !!enabled;
   document.body.classList.toggle("immersive-reading", state.immersiveReading);
+  if (!state.immersiveReading) setImmersiveCleanRead(false);
   const button = $("immersiveReadingBtn");
   if (button) {
     button.textContent = state.immersiveReading ? "退出沉浸" : "沉浸";
@@ -618,6 +624,24 @@ async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
     updateReaderPageStatus();
     $("chunkText")?.focus();
   }, 80);
+}
+
+function toggleImmersiveCleanRead() {
+  setImmersiveCleanRead(!document.body.classList.contains("immersive-clean-reading"));
+}
+
+function setImmersiveCleanRead(enabled) {
+  const active = Boolean(enabled);
+  if (active) {
+    closeImmersiveFootprints();
+    closeImmersiveToc();
+  }
+  document.body.classList.toggle("immersive-clean-reading", active);
+  const button = $("immersiveCleanReadBtn");
+  if (button) {
+    button.textContent = active ? "显示控件" : "净读";
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
 }
 
 function announce(text) {

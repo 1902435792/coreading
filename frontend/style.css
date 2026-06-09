@@ -1909,6 +1909,39 @@ body.immersive-reading .reader-page-meter {
   overflow: hidden;
 }
 
+body.immersive-reading .reader-clean-button {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 18px);
+  bottom: 62px;
+  z-index: 9;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--muted);
+  font-size: 12px;
+  opacity: 0.32;
+  transition: opacity 180ms ease;
+}
+
+body.immersive-reading .reader-clean-button:hover,
+body.immersive-reading .reader-clean-button:focus-visible,
+body.immersive-reading.immersive-clean-reading .reader-clean-button {
+  opacity: 1;
+  color: var(--ink);
+}
+
+body.immersive-reading.immersive-clean-reading .reader-settings,
+body.immersive-reading.immersive-clean-reading .reader-find,
+body.immersive-reading.immersive-clean-reading .reader-bookmark-tools,
+body.immersive-reading.immersive-clean-reading .reader-action-tools,
+body.immersive-reading.immersive-clean-reading .reader-toc-button,
+body.immersive-reading.immersive-clean-reading .reader-toc,
+body.immersive-reading.immersive-clean-reading .reading-footprints {
+  display: none;
+}
+
 body.immersive-reading .reader-toc-button {
   position: fixed;
   right: calc(var(--reader-assistant-width) + 326px);
@@ -3121,6 +3154,11 @@ pre {
     left: 14px;
     max-width: none;
     justify-content: center;
+  }
+
+  body.immersive-reading .reader-clean-button {
+    right: 12px;
+    bottom: 42px;
   }
 
   body.immersive-reading .reader-settings {
