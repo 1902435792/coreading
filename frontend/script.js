@@ -9,6 +9,7 @@ const state = {
   submissions: [],
   searchResults: [],
   backtrackEvidence: null,
+  immersiveBacktrackOpen: false,
   selectedSinkPreview: null,
   selectedSinkDiff: null,
   selectedReplaceCandidateIndexes: [],
@@ -222,6 +223,22 @@ function setupReaderModeControls() {
     '    <button id="immersivePlanCloseBtn" class="secondary compact" type="button">关闭</button>',
     '  </div>',
     '</div>',
+    '<div id="immersiveBacktrack" class="reader-backtrack-card" hidden>',
+    '  <div class="reader-backtrack-head">',
+    '    <div>',
+    '      <span id="immersiveBacktrackStep">兴趣回溯</span>',
+    '      <strong id="immersiveBacktrackTitle">暂无回溯证据</strong>',
+    '      <small id="immersiveBacktrackMeta">选中原文后点击追线索。</small>',
+    '    </div>',
+    '    <button id="immersiveBacktrackCloseBtn" class="secondary compact" type="button">关闭</button>',
+    '  </div>',
+    '  <div id="immersiveBacktrackList" class="reader-backtrack-list">暂无证据</div>',
+    '  <div class="reader-backtrack-actions">',
+    '    <button id="immersiveBacktrackOpenBtn" class="primary compact" type="button" disabled>打开范围</button>',
+    '    <button id="immersiveBacktrackPlanBtn" class="secondary compact" type="button" disabled>生成计划</button>',
+    '    <button id="immersiveBacktrackSinkBtn" class="secondary compact" type="button" disabled>沉淀</button>',
+    '  </div>',
+    '</div>',
     '<button id="immersiveTocBtn" class="reader-toc-button" type="button" aria-expanded="false" aria-controls="immersiveToc">目录</button>',
     '<div id="immersiveToc" class="reader-toc" hidden>',
     '  <div class="reader-toc-head">',
@@ -316,6 +333,33 @@ function setupReaderModeControls() {
     void reviewPlanGuideStep().catch((error) => {
       log(error.message || String(error));
     }).finally(renderReaderProgress);
+  });
+  $("immersiveBacktrackCloseBtn")?.addEventListener("click", closeImmersiveBacktrack);
+  $("immersiveBacktrackOpenBtn")?.addEventListener("click", () => {
+    $("immersiveBacktrackOpenBtn").disabled = true;
+    void openTrailGuideRange().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderImmersiveBacktrack);
+  });
+  $("immersiveBacktrackPlanBtn")?.addEventListener("click", () => {
+    $("immersiveBacktrackPlanBtn").disabled = true;
+    void planTrailGuide().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderImmersiveBacktrack);
+  });
+  $("immersiveBacktrackSinkBtn")?.addEventListener("click", () => {
+    $("immersiveBacktrackSinkBtn").disabled = true;
+    void sinkTrailGuide().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderImmersiveBacktrack);
+  });
+  $("immersiveBacktrackList")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-backtrack-chunk-id]");
+    if (!button) return;
+    void selectChunk(button.dataset.backtrackChunkId, true).then(() => {
+      focusPanel(".reader-surface", "#chunkText");
+      renderImmersiveBacktrack();
+    });
   });
   $("immersiveTocBtn")?.addEventListener("click", toggleImmersiveToc);
   $("immersiveTocCloseBtn")?.addEventListener("click", closeImmersiveToc);
@@ -481,6 +525,9 @@ function handleReaderKeyboard(event) {
     } else if (document.body.classList.contains("immersive-plan-open")) {
       closeImmersivePlan();
       focusPanel(".reader-surface", "#chunkText");
+    } else if (document.body.classList.contains("immersive-backtrack-open")) {
+      closeImmersiveBacktrack();
+      focusPanel(".reader-surface", "#chunkText");
     } else {
       editable.blur?.();
     }
@@ -506,6 +553,9 @@ function handleReaderKeyboard(event) {
       focusPanel(".reader-surface", "#chunkText");
     } else if (document.body.classList.contains("immersive-plan-open")) {
       closeImmersivePlan();
+      focusPanel(".reader-surface", "#chunkText");
+    } else if (document.body.classList.contains("immersive-backtrack-open")) {
+      closeImmersiveBacktrack();
       focusPanel(".reader-surface", "#chunkText");
     } else if (document.body.classList.contains("immersive-footprints-open")) {
       closeImmersiveFootprints();
@@ -671,6 +721,7 @@ function openImmersivePlan() {
   if (!state.immersiveReading) return;
   closeImmersiveToc();
   closeImmersiveFootprints();
+  closeImmersiveBacktrack();
   renderImmersivePlan();
   document.body.classList.add("immersive-plan-open");
   const card = $("immersivePlan");
@@ -690,6 +741,25 @@ function closeImmersivePlan() {
 function toggleImmersivePlan() {
   if (document.body.classList.contains("immersive-plan-open")) closeImmersivePlan();
   else openImmersivePlan();
+}
+
+function openImmersiveBacktrack() {
+  if (!state.immersiveReading) return;
+  closeImmersiveToc();
+  closeImmersiveFootprints();
+  closeImmersivePlan();
+  state.immersiveBacktrackOpen = true;
+  document.body.classList.add("immersive-backtrack-open");
+  const card = $("immersiveBacktrack");
+  if (card) card.hidden = false;
+  renderImmersiveBacktrack();
+}
+
+function closeImmersiveBacktrack() {
+  state.immersiveBacktrackOpen = false;
+  document.body.classList.remove("immersive-backtrack-open");
+  const card = $("immersiveBacktrack");
+  if (card) card.hidden = true;
 }
 
 function updateImmersivePageStatus({ current = 1, total = 1, mode = state.readerMode } = {}) {
@@ -3865,6 +3935,7 @@ function renderBacktrackEvidence() {
     panel.className = "backtrack-evidence empty";
     panel.textContent = "暂无回溯证据";
     renderTrailGuide();
+    renderImmersiveBacktrack();
     return;
   }
   const ranges = evidence.evidence?.rangeSummaries || [];
@@ -3880,6 +3951,65 @@ function renderBacktrackEvidence() {
     <button class="secondary" type="button" data-action="collect-backtrack-card">收藏回溯</button>
   `;
   renderTrailGuide();
+  renderImmersiveBacktrack();
+}
+
+function backtrackRanges(evidence = state.backtrackEvidence) {
+  if (!evidence) return [];
+  const ranges = evidence.evidence?.rangeSummaries || evidence.ranges || [];
+  if (ranges.length) return ranges;
+  return (evidence.chunkIds || []).slice(0, 6).map((chunkId) => ({ startChunkId: chunkId, endChunkId: chunkId, chunkIds: [chunkId], label: chunkId }));
+}
+
+function renderImmersiveBacktrack() {
+  const card = $("immersiveBacktrack");
+  if (!card) return;
+  const evidence = state.backtrackEvidence;
+  const ranges = backtrackRanges(evidence);
+  const anchors = evidence?.evidence?.anchorSnippets || [];
+  const step = $("immersiveBacktrackStep");
+  const title = $("immersiveBacktrackTitle");
+  const meta = $("immersiveBacktrackMeta");
+  const list = $("immersiveBacktrackList");
+  const openBtn = $("immersiveBacktrackOpenBtn");
+  const planBtn = $("immersiveBacktrackPlanBtn");
+  const sinkBtn = $("immersiveBacktrackSinkBtn");
+  if (!evidence) {
+    if (step) step.textContent = "兴趣回溯";
+    if (title) title.textContent = "暂无回溯证据";
+    if (meta) meta.textContent = "选中原文后点击追线索。";
+    if (list) {
+      list.className = "reader-backtrack-list empty";
+      list.textContent = "暂无证据";
+    }
+    if (openBtn) openBtn.disabled = true;
+    if (planBtn) planBtn.disabled = true;
+    if (sinkBtn) sinkBtn.disabled = true;
+    return;
+  }
+  if (step) step.textContent = `${anchors.length} 个锚点 · ${ranges.length} 组范围`;
+  if (title) title.textContent = evidence.evidence?.title || `兴趣点回溯: ${evidence.query || evidence.anchorChunkId || ""}`;
+  if (meta) meta.textContent = `线索 ${evidence.query || ""} · 覆盖 ${(evidence.chunkIds || []).length} chunks`;
+  if (list) {
+    list.className = ranges.length ? "reader-backtrack-list" : "reader-backtrack-list empty";
+    list.innerHTML = ranges.length
+      ? ranges.slice(0, 6).map((range, index) => {
+        const chunkIds = range.chunkIds || [range.startChunkId, range.endChunkId].filter(Boolean);
+        const target = range.startChunkId || chunkIds[0] || evidence.anchorChunkId;
+        const label = range.label || `${range.startChunkId || target}${range.endChunkId && range.endChunkId !== target ? ` -> ${range.endChunkId}` : ""}`;
+        return `
+          <button type="button" data-backtrack-chunk-id="${escapeHtml(target || "")}" ${target ? "" : "disabled"}>
+            <span>${escapeHtml(String(index + 1).padStart(2, "0"))}</span>
+            <strong>${escapeHtml(label || target || "范围")}</strong>
+            <small>${escapeHtml((range.summary || range.intent || chunkIds.join(", ") || "").slice(0, 140))}</small>
+          </button>
+        `;
+      }).join("")
+      : "没有可打开的范围。";
+  }
+  if (openBtn) openBtn.disabled = !ranges.length;
+  if (planBtn) planBtn.disabled = !ranges.length;
+  if (sinkBtn) sinkBtn.disabled = !ranges.length;
 }
 
 async function copyBacktrackEvidence() {
@@ -7490,6 +7620,7 @@ $("selectionBacktrackBtn").addEventListener("click", async () => {
   button.disabled = true;
   try {
     await runTrailGuideBacktrack();
+    if (state.immersiveReading) openImmersiveBacktrack();
     log(`已按选区追线索: ${trailGuideQuery()}`);
   } catch (error) {
     log(error.message || String(error));

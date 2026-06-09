@@ -2117,6 +2117,7 @@ body.immersive-reading.immersive-clean-reading .reader-find,
 body.immersive-reading.immersive-clean-reading .reader-bookmark-tools,
 body.immersive-reading.immersive-clean-reading .reader-action-tools,
 body.immersive-reading.immersive-clean-reading .reader-position-nav,
+body.immersive-reading.immersive-clean-reading .reader-backtrack-card,
 body.immersive-reading.immersive-clean-reading .reader-plan-button,
 body.immersive-reading.immersive-clean-reading .reader-plan-card,
 body.immersive-reading.immersive-clean-reading .reader-toc-button,
@@ -2197,6 +2198,96 @@ body.immersive-reading .reader-plan-card strong {
 }
 
 body.immersive-reading .reader-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+body.immersive-reading .reader-backtrack-card {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 18px);
+  bottom: 62px;
+  z-index: 12;
+  display: grid;
+  gap: 12px;
+  width: min(560px, calc(100vw - var(--reader-assistant-width) - 70px));
+  max-height: min(560px, calc(100vh - 120px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 13px;
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  box-shadow: 0 16px 42px rgba(15, 15, 15, 0.12);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+
+body.immersive-reading .reader-backtrack-card[hidden] {
+  display: none;
+}
+
+body.immersive-reading .reader-backtrack-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+body.immersive-reading .reader-backtrack-card span,
+body.immersive-reading .reader-backtrack-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+body.immersive-reading .reader-backtrack-card strong {
+  display: block;
+  margin: 3px 0;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+body.immersive-reading .reader-backtrack-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+body.immersive-reading .reader-backtrack-list.empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+body.immersive-reading .reader-backtrack-list button {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: start;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  text-align: left;
+}
+
+body.immersive-reading .reader-backtrack-list button:hover,
+body.immersive-reading .reader-backtrack-list button:focus-visible {
+  border-color: color-mix(in srgb, var(--ink) 34%, var(--line));
+}
+
+body.immersive-reading .reader-backtrack-list button span {
+  grid-row: span 2;
+}
+
+body.immersive-reading .reader-backtrack-list button strong,
+body.immersive-reading .reader-backtrack-list button small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.immersive-reading .reader-backtrack-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -3488,6 +3579,18 @@ pre {
     bottom: 128px;
     left: 12px;
     width: auto;
+  }
+
+  body.immersive-reading .reader-backtrack-card {
+    right: 12px;
+    bottom: 164px;
+    left: 12px;
+    width: auto;
+    max-height: 54vh;
+  }
+
+  body.immersive-reading .reader-backtrack-head {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   body.immersive-reading .reader-toc {
