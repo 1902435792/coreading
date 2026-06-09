@@ -1405,6 +1405,20 @@ fieldset input {
   color: var(--ink);
 }
 
+.reader-find-mark {
+  border-radius: 3px;
+  padding: 1px 2px;
+  background: rgba(223, 171, 1, 0.2);
+  box-shadow: inset 0 -1px 0 rgba(223, 171, 1, 0.34);
+  color: inherit;
+}
+
+.reader-find-mark.active {
+  background: rgba(223, 171, 1, 0.38);
+  box-shadow: 0 0 0 1px rgba(223, 171, 1, 0.46);
+  color: var(--ink);
+}
+
 .reading-footprints {
   overflow: auto;
   max-height: none;
@@ -1444,6 +1458,10 @@ fieldset input {
 }
 
 .reader-chrome {
+  display: none;
+}
+
+.reader-find {
   display: none;
 }
 
@@ -2003,6 +2021,56 @@ body.immersive-reading .reader-settings button {
 body.immersive-reading .reader-settings button.active {
   background: var(--accent-soft);
   color: var(--ink);
+}
+
+body.immersive-reading .reader-find {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 18px);
+  bottom: 58px;
+  z-index: 8;
+  display: grid;
+  grid-template-columns: minmax(132px, 210px) repeat(3, 30px) auto;
+  gap: 4px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px;
+  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  opacity: 0.38;
+  transition: opacity 180ms ease;
+}
+
+body.immersive-reading .reader-find:hover,
+body.immersive-reading .reader-find:focus-within {
+  opacity: 1;
+}
+
+body.immersive-reading .reader-find input {
+  min-height: 28px;
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+body.immersive-reading .reader-find button {
+  min-width: 28px;
+  min-height: 28px;
+  border: 0;
+  padding: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+body.immersive-reading .reader-find span {
+  min-width: 36px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
 }
 
 .footprint-card {
@@ -2920,9 +2988,17 @@ pre {
     bottom: 42px;
   }
 
-  body.immersive-reading .reader-toc-button {
+  body.immersive-reading .reader-find {
     right: 12px;
     bottom: 82px;
+    left: 12px;
+    grid-template-columns: minmax(0, 1fr) repeat(3, 30px) 38px;
+    max-width: none;
+  }
+
+  body.immersive-reading .reader-toc-button {
+    right: 12px;
+    bottom: 126px;
   }
 
   body.immersive-reading .reader-toc {

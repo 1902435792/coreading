@@ -39,6 +39,7 @@ const state = {
   readerMode: "scroll",
   immersiveReading: false,
   readerSettings: { fontScale: 1, measure: "medium", theme: "light" },
+  readerFind: { query: "", matches: [], activeIndex: -1 },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -218,6 +219,13 @@ function setupReaderModeControls() {
     '  <button type="button" data-reader-theme="paper">纸</button>',
     '  <button type="button" data-reader-theme="dark">夜</button>',
     '</div>',
+    '<div class="reader-find" aria-label="查找原文">',
+    '  <input id="readerFindInput" type="search" placeholder="查找原文">',
+    '  <button id="readerFindPrevBtn" type="button" aria-label="上一个命中">↑</button>',
+    '  <button id="readerFindNextBtn" type="button" aria-label="下一个命中">↓</button>',
+    '  <button id="readerFindClearBtn" type="button" aria-label="清除查找">×</button>',
+    '  <span id="readerFindStatus">0/0</span>',
+    '</div>',
   ].join("");
   shell.insertAdjacentElement("afterend", chrome);
   $("immersivePrevPageBtn")?.addEventListener("click", () => void turnReaderPage(-1));
@@ -240,6 +248,17 @@ function setupReaderModeControls() {
     if (button.dataset.readerMeasure) setReaderMeasure(button.dataset.readerMeasure);
     if (button.dataset.readerTheme) setReaderTheme(button.dataset.readerTheme);
   });
+  $("readerFindInput")?.addEventListener("input", (event) => {
+    setReaderFindQuery(event.target.value);
+  });
+  $("readerFindInput")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    moveReaderFind(event.shiftKey ? -1 : 1);
+  });
+  $("readerFindPrevBtn")?.addEventListener("click", () => moveReaderFind(-1));
+  $("readerFindNextBtn")?.addEventListener("click", () => moveReaderFind(1));
+  $("readerFindClearBtn")?.addEventListener("click", clearReaderFind);
 
   document.addEventListener("fullscreenchange", () => {
     if (!document.fullscreenElement && state.immersiveReading) {
@@ -320,6 +339,11 @@ function setReaderMode(mode, { persist = true } = {}) {
 function handleReaderKeyboard(event) {
   if (!state.immersiveReading) return;
   const editable = event.target?.closest?.("input, textarea, select, [contenteditable='true']");
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    $("readerFindInput")?.focus();
+    return;
+  }
   if (editable) return;
   if (["ArrowRight", "PageDown", " "].includes(event.key)) {
     event.preventDefault();
@@ -2081,14 +2105,43 @@ function readingFootprintRanges(text) {
   return ranges.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
+function readerFindRanges(text) {
+  const query = String(state.readerFind.query || "").trim();
+  if (!query) return [];
+  const source = String(text || "");
+  const lowerSource = source.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const ranges = [];
+  let start = 0;
+  while (ranges.length < 120) {
+    const index = lowerSource.indexOf(lowerQuery, start);
+    if (index < 0) break;
+    ranges.push({ id: `find-${ranges.length}`, start: index, end: index + query.length });
+    start = index + Math.max(1, query.length);
+  }
+  return ranges;
+}
+
+function mergeReaderRanges(text) {
+  const ranges = [];
+  for (const range of readingFootprintRanges(text)) {
+    ranges.push({ ...range, type: "footprint" });
+  }
+  for (const range of readerFindRanges(text)) {
+    ranges.push({ ...range, type: "find" });
+  }
+  return ranges.sort((a, b) => a.start - b.start || b.end - a.end || a.type.localeCompare(b.type));
+}
+
 function renderChunkTextWithFootprints(text) {
   const chunkText = $("chunkText");
   if (!chunkText) return;
   const source = String(text || "");
-  const ranges = readingFootprintRanges(source);
+  const ranges = mergeReaderRanges(source);
   if (!ranges.length) {
     chunkText.textContent = source;
     renderReadingFootprints([]);
+    updateReaderFindMatches([]);
     return;
   }
   let cursor = 0;
@@ -2097,13 +2150,76 @@ function renderChunkTextWithFootprints(text) {
   for (const range of ranges) {
     if (range.start < cursor) continue;
     parts.push(escapeHtml(source.slice(cursor, range.start)));
-    parts.push(`<mark class="reading-mark ${range.item.source === "user-note" ? "mine" : ""}" data-footprint-id="${escapeHtml(range.id)}">${escapeHtml(source.slice(range.start, range.end))}</mark>`);
-    renderedRanges.push(range);
+    if (range.type === "find") {
+      parts.push(`<mark class="reader-find-mark" data-reader-find-id="${escapeHtml(range.id)}">${escapeHtml(source.slice(range.start, range.end))}</mark>`);
+    } else {
+      parts.push(`<mark class="reading-mark ${range.item.source === "user-note" ? "mine" : ""}" data-footprint-id="${escapeHtml(range.id)}">${escapeHtml(source.slice(range.start, range.end))}</mark>`);
+      renderedRanges.push(range);
+    }
     cursor = range.end;
   }
   parts.push(escapeHtml(source.slice(cursor)));
   chunkText.innerHTML = parts.join("");
   renderReadingFootprints(renderedRanges);
+  updateReaderFindMatches(readerFindRanges(source));
+}
+
+function updateReaderFindMatches(matches) {
+  state.readerFind.matches = matches;
+  if (!matches.length) state.readerFind.activeIndex = -1;
+  else if (state.readerFind.activeIndex < 0 || state.readerFind.activeIndex >= matches.length) state.readerFind.activeIndex = 0;
+  renderReaderFindStatus();
+  window.setTimeout(() => applyReaderFindActiveMark(), 0);
+}
+
+function applyReaderFindActiveMark({ scroll = false } = {}) {
+  document.querySelectorAll(".reader-find-mark.active").forEach((item) => item.classList.remove("active"));
+  const active = state.readerFind.activeIndex;
+  if (active < 0) return;
+  const mark = document.querySelector(`.reader-find-mark[data-reader-find-id="find-${active}"]`);
+  if (!mark) return;
+  mark.classList.add("active");
+  if (scroll) {
+    mark.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+    window.setTimeout(() => {
+      saveReadingSession();
+      updateReaderPageStatus();
+    }, 300);
+  }
+}
+
+function renderReaderFindStatus() {
+  const status = $("readerFindStatus");
+  const input = $("readerFindInput");
+  const prev = $("readerFindPrevBtn");
+  const next = $("readerFindNextBtn");
+  const clear = $("readerFindClearBtn");
+  const count = state.readerFind.matches.length;
+  if (input && input.value !== state.readerFind.query) input.value = state.readerFind.query;
+  if (status) status.textContent = count ? `${state.readerFind.activeIndex + 1}/${count}` : "0/0";
+  if (prev) prev.disabled = !count;
+  if (next) next.disabled = !count;
+  if (clear) clear.disabled = !state.readerFind.query;
+}
+
+function setReaderFindQuery(value) {
+  state.readerFind.query = String(value || "").trim();
+  state.readerFind.activeIndex = 0;
+  renderReader();
+  if (state.readerFind.matches.length) applyReaderFindActiveMark({ scroll: true });
+}
+
+function moveReaderFind(delta) {
+  const count = state.readerFind.matches.length;
+  if (!count) return;
+  state.readerFind.activeIndex = (state.readerFind.activeIndex + delta + count) % count;
+  renderReaderFindStatus();
+  applyReaderFindActiveMark({ scroll: true });
+}
+
+function clearReaderFind() {
+  state.readerFind = { query: "", matches: [], activeIndex: -1 };
+  renderReader();
 }
 
 function renderReadingFootprints(ranges) {
@@ -5363,6 +5479,7 @@ async function readSelectedChunk() {
 async function selectChunk(chunkId, autoRead = true, { resetScroll = true } = {}) {
   clearReaderSelection();
   clearEntityPeek();
+  state.readerFind = { query: "", matches: [], activeIndex: -1 };
   state.selfCheck.hintVisible = false;
   state.currentChunk = null;
   state.annotations = [];
