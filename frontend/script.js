@@ -28,6 +28,8 @@ const state = {
   selfCheck: { variant: 0, hintVisible: false },
   readingFocus: false,
   lastCompletedChunk: null,
+  restartUndo: null,
+  restartUndoTimer: null,
   planNextCache: {},
   backgroundRunners: [],
   snapshotLoadId: 0,
@@ -117,6 +119,34 @@ function clearSavedReadingSessionForBook(bookId) {
   localStorage.setItem(READING_BOOK_SESSIONS_KEY, JSON.stringify(sessions));
   const legacy = readSavedReadingSession();
   if (legacy?.bookId === bookId) localStorage.removeItem(READING_SESSION_KEY);
+}
+
+function rememberRestartUndo(session) {
+  if (!session?.bookId || !session.chunkId) return;
+  if (state.restartUndoTimer) window.clearTimeout(state.restartUndoTimer);
+  state.restartUndo = { ...session };
+  state.restartUndoTimer = window.setTimeout(() => {
+    state.restartUndo = null;
+    state.restartUndoTimer = null;
+    renderReadingSession();
+  }, 5000);
+}
+
+async function undoRestartReadingSession() {
+  const undo = state.restartUndo;
+  if (!undo?.bookId || !undo.chunkId) return false;
+  if (state.restartUndoTimer) window.clearTimeout(state.restartUndoTimer);
+  state.restartUndoTimer = null;
+  state.restartUndo = null;
+  state.selectedBookId = undo.bookId;
+  state.selectedChunkId = undo.chunkId;
+  await loadChunks(undo.bookId);
+  await readSelectedChunk();
+  restoreSavedScroll(undo);
+  renderAll();
+  focusPanel(".reader-surface", "#chunkText");
+  log(`已撤销从头读，回到: ${undo.bookTitle || undo.bookId} · ${undo.chunkId}`);
+  return true;
 }
 
 function saveReadingSession(extra = {}) {
@@ -479,9 +509,11 @@ function renderReadingSession() {
   const kicker = $("sessionKicker");
   const hasBook = !!selected;
   const bookSession = readSavedReadingSessionForBook(selected?.bookId);
+  const canUndoRestart = !!state.restartUndo && state.restartUndo.bookId === selected?.bookId;
   $("sessionResumeBtn").disabled = !bookSession;
   $("sessionContinueBtn").disabled = !hasBook;
   $("sessionRestartBtn").disabled = !hasBook;
+  $("sessionRestartBtn").textContent = canUndoRestart ? "撤销从头读" : "从头读";
   $("sessionAskNovaBtn").disabled = !hasBook || !state.selectedChunkId;
   $("sessionNoteBtn").disabled = !hasBook || !state.selectedChunkId;
   if (!selected) {
@@ -8425,13 +8457,19 @@ $("sessionRestartBtn").addEventListener("click", async () => {
   if (!selected) return;
   $("sessionRestartBtn").disabled = true;
   try {
+    if (state.restartUndo?.bookId === selected.bookId) {
+      await undoRestartReadingSession();
+      return;
+    }
+    const previous = readSavedReadingSessionForBook(selected.bookId);
     clearSavedReadingSessionForBook(selected.bookId);
     const firstChunkId = getChunkId(state.chunks[0]);
     if (!firstChunkId) throw new Error("当前书没有可读取的段落。");
     await selectChunk(firstChunkId, true);
     saveReadingSession({ chunkId: firstChunkId, scrollTop: 0 });
+    rememberRestartUndo(previous);
     focusPanel(".reader-surface", "#chunkText");
-    log(`已清除本书断点，从头阅读: ${selected.title || selected.bookId}`);
+    log(`已清除本书断点，从头阅读: ${selected.title || selected.bookId}。5 秒内可撤销。`);
   } catch (error) {
     log(error.message || String(error));
   } finally {
