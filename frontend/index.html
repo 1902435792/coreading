@@ -330,6 +330,19 @@
                 <button id="markReadBtn" class="secondary" type="button">标记已读</button>
               </div>
             </header>
+            <section id="readerNovaAside" class="reader-nova-aside" aria-live="polite" hidden>
+              <div class="reader-nova-aside-main">
+                <span id="readerNovaAsideLabel">Nova 共读</span>
+                <small id="readerNovaAsideMeta">当前段落</small>
+                <p id="readerNovaAsideText">Nova 的自主预读会贴在这里。</p>
+              </div>
+              <div class="reader-nova-aside-actions">
+                <button id="readerNovaAsideToggleBtn" class="secondary compact" type="button" aria-expanded="false">展开</button>
+                <button id="readerNovaAsideFocusBtn" class="secondary compact" type="button">打开 Nova</button>
+                <button id="readerNovaAsideSaveBtn" class="secondary compact" type="button" disabled>存笔记</button>
+                <button id="readerNovaAsideSinkBtn" class="secondary compact" type="button" disabled>沉淀</button>
+              </div>
+            </section>
             <div class="reader-text-shell">
               <pre id="chunkText" class="chunk-text">选择一本书后开始阅读。</pre>
               <aside id="readingFootprints" class="reading-footprints empty" aria-label="阅读足迹">暂无高亮足迹</aside>

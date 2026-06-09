@@ -1628,6 +1628,80 @@ body.reader-toc-open #readerTocList.reader-toc-inline.empty {
   gap: 8px;
 }
 
+.reader-nova-aside {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 72%, var(--surface));
+}
+
+.reader-nova-aside[hidden] {
+  display: none;
+}
+
+.reader-nova-aside.pending {
+  background: color-mix(in srgb, var(--surface-2) 82%, var(--accent-soft));
+}
+
+.reader-nova-aside.error {
+  border-bottom-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+}
+
+.reader-nova-aside-main {
+  min-width: 0;
+}
+
+.reader-nova-aside span,
+.reader-nova-aside small {
+  display: block;
+  font-size: 12px;
+}
+
+.reader-nova-aside span {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.reader-nova-aside small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-nova-aside p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.58;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.reader-nova-aside.open p {
+  display: block;
+  overflow: auto;
+  max-height: 220px;
+  -webkit-line-clamp: unset;
+}
+
+.reader-nova-aside.error p {
+  color: var(--danger);
+}
+
+.reader-nova-aside-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .reader-text-shell {
   position: relative;
   display: block;
@@ -1954,6 +2028,10 @@ body.immersive-reading .reader-surface header strong {
 }
 
 body.immersive-reading .reader-surface header small {
+  display: none;
+}
+
+body.immersive-reading .reader-nova-aside {
   display: none;
 }
 
@@ -4057,6 +4135,14 @@ pre {
 
   body.immersive-reading .reader-surface header {
     padding: 14px 18px 0;
+  }
+
+  .reader-nova-aside {
+    grid-template-columns: 1fr;
+  }
+
+  .reader-nova-aside-actions {
+    justify-content: flex-start;
   }
 
   body.immersive-reading .chunk-text {
