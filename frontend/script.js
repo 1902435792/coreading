@@ -179,8 +179,8 @@ function setupReaderModeControls() {
     '<button id="readerPageNextBtn" class="secondary compact" type="button">下一屏</button>',
   ].join("");
   shell.insertAdjacentElement("afterend", pager);
-  $("readerPagePrevBtn")?.addEventListener("click", () => turnReaderPage(-1));
-  $("readerPageNextBtn")?.addEventListener("click", () => turnReaderPage(1));
+  $("readerPagePrevBtn")?.addEventListener("click", () => void turnReaderPage(-1));
+  $("readerPageNextBtn")?.addEventListener("click", () => void turnReaderPage(1));
 
   const chrome = document.createElement("div");
   chrome.className = "reader-chrome";
@@ -204,8 +204,8 @@ function setupReaderModeControls() {
     '</div>',
   ].join("");
   shell.insertAdjacentElement("afterend", chrome);
-  $("immersivePrevPageBtn")?.addEventListener("click", () => turnReaderPage(-1));
-  $("immersiveNextPageBtn")?.addEventListener("click", () => turnReaderPage(1));
+  $("immersivePrevPageBtn")?.addEventListener("click", () => void turnReaderPage(-1));
+  $("immersiveNextPageBtn")?.addEventListener("click", () => void turnReaderPage(1));
   chrome.querySelector(".reader-settings")?.addEventListener("click", (event) => {
     const button = event.target.closest("button");
     if (!button) return;
@@ -296,10 +296,10 @@ function handleReaderKeyboard(event) {
   if (editable) return;
   if (["ArrowRight", "PageDown", " "].includes(event.key)) {
     event.preventDefault();
-    turnReaderPage(1);
+    void turnReaderPage(1);
   } else if (["ArrowLeft", "PageUp"].includes(event.key)) {
     event.preventDefault();
-    turnReaderPage(-1);
+    void turnReaderPage(-1);
   } else if (event.key === "Escape") {
     event.preventDefault();
     if (document.body.classList.contains("immersive-notes-open")) {
@@ -319,13 +319,33 @@ function handleReaderKeyboard(event) {
   }
 }
 
-function turnReaderPage(direction) {
+async function turnReaderPage(direction) {
   const chunkText = $("chunkText");
   if (!chunkText) return;
   if (state.readerMode !== "paged") setReaderMode("paged");
   const step = readerPageStep(chunkText);
+  const maxLeft = Math.max(0, chunkText.scrollWidth - chunkText.clientWidth);
+  if (direction > 0 && chunkText.scrollLeft >= maxLeft - 2) {
+    await moveChunk(1, { restoreEnd: false });
+    return;
+  }
+  if (direction < 0 && chunkText.scrollLeft <= 2) {
+    await moveChunk(-1, { restoreEnd: true });
+    return;
+  }
   chunkText.scrollBy({ left: direction * step, behavior: "smooth" });
   window.setTimeout(updateReaderPageStatus, 180);
+}
+
+function jumpReaderToPageEnd() {
+  const chunkText = $("chunkText");
+  if (!chunkText) return;
+  if (state.readerMode !== "paged") setReaderMode("paged");
+  window.setTimeout(() => {
+    chunkText.scrollLeft = Math.max(0, chunkText.scrollWidth - chunkText.clientWidth);
+    saveReadingSession();
+    updateReaderPageStatus();
+  }, 120);
 }
 
 function readerPageStep(chunkText = $("chunkText")) {
@@ -5180,13 +5200,14 @@ async function selectChunk(chunkId, autoRead = true, { resetScroll = true } = {}
   renderReaderProgress();
 }
 
-async function moveChunk(delta) {
+async function moveChunk(delta, { restoreEnd = false } = {}) {
   const index = chunkOrder(state.selectedChunkId);
   if (index === null) return;
   const next = state.chunks[index + delta];
   const nextId = getChunkId(next);
   if (!nextId) return;
   await selectChunk(nextId, true);
+  if (restoreEnd) jumpReaderToPageEnd();
 }
 
 async function continueReading() {
