@@ -11,6 +11,7 @@ const { pathToFileURL } = require("node:url");
 
 const PLUGIN_DIR = __dirname;
 const FRONTEND_DIR = path.join(PLUGIN_DIR, "frontend");
+const PROMPTS_DIR = path.join(PLUGIN_DIR, "prompts");
 const WRAPPER_PATH = path.join(PLUGIN_DIR, "CoReadingMCP.cjs");
 const PROJECT_ROOT = process.env.PROJECT_BASE_PATH || path.resolve(PLUGIN_DIR, "..", "..");
 const DEFAULT_DATA_DIR = path.join(PROJECT_ROOT, "data", "co-reading-mcp");
@@ -22,6 +23,7 @@ const PORT = Number(process.env.CO_READING_SIDECAR_PORT || 8791);
 const MAX_BODY_BYTES = Number(process.env.CO_READING_SIDECAR_MAX_BODY_BYTES || 2_000_000);
 const NOVA_BRIDGE_URL = process.env.CO_READING_NOVA_BRIDGE_URL || "http://127.0.0.1:3100/v1/chat/completions";
 const NOVA_MODEL = process.env.CO_READING_NOVA_MODEL || "gpt-5.5";
+const NOVA_GUIDE_PATH = process.env.CO_READING_NOVA_GUIDE_PATH || path.join(PROMPTS_DIR, "CoReadingNovaGuide.txt");
 
 process.env.READING_MCP_DATA_DIR = DATA_DIR;
 process.env.READING_IMPORT_MAX_BYTES = process.env.READING_IMPORT_MAX_BYTES || "100000000";
@@ -410,9 +412,18 @@ function compactText(value, maxChars = 7000) {
   return text.length > maxChars ? `${text.slice(0, maxChars)}\n\n[已截断 ${text.length - maxChars} 字]` : text;
 }
 
+function readNovaGuide() {
+  try {
+    return fs.existsSync(NOVA_GUIDE_PATH) ? fs.readFileSync(NOVA_GUIDE_PATH, "utf8").trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 async function askNova(body) {
   const apiKey = process.env.CO_READING_NOVA_API_KEY || process.env.VCP_API_KEY || "";
   const context = body.context || {};
+  const novaGuide = readNovaGuide();
   const messages = [
     {
       role: "system",
@@ -421,8 +432,9 @@ async function askNova(body) {
         "只基于当前段落、选区、笔记和明确传入的上下文回应；不要假装读完整本书。",
         "优先帮助用户自己读：解释这段在说什么，指出值得停留的句子，给一个下一步阅读动作。",
         "用户没问工程实现时，不展开 VCP/插件细节。",
-        "如果上下文不足，直接说需要哪一段或哪条笔记。"
-      ].join("\n")
+        "如果上下文不足，直接说需要哪一段或哪条笔记。",
+        novaGuide ? `\n${novaGuide}` : ""
+      ].filter(Boolean).join("\n")
     },
     {
       role: "user",

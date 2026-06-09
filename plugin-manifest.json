@@ -46,6 +46,10 @@
     "CO_READING_SIDECAR_PORT": {
       "type": "integer",
       "description": "独立共读 sidecar 监听端口，默认 8791。"
+    },
+    "CO_READING_NOVA_GUIDE_PATH": {
+      "type": "string",
+      "description": "读书 Nova 操作手册路径。留空时使用 prompts\\CoReadingNovaGuide.txt；用于 /api/nova/ask 给 Nova 注入 CoReading 操作、记忆和沉淀边界。"
     }
   },
   "capabilities": {
