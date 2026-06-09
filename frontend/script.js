@@ -233,6 +233,8 @@ function setupReaderModeControls() {
     '</div>',
     '<div class="reader-action-tools" aria-label="本段动作">',
     '  <button id="immersiveNextChunkBtn" type="button">读完下一段</button>',
+    '  <button id="immersiveReviewLastBtn" type="button" disabled>回看刚读</button>',
+    '  <button id="immersiveResumeNextBtn" type="button" disabled>回到继续读</button>',
     '  <button id="immersiveAskNovaBtn" type="button">问 Nova</button>',
     '  <button id="immersiveNoteBtn" type="button">记一笔</button>',
     '  <button id="immersiveSelfCheckBtn" type="button">自测</button>',
@@ -281,6 +283,18 @@ function setupReaderModeControls() {
   $("immersiveNextChunkBtn")?.addEventListener("click", () => {
     $("immersiveNextChunkBtn").disabled = true;
     void markReadAndMaybeAdvance({ advance: true }).catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+  });
+  $("immersiveReviewLastBtn")?.addEventListener("click", () => {
+    $("immersiveReviewLastBtn").disabled = true;
+    void reviewLastCompletedInReader().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+  });
+  $("immersiveResumeNextBtn")?.addEventListener("click", () => {
+    $("immersiveResumeNextBtn").disabled = true;
+    void resumeAfterLastCompletedReview().catch((error) => {
       log(error.message || String(error));
     }).finally(renderReaderProgress);
   });
@@ -1379,17 +1393,26 @@ function renderReaderProgress() {
 
 function renderImmersiveActions({ hasChunk = false, pendingCount = 0, currentChunkPendingSink = null, currentChunkApprovedSink = null } = {}) {
   const next = $("immersiveNextChunkBtn");
+  const review = $("immersiveReviewLastBtn");
+  const resume = $("immersiveResumeNextBtn");
   const ask = $("immersiveAskNovaBtn");
   const note = $("immersiveNoteBtn");
   const selfCheck = $("immersiveSelfCheckBtn");
   const sink = $("immersiveSinkCurrentBtn");
   const open = $("immersiveOpenSinkBtn");
   const status = $("immersiveActionStatus");
-  if (!next || !ask || !note || !selfCheck || !sink || !open || !status) return;
+  if (!next || !review || !resume || !ask || !note || !selfCheck || !sink || !open || !status) return;
   const currentIndex = chunkOrder(state.selectedChunkId);
   const nextId = hasChunk && currentIndex !== null ? getChunkId(state.chunks[currentIndex + 1]) : "";
+  const lastCompleted = state.lastCompletedChunk;
+  const canReviewLast = !!lastCompleted?.chunkId && lastCompleted.bookId === state.selectedBookId;
+  const canResumeNext = canReviewLast && state.selectedChunkId === lastCompleted.chunkId && !!lastCompleted.nextChunkId;
   next.disabled = !hasChunk;
   next.textContent = nextId ? "读完下一段" : "标记读完";
+  review.disabled = !canReviewLast || state.selectedChunkId === lastCompleted.chunkId;
+  review.textContent = canReviewLast ? `回看 ${lastCompleted.chunkId}` : "回看刚读";
+  resume.disabled = !canResumeNext;
+  resume.textContent = canResumeNext ? `回到 ${lastCompleted.nextChunkId}` : "回到继续读";
   ask.disabled = !hasChunk;
   note.disabled = !hasChunk;
   selfCheck.disabled = !hasChunk;
@@ -5704,6 +5727,14 @@ async function openLastCompletedChunkReview() {
   if (!last?.chunkId || last.bookId !== state.selectedBookId) throw new Error("还没有可回看的刚读段落。");
   await selectChunk(last.chunkId, true);
   focusPanel("#chunkReviewCard", "#copyChunkReviewBtn");
+  log(`已回看刚读: ${last.chunkId}${last.title ? ` · ${last.title}` : ""}`);
+}
+
+async function reviewLastCompletedInReader() {
+  const last = state.lastCompletedChunk;
+  if (!last?.chunkId || last.bookId !== state.selectedBookId) throw new Error("还没有可回看的刚读段落。");
+  await selectChunk(last.chunkId, true);
+  focusPanel(".reader-surface", "#chunkText");
   log(`已回看刚读: ${last.chunkId}${last.title ? ` · ${last.title}` : ""}`);
 }
 
