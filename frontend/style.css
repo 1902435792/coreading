@@ -1704,6 +1704,59 @@ body.immersive-reading .nova-reply {
   max-height: none;
 }
 
+body.immersive-reading .selection-dock {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 18px);
+  bottom: 92px;
+  left: clamp(42px, 6vw, 90px);
+  z-index: 9;
+  grid-template-columns: minmax(0, 1fr) auto;
+  max-width: calc(100vw - var(--reader-assistant-width) - 120px);
+  margin: 0;
+  border-color: var(--line);
+  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 10px 28px rgba(15, 15, 15, 0.08);
+}
+
+body.immersive-reading .selection-dock strong {
+  max-width: 42vw;
+}
+
+body.immersive-reading .selection-actions {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+body.immersive-reading .selection-actions button {
+  flex: 0 0 auto;
+}
+
+body.immersive-reading.reader-selection-active .reader-settings {
+  opacity: 0.08;
+}
+
+body.immersive-reading .notes-pane {
+  display: none;
+}
+
+body.immersive-reading.immersive-notes-open .notes-pane {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  width: var(--reader-assistant-width);
+  max-width: var(--reader-assistant-width);
+  border-left: 1px solid var(--line);
+  padding: 18px;
+  background: var(--surface-3);
+  overflow: auto;
+}
+
 body.immersive-reading.reader-mode-paged .chunk-text {
   width: calc(100vw - var(--reader-assistant-width));
   max-width: calc(100vw - var(--reader-assistant-width));
@@ -2721,6 +2774,26 @@ pre {
   body.immersive-reading .reader-settings {
     right: 12px;
     bottom: 42px;
+  }
+
+  body.immersive-reading .selection-dock {
+    right: 12px;
+    bottom: 108px;
+    left: 12px;
+    grid-template-columns: 1fr;
+    max-width: none;
+  }
+
+  body.immersive-reading .selection-dock strong {
+    max-width: 100%;
+  }
+
+  body.immersive-reading.immersive-notes-open .notes-pane {
+    top: 84px;
+    width: 100%;
+    max-width: none;
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 
   .reader-nav-tools select {

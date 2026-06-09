@@ -302,7 +302,14 @@ function handleReaderKeyboard(event) {
     turnReaderPage(-1);
   } else if (event.key === "Escape") {
     event.preventDefault();
-    void setImmersiveReading(false);
+    if (document.body.classList.contains("immersive-notes-open")) {
+      closeImmersiveNotesPane();
+      focusPanel(".reader-surface", "#chunkText");
+    } else if (state.readerSelection?.text) {
+      clearReaderSelection();
+    } else {
+      void setImmersiveReading(false);
+    }
   } else if (event.key === "]") {
     event.preventDefault();
     adjustReaderFont(1);
@@ -2807,6 +2814,7 @@ function renderSelectionDock() {
   if (!dock) return;
   const quote = state.readerSelection?.text || "";
   dock.hidden = !quote;
+  document.body.classList.toggle("reader-selection-active", Boolean(quote));
   $("selectionDockQuote").textContent = quote ? quote.slice(0, 180) : "未选择原文";
   $("selectionAskNovaBtn").disabled = !quote;
   $("selectionBacktrackBtn").disabled = !quote;
@@ -2829,6 +2837,7 @@ function captureReaderSelection() {
 function clearReaderSelection() {
   state.readerSelection = { text: "", offset: null };
   window.getSelection?.().removeAllRanges?.();
+  closeImmersiveNotesPane();
   renderSelectionDock();
 }
 
@@ -2952,6 +2961,7 @@ function prepareNoteFromCurrentReading() {
     fillFormFromSelection("userNoteForm");
     log("已把选区带入我的笔记。");
   }
+  openImmersiveNotesPane();
   focusPanel("#userNoteForm", '#userNoteForm textarea[name="note"]');
 }
 
@@ -5264,6 +5274,15 @@ function focusPanel(selector, focusSelector) {
   }
 }
 
+function openImmersiveNotesPane() {
+  if (!state.immersiveReading) return;
+  document.body.classList.add("immersive-notes-open");
+}
+
+function closeImmersiveNotesPane() {
+  document.body.classList.remove("immersive-notes-open");
+}
+
 function openContainingDrawer(element) {
   const node = typeof element === "string" ? document.querySelector(element) : element;
   const drawer = node?.closest?.("details");
@@ -6616,11 +6635,13 @@ $("selectionEntityBtn").addEventListener("click", () => {
 $("selectionNoteBtn").addEventListener("click", () => {
   if (!state.readerSelection?.text) captureReaderSelection();
   fillFormFromSelection("userNoteForm");
+  openImmersiveNotesPane();
   focusPanel("#userNoteForm", '#userNoteForm textarea[name="note"]');
 });
 $("selectionAnnotateBtn").addEventListener("click", () => {
   if (!state.readerSelection?.text) captureReaderSelection();
   fillFormFromSelection("annotationForm");
+  openImmersiveNotesPane();
   focusPanel("#annotationForm", '#annotationForm textarea[name="note"]');
 });
 $("selectionClearBtn").addEventListener("click", () => {
