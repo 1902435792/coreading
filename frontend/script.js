@@ -10,6 +10,7 @@ const state = {
   searchResults: [],
   backtrackEvidence: null,
   immersiveBacktrackOpen: false,
+  backtrackSinkPreviewId: "",
   selectedSinkPreview: null,
   selectedSinkDiff: null,
   selectedReplaceCandidateIndexes: [],
@@ -237,6 +238,9 @@ function setupReaderModeControls() {
     '    <button id="immersiveBacktrackOpenBtn" class="primary compact" type="button" disabled>打开范围</button>',
     '    <button id="immersiveBacktrackPlanBtn" class="secondary compact" type="button" disabled>生成计划</button>',
     '    <button id="immersiveBacktrackSinkBtn" class="secondary compact" type="button" disabled>沉淀</button>',
+    '    <button id="immersiveBacktrackApproveSinkBtn" class="secondary compact" type="button" disabled>批准预览</button>',
+    '    <button id="immersiveBacktrackExecuteSinkBtn" class="secondary compact" type="button" disabled>执行写入</button>',
+    '    <button id="immersiveBacktrackOpenSinkBtn" class="secondary compact" type="button" disabled>打开预览</button>',
     '  </div>',
     '</div>',
     '<button id="immersiveTocBtn" class="reader-toc-button" type="button" aria-expanded="false" aria-controls="immersiveToc">目录</button>',
@@ -349,7 +353,25 @@ function setupReaderModeControls() {
   });
   $("immersiveBacktrackSinkBtn")?.addEventListener("click", () => {
     $("immersiveBacktrackSinkBtn").disabled = true;
-    void sinkTrailGuide().catch((error) => {
+    void createImmersiveBacktrackSinkPreview().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderImmersiveBacktrack);
+  });
+  $("immersiveBacktrackApproveSinkBtn")?.addEventListener("click", () => {
+    $("immersiveBacktrackApproveSinkBtn").disabled = true;
+    void approveImmersiveBacktrackSinkPreview().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderImmersiveBacktrack);
+  });
+  $("immersiveBacktrackExecuteSinkBtn")?.addEventListener("click", () => {
+    $("immersiveBacktrackExecuteSinkBtn").disabled = true;
+    void executeImmersiveBacktrackSinkPreview().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderImmersiveBacktrack);
+  });
+  $("immersiveBacktrackOpenSinkBtn")?.addEventListener("click", () => {
+    $("immersiveBacktrackOpenSinkBtn").disabled = true;
+    void openImmersiveBacktrackSinkPreview().catch((error) => {
       log(error.message || String(error));
     }).finally(renderImmersiveBacktrack);
   });
@@ -3974,6 +3996,12 @@ function renderImmersiveBacktrack() {
   const openBtn = $("immersiveBacktrackOpenBtn");
   const planBtn = $("immersiveBacktrackPlanBtn");
   const sinkBtn = $("immersiveBacktrackSinkBtn");
+  const approveBtn = $("immersiveBacktrackApproveSinkBtn");
+  const executeBtn = $("immersiveBacktrackExecuteSinkBtn");
+  const openSinkBtn = $("immersiveBacktrackOpenSinkBtn");
+  const sinkPreview = state.backtrackSinkPreviewId && state.selectedSinkPreview?.previewId === state.backtrackSinkPreviewId
+    ? state.selectedSinkPreview
+    : null;
   if (!evidence) {
     if (step) step.textContent = "兴趣回溯";
     if (title) title.textContent = "暂无回溯证据";
@@ -3985,11 +4013,18 @@ function renderImmersiveBacktrack() {
     if (openBtn) openBtn.disabled = true;
     if (planBtn) planBtn.disabled = true;
     if (sinkBtn) sinkBtn.disabled = true;
+    if (approveBtn) approveBtn.disabled = true;
+    if (executeBtn) executeBtn.disabled = true;
+    if (openSinkBtn) openSinkBtn.disabled = true;
     return;
   }
   if (step) step.textContent = `${anchors.length} 个锚点 · ${ranges.length} 组范围`;
   if (title) title.textContent = evidence.evidence?.title || `兴趣点回溯: ${evidence.query || evidence.anchorChunkId || ""}`;
-  if (meta) meta.textContent = `线索 ${evidence.query || ""} · 覆盖 ${(evidence.chunkIds || []).length} chunks`;
+  if (meta) meta.textContent = [
+    `线索 ${evidence.query || ""}`,
+    `覆盖 ${(evidence.chunkIds || []).length} chunks`,
+    state.backtrackSinkPreviewId ? `预览 ${state.backtrackSinkPreviewId}${sinkPreview?.status ? ` · ${sinkPreview.status}` : ""}` : "",
+  ].filter(Boolean).join(" · ");
   if (list) {
     list.className = ranges.length ? "reader-backtrack-list" : "reader-backtrack-list empty";
     list.innerHTML = ranges.length
@@ -4010,6 +4045,54 @@ function renderImmersiveBacktrack() {
   if (openBtn) openBtn.disabled = !ranges.length;
   if (planBtn) planBtn.disabled = !ranges.length;
   if (sinkBtn) sinkBtn.disabled = !ranges.length;
+  if (approveBtn) approveBtn.disabled = !state.backtrackSinkPreviewId || sinkPreview?.status !== "pending";
+  if (executeBtn) executeBtn.disabled = !state.backtrackSinkPreviewId || sinkPreview?.status !== "approved";
+  if (openSinkBtn) openSinkBtn.disabled = !state.backtrackSinkPreviewId;
+}
+
+async function createImmersiveBacktrackSinkPreview() {
+  const previewId = await sinkTrailGuide({ openPreview: false });
+  if (!previewId) throw new Error("回溯沉淀没有返回预览 ID。");
+  state.backtrackSinkPreviewId = previewId;
+  state.selectedSinkPreview = await loadSinkPreview(previewId);
+  state.selectedSinkDiff = null;
+  renderSinkDetail();
+  renderSinks();
+  renderImmersiveBacktrack();
+  log(`已生成回溯沉淀预览: ${previewId}`);
+}
+
+async function approveImmersiveBacktrackSinkPreview() {
+  if (!state.backtrackSinkPreviewId) throw new Error("请先生成回溯沉淀预览。");
+  state.selectedSinkPreview = await loadSinkPreview(state.backtrackSinkPreviewId);
+  state.selectedSinkDiff = null;
+  renderSinkDetail();
+  await updateSinkPreviewContent(state.selectedSinkPreview, { status: "approved", note: "immersive backtrack approve" });
+  state.selectedSinkPreview = await loadSinkPreview(state.backtrackSinkPreviewId);
+  renderSinkDetail();
+  renderSinks();
+  renderImmersiveBacktrack();
+  log(`已批准回溯沉淀预览: ${state.backtrackSinkPreviewId}`);
+}
+
+async function executeImmersiveBacktrackSinkPreview() {
+  if (!state.backtrackSinkPreviewId) throw new Error("请先生成并批准回溯沉淀预览。");
+  state.selectedSinkPreview = await loadSinkPreview(state.backtrackSinkPreviewId);
+  state.selectedSinkDiff = null;
+  renderSinkDetail();
+  if (state.selectedSinkPreview.status !== "approved") throw new Error("请先批准回溯沉淀预览。");
+  const executed = await executeSelectedSinkPreview();
+  state.selectedSinkPreview = await loadSinkPreview(state.backtrackSinkPreviewId);
+  state.selectedSinkDiff = null;
+  renderSinkDetail();
+  renderSinks();
+  renderImmersiveBacktrack();
+  if (executed) log(`已写入回溯沉淀: ${state.backtrackSinkPreviewId}`);
+}
+
+async function openImmersiveBacktrackSinkPreview() {
+  if (!state.backtrackSinkPreviewId) throw new Error("当前没有回溯沉淀预览。");
+  await openQueueSink(state.backtrackSinkPreviewId);
 }
 
 async function copyBacktrackEvidence() {
@@ -8063,7 +8146,7 @@ async function planTrailGuide() {
   focusPanel("#planForm", '#planForm input[name="query"]');
 }
 
-async function sinkTrailGuide() {
+async function sinkTrailGuide({ openPreview = true } = {}) {
   const selected = activeBook();
   if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
   const evidence = state.backtrackEvidence;
@@ -8079,7 +8162,8 @@ async function sinkTrailGuide() {
   state.backtrackEvidence = result.data?.backtrack || result.raw?.backtrack || evidence;
   renderBacktrackEvidence();
   const previewId = previewIdFromResult(result);
-  if (previewId) await openQueueSink(previewId);
+  if (previewId && openPreview) await openQueueSink(previewId);
+  return previewId;
 }
 
 function backtrackPayload(bookId, anchorChunkId) {
