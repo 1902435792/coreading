@@ -36,6 +36,7 @@ const state = {
   entityPeek: null,
   selfCheck: { variant: 0, hintVisible: false },
   readingFocus: false,
+  readingVisit: { bookId: "", startedAt: 0, completedChunks: 0, targetChunks: 3 },
   lastCompletedChunk: null,
   restartUndo: null,
   restartUndoTimer: null,
@@ -1326,6 +1327,7 @@ async function undoRestartReadingSession() {
 function saveReadingSession(extra = {}) {
   const selected = activeBook();
   if (!selected || !state.selectedChunkId) return;
+  ensureReadingVisit(selected.bookId);
   const chunkText = $("chunkText");
   const payload = {
     bookId: selected.bookId,
@@ -1342,6 +1344,40 @@ function saveReadingSession(extra = {}) {
   const sessions = readBookReadingSessions();
   sessions[selected.bookId] = payload;
   localStorage.setItem(READING_BOOK_SESSIONS_KEY, JSON.stringify(sessions));
+}
+
+function ensureReadingVisit(bookId = activeBook()?.bookId) {
+  if (!bookId) return;
+  if (state.readingVisit.bookId === bookId && state.readingVisit.startedAt) return;
+  state.readingVisit = {
+    bookId,
+    startedAt: Date.now(),
+    completedChunks: 0,
+    targetChunks: state.readingVisit.targetChunks || 3,
+  };
+}
+
+function recordReadingVisitCompletion(bookId = activeBook()?.bookId) {
+  ensureReadingVisit(bookId);
+  state.readingVisit.completedChunks += 1;
+}
+
+function formatReadingVisitElapsed(startedAt = state.readingVisit.startedAt) {
+  if (!startedAt) return "0 分钟";
+  const minutes = Math.max(0, Math.floor((Date.now() - startedAt) / 60000));
+  if (minutes < 1) return "刚开始";
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+}
+
+function readingVisitSummary(book = activeBook()) {
+  if (!book) return "本次未开始";
+  ensureReadingVisit(book.bookId);
+  const visit = state.readingVisit;
+  const remaining = Math.max(0, Number(visit.targetChunks || 0) - Number(visit.completedChunks || 0));
+  return `本次 ${formatReadingVisitElapsed()} · 已读 ${visit.completedChunks || 0} 段 · 目标还差 ${remaining} 段`;
 }
 
 function restoreSavedScroll(saved) {
@@ -1873,11 +1909,12 @@ function renderReadingSession() {
   const percent = progressPercent(selected);
   const nextId = nextUnreadChunkId(selected);
   const nextTitle = chunkTitleById(nextId);
+  const visitSummary = readingVisitSummary(selected);
   kicker.textContent = `${percent}% · ${selected.chunksRead || 0}/${selected.chunkCount || 0} chunks`;
   title.textContent = selected.title || selected.bookId;
   meta.textContent = bookSession
-    ? `继续阅读 ${bookSession.chunkId}${formatSavedAt(bookSession.savedAt) ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""}`
-    : (nextId ? `下一段 ${nextId}${nextTitle ? ` · ${nextTitle}` : ""}` : "这本书暂时没有可继续的段落。");
+    ? `继续阅读 ${bookSession.chunkId}${formatSavedAt(bookSession.savedAt) ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""} · ${visitSummary}`
+    : (nextId ? `下一段 ${nextId}${nextTitle ? ` · ${nextTitle}` : ""} · ${visitSummary}` : `这本书暂时没有可继续的段落。 · ${visitSummary}`);
 }
 
 function renderReadingNowBar({ scrollPercent = currentChunkScrollPercent() } = {}) {
@@ -1890,6 +1927,7 @@ function renderReadingNowBar({ scrollPercent = currentChunkScrollPercent() } = {
   const bookSession = validSavedReadingSessionForBook(selected?.bookId);
   const { plan, nextStep } = planGuideSelection();
   const planLabel = nextStep ? planStepChunkLabel(nextStep) : "";
+  const visitSummary = selected ? readingVisitSummary(selected) : "";
   bar.classList.toggle("empty", !selected);
   $("readingNowKicker").textContent = selected
     ? `${progressPercent(selected)}% · ${selected.chunksRead || 0}/${selected.chunkCount || state.chunks.length || 0} chunks`
@@ -1898,7 +1936,7 @@ function renderReadingNowBar({ scrollPercent = currentChunkScrollPercent() } = {
     ? `${selected.title || selected.bookId}${hasChunk ? ` · ${state.selectedChunkId}` : ""}`
     : "还没有选书";
   $("readingNowMeta").textContent = hasChunk
-    ? `${index + 1}/${state.chunks.length} · ${currentTitle || state.selectedChunkId} · 段内 ${clampPercent(scrollPercent)}%${bookSession?.chunkId ? ` · 本书断点 ${bookSession.chunkId}` : ""}${planLabel ? ` · 下一步 ${planLabel}` : ""}`
+    ? `${index + 1}/${state.chunks.length} · ${currentTitle || state.selectedChunkId} · 段内 ${clampPercent(scrollPercent)}%${bookSession?.chunkId ? ` · 本书断点 ${bookSession.chunkId}` : ""}${planLabel ? ` · 下一步 ${planLabel}` : ""}${visitSummary ? ` · ${visitSummary}` : ""}`
     : "选择书籍后可以随时回到正文。";
   $("readingNowFocusBtn").disabled = !hasChunk;
   $("readingNowContinueBtn").disabled = !selected;
@@ -2015,6 +2053,7 @@ function renderImmersiveActions({ hasChunk = false, pendingCount = 0, currentChu
   const lastCompleted = state.lastCompletedChunk;
   const canReviewLast = !!lastCompleted?.chunkId && lastCompleted.bookId === state.selectedBookId;
   const canResumeNext = canReviewLast && state.selectedChunkId === lastCompleted.chunkId && !!lastCompleted.nextChunkId;
+  const visitSummary = hasChunk ? readingVisitSummary(activeBook()) : "";
   next.disabled = !hasChunk;
   next.textContent = nextId ? "读完下一段" : "标记读完";
   review.disabled = !canReviewLast || state.selectedChunkId === lastCompleted.chunkId;
@@ -2033,7 +2072,7 @@ function renderImmersiveActions({ hasChunk = false, pendingCount = 0, currentChu
   open.textContent = pendingCount ? `看沉淀 ${pendingCount}` : "看沉淀";
   const currentSink = currentChunkPendingSink || currentChunkApprovedSink;
   status.textContent = hasChunk
-    ? `${state.selectedChunkId} · 笔记 ${state.userNotes.length} · 沉淀 ${sinkPreviewsForCurrentChunk().length}${currentSink ? ` · ${currentSink.status}` : ""}`
+    ? `${state.selectedChunkId} · ${visitSummary} · 笔记 ${state.userNotes.length} · 沉淀 ${sinkPreviewsForCurrentChunk().length}${currentSink ? ` · ${currentSink.status}` : ""}`
     : "未选择段落";
 }
 
@@ -6792,6 +6831,7 @@ async function markReadAndMaybeAdvance({ advance = false } = {}) {
   const nextId = currentIndex === null ? "" : getChunkId(state.chunks[currentIndex + 1]);
   const nextTitle = chunkTitleById(nextId);
   await command({ command: "mark_read", bookId: selected.bookId, chunkId: state.selectedChunkId });
+  recordReadingVisitCompletion(selected.bookId);
   state.lastCompletedChunk = {
     bookId: selected.bookId,
     bookTitle: selected.title || selected.bookId,

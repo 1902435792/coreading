@@ -2882,7 +2882,8 @@ body.immersive-reading .reader-action-tools button {
 
 body.immersive-reading .reader-action-tools span {
   overflow: hidden;
-  min-width: 0;
+  min-width: 140px;
+  max-width: 280px;
   color: var(--muted);
   font-size: 12px;
   text-overflow: ellipsis;
