@@ -112,6 +112,13 @@ function readSavedReadingSessionForBook(bookId) {
   return legacy?.bookId === bookId ? legacy : null;
 }
 
+function validSavedReadingSessionForBook(bookId) {
+  const saved = readSavedReadingSessionForBook(bookId);
+  if (!saved?.chunkId) return null;
+  if (state.chunks.length && !state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)) return null;
+  return saved;
+}
+
 function clearSavedReadingSessionForBook(bookId) {
   if (!bookId) return;
   const sessions = readBookReadingSessions();
@@ -508,7 +515,7 @@ function renderReadingSession() {
   const meta = $("sessionMeta");
   const kicker = $("sessionKicker");
   const hasBook = !!selected;
-  const bookSession = readSavedReadingSessionForBook(selected?.bookId);
+  const bookSession = validSavedReadingSessionForBook(selected?.bookId);
   const canUndoRestart = !!state.restartUndo && state.restartUndo.bookId === selected?.bookId;
   $("sessionResumeBtn").disabled = !bookSession;
   $("sessionResumeBtn").textContent = bookSession?.chunkId ? `回 ${bookSession.chunkId}` : "回现场";
@@ -541,7 +548,7 @@ function renderReadingNowBar({ scrollPercent = currentChunkScrollPercent() } = {
   const index = chunkOrder(state.selectedChunkId);
   const hasChunk = !!selected && index !== null;
   const currentTitle = chunkTitleById(state.selectedChunkId);
-  const bookSession = readSavedReadingSessionForBook(selected?.bookId);
+  const bookSession = validSavedReadingSessionForBook(selected?.bookId);
   const { plan, nextStep } = planGuideSelection();
   const planLabel = nextStep ? planStepChunkLabel(nextStep) : "";
   bar.classList.toggle("empty", !selected);
@@ -594,7 +601,7 @@ function renderReaderProgress() {
   const hasChunk = !!selected && index !== null;
   const percent = progressPercent(selected);
   const saved = readSavedReadingSession();
-  const bookSession = readSavedReadingSessionForBook(selected?.bookId);
+  const bookSession = validSavedReadingSessionForBook(selected?.bookId);
   const nextChunk = hasChunk ? state.chunks[index + 1] : null;
   const nextId = getChunkId(nextChunk);
   const pendingCount = pendingSinkPreviewsForBook(selected).length;
@@ -810,7 +817,7 @@ function renderReadingQueue() {
     return;
   }
   const nextId = nextUnreadChunkId(selected);
-  const bookSession = readSavedReadingSessionForBook(selected.bookId);
+  const bookSession = validSavedReadingSessionForBook(selected.bookId);
   const resumeId = bookSession?.chunkId || nextId;
   const plan = activePlanForBook(selected);
   const planNext = plan ? state.planNextCache[plan.planId]?.nextStep : null;
@@ -1035,7 +1042,7 @@ function renderChunks() {
 function renderChunkNavigation() {
   const index = chunkOrder(state.selectedChunkId);
   const hasChunk = index !== null;
-  const bookSession = readSavedReadingSessionForBook(state.selectedBookId);
+  const bookSession = validSavedReadingSessionForBook(state.selectedBookId);
   $("chunkPosition").textContent = hasChunk
     ? `当前位置 ${index + 1}/${state.chunks.length} · ${state.selectedChunkId}`
     : "未选择位置";
@@ -4621,7 +4628,7 @@ async function loadChunks(bookId) {
   }
   state.chunks = (await query({ command: "list_chunks", bookId })) || [];
   if (!state.chunks.some((chunk) => getChunkId(chunk) === state.selectedChunkId)) {
-    const saved = readSavedReadingSessionForBook(bookId);
+    const saved = validSavedReadingSessionForBook(bookId);
     state.selectedChunkId = saved?.chunkId && state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)
       ? saved.chunkId
       : getChunkId(state.chunks[0]);
@@ -4657,7 +4664,7 @@ async function loadCards(bookId) {
 async function readSelectedChunk() {
   const selected = activeBook();
   if (!selected || !state.selectedChunkId) return;
-  const saved = readSavedReadingSessionForBook(selected.bookId);
+  const saved = validSavedReadingSessionForBook(selected.bookId);
   clearReaderSelection();
   const [chunk, annotations, userNotes, submissions] = await Promise.all([
     query({ command: "read_chunk", bookId: selected.bookId, chunkId: state.selectedChunkId }),
@@ -4703,7 +4710,7 @@ async function moveChunk(delta) {
 async function continueReading() {
   const selected = activeBook();
   if (!selected) return;
-  const saved = readSavedReadingSessionForBook(selected.bookId);
+  const saved = validSavedReadingSessionForBook(selected.bookId);
   if (saved?.chunkId && state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)) {
     await selectChunk(saved.chunkId, true, { resetScroll: false });
     restoreSavedScroll(saved);
@@ -5846,7 +5853,7 @@ $("readingQueueList").addEventListener("click", async (event) => {
   target.disabled = true;
   try {
     if (action === "queue-read") {
-      const saved = readSavedReadingSessionForBook(state.selectedBookId);
+      const saved = validSavedReadingSessionForBook(state.selectedBookId);
       await selectChunk(id, true, { resetScroll: !(saved?.chunkId === id) });
       if (saved?.chunkId === id) restoreSavedScroll(saved);
       focusPanel(".reader-surface", "#chunkText");
@@ -8473,7 +8480,7 @@ $("sessionRestartBtn").addEventListener("click", async () => {
       await undoRestartReadingSession();
       return;
     }
-    const previous = readSavedReadingSessionForBook(selected.bookId);
+    const previous = validSavedReadingSessionForBook(selected.bookId);
     clearSavedReadingSessionForBook(selected.bookId);
     const firstChunkId = getChunkId(state.chunks[0]);
     if (!firstChunkId) throw new Error("当前书没有可读取的段落。");
@@ -8491,7 +8498,7 @@ $("sessionRestartBtn").addEventListener("click", async () => {
   }
 });
 $("sessionResumeBtn").addEventListener("click", async () => {
-  const saved = readSavedReadingSessionForBook(state.selectedBookId) || readSavedReadingSession();
+  const saved = validSavedReadingSessionForBook(state.selectedBookId) || readSavedReadingSession();
   if (!saved) return;
   state.selectedBookId = saved.bookId;
   state.selectedChunkId = saved.chunkId;
