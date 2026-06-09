@@ -235,6 +235,7 @@ function setupReaderModeControls() {
     '  <button id="immersiveNextChunkBtn" type="button">读完下一段</button>',
     '  <button id="immersiveReviewLastBtn" type="button" disabled>回看刚读</button>',
     '  <button id="immersiveResumeNextBtn" type="button" disabled>回到继续读</button>',
+    '  <button id="immersiveFootprintsBtn" type="button" disabled>脚印</button>',
     '  <button id="immersiveAskNovaBtn" type="button">问 Nova</button>',
     '  <button id="immersiveNoteBtn" type="button">记一笔</button>',
     '  <button id="immersiveSelfCheckBtn" type="button">自测</button>',
@@ -298,6 +299,7 @@ function setupReaderModeControls() {
       log(error.message || String(error));
     }).finally(renderReaderProgress);
   });
+  $("immersiveFootprintsBtn")?.addEventListener("click", toggleImmersiveFootprints);
   $("immersiveNoteBtn")?.addEventListener("click", prepareNoteFromCurrentReading);
   $("immersiveSelfCheckBtn")?.addEventListener("click", openImmersiveSelfCheck);
   $("immersiveSinkCurrentBtn")?.addEventListener("click", () => {
@@ -1395,13 +1397,14 @@ function renderImmersiveActions({ hasChunk = false, pendingCount = 0, currentChu
   const next = $("immersiveNextChunkBtn");
   const review = $("immersiveReviewLastBtn");
   const resume = $("immersiveResumeNextBtn");
+  const footprints = $("immersiveFootprintsBtn");
   const ask = $("immersiveAskNovaBtn");
   const note = $("immersiveNoteBtn");
   const selfCheck = $("immersiveSelfCheckBtn");
   const sink = $("immersiveSinkCurrentBtn");
   const open = $("immersiveOpenSinkBtn");
   const status = $("immersiveActionStatus");
-  if (!next || !review || !resume || !ask || !note || !selfCheck || !sink || !open || !status) return;
+  if (!next || !review || !resume || !footprints || !ask || !note || !selfCheck || !sink || !open || !status) return;
   const currentIndex = chunkOrder(state.selectedChunkId);
   const nextId = hasChunk && currentIndex !== null ? getChunkId(state.chunks[currentIndex + 1]) : "";
   const lastCompleted = state.lastCompletedChunk;
@@ -1413,6 +1416,9 @@ function renderImmersiveActions({ hasChunk = false, pendingCount = 0, currentChu
   review.textContent = canReviewLast ? `回看 ${lastCompleted.chunkId}` : "回看刚读";
   resume.disabled = !canResumeNext;
   resume.textContent = canResumeNext ? `回到 ${lastCompleted.nextChunkId}` : "回到继续读";
+  const footprintCount = currentReaderFootprintCount();
+  footprints.disabled = !footprintCount;
+  footprints.textContent = footprintCount ? `脚印 ${footprintCount}` : "脚印";
   ask.disabled = !hasChunk;
   note.disabled = !hasChunk;
   selfCheck.disabled = !hasChunk;
@@ -1423,6 +1429,22 @@ function renderImmersiveActions({ hasChunk = false, pendingCount = 0, currentChu
   status.textContent = hasChunk
     ? `${state.selectedChunkId} · 笔记 ${state.userNotes.length} · 沉淀 ${sinkPreviewsForCurrentChunk().length}${currentSink ? ` · ${currentSink.status}` : ""}`
     : "未选择段落";
+}
+
+function currentReaderFootprintCount() {
+  const rail = $("readingFootprints");
+  if (!rail || rail.classList.contains("empty")) return 0;
+  return rail.querySelectorAll(".footprint-card").length;
+}
+
+function toggleImmersiveFootprints() {
+  if (!currentReaderFootprintCount()) {
+    log("当前段落暂无阅读脚印。");
+    return;
+  }
+  document.body.classList.toggle("immersive-footprints-open");
+  const button = $("immersiveFootprintsBtn");
+  button?.setAttribute("aria-pressed", document.body.classList.contains("immersive-footprints-open") ? "true" : "false");
 }
 
 function openImmersiveSelfCheck() {

@@ -1699,6 +1699,20 @@ body.immersive-reading .reading-footprints {
   display: none;
 }
 
+body.immersive-reading.immersive-footprints-open .reading-footprints {
+  position: fixed;
+  right: 16px;
+  bottom: 84px;
+  z-index: 45;
+  display: block;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(48vh, 420px);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+}
+
 body.immersive-reading .reader-next {
   display: none;
 }
@@ -3121,6 +3135,14 @@ pre {
     max-width: none;
     overflow-x: auto;
     scrollbar-width: thin;
+  }
+
+  body.immersive-reading.immersive-footprints-open .reading-footprints {
+    right: 12px;
+    bottom: 214px;
+    left: 12px;
+    width: auto;
+    max-height: 34vh;
   }
 
   body.immersive-reading .reader-toc-button {
