@@ -764,6 +764,17 @@ function readerTocEntries(queryText = "") {
     .filter((entry) => !entry.hidden);
 }
 
+function readerTocSectionLabel(chunk) {
+  return String(chunk?.sectionTitle || chunk?.title || "未命名章节").replace(/\s+Part\s+\d+\/\d+$/i, "").trim();
+}
+
+function readerTocSectionProgress(chunk) {
+  const sameSection = state.chunks.filter((item) => Number(item.sectionIndex) === Number(chunk?.sectionIndex));
+  if (!sameSection.length) return "";
+  const readCount = sameSection.filter((item) => item.read).length;
+  return `${readCount}/${sameSection.length} 已读`;
+}
+
 function renderImmersiveToc() {
   const list = $("immersiveTocList");
   const button = $("immersiveTocBtn");
@@ -847,9 +858,15 @@ function renderReaderToc() {
     return;
   }
   list.className = "reader-toc-inline";
-  list.innerHTML = entries.slice(0, 24).map(({ index, chunkId, title, progress }) => {
+  let lastSectionKey = "";
+  list.innerHTML = entries.slice(0, 24).map(({ chunk, index, chunkId, title, progress }) => {
     const active = chunkId === state.selectedChunkId;
-    return `<button class="reader-toc-inline-item ${active ? "active" : ""}" type="button" data-reader-toc-chunk-id="${escapeHtml(chunkId)}" role="listitem">
+    const sectionKey = Number.isFinite(Number(chunk.sectionIndex)) ? String(chunk.sectionIndex) : readerTocSectionLabel(chunk);
+    const sectionHeader = sectionKey !== lastSectionKey
+      ? `<div class="reader-toc-section" role="presentation"><strong>${escapeHtml(readerTocSectionLabel(chunk))}</strong><small>${escapeHtml(readerTocSectionProgress(chunk) || `${progress}%`)}</small></div>`
+      : "";
+    lastSectionKey = sectionKey;
+    return `${sectionHeader}<button class="reader-toc-inline-item ${active ? "active" : ""}" type="button" data-reader-toc-chunk-id="${escapeHtml(chunkId)}" role="listitem">
       <span>${escapeHtml(String(index + 1).padStart(2, "0"))}</span>
       <strong>${escapeHtml(title)}</strong>
       <small>${escapeHtml(chunkId)} · ${progress}%</small>
@@ -2476,9 +2493,12 @@ function renderReadingMap({ scrollPercent = 0 } = {}) {
   }
   const total = state.chunks.length;
   const chapterPercent = index === null ? 0 : Math.round(((index + 1) / total) * 100);
+  const currentChunk = index === null ? null : state.chunks[index];
+  const sectionTitle = currentChunk ? readerTocSectionLabel(currentChunk) : "";
+  const sectionProgress = currentChunk ? readerTocSectionProgress(currentChunk) : "";
   const latestBookmark = bookmarks[0];
   title.textContent = `${selected.title || selected.bookId} · ${index === null ? "未定位" : `${index + 1}/${total}`}`;
-  meta.textContent = `全书 ${chapterPercent}% · 段内 ${Math.round(scrollPercent)}%${latestBookmark ? ` · 最近书签 ${latestBookmark.chunkId}${bookmarkMeta(latestBookmark) ? ` · ${bookmarkMeta(latestBookmark)}` : ""}` : " · 暂无书签"}`;
+  meta.textContent = `全书 ${chapterPercent}% · ${sectionTitle ? `当前章节 ${sectionTitle}${sectionProgress ? ` · ${sectionProgress}` : ""} · ` : ""}段内 ${Math.round(scrollPercent)}%${latestBookmark ? ` · 最近书签 ${latestBookmark.chunkId}${bookmarkMeta(latestBookmark) ? ` · ${bookmarkMeta(latestBookmark)}` : ""}` : " · 暂无书签"}`;
   const bookmarkSet = new Set(bookmarks.map((item) => item.chunkId));
   const step = Math.max(1, Math.ceil(total / 36));
   const visibleChunks = state.chunks.filter((chunk, chunkIndex) => {

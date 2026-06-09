@@ -811,6 +811,31 @@ fieldset input {
   font-size: 12px;
 }
 
+.reader-toc-section {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  border-top: 1px solid var(--line);
+  padding: 6px 2px 0;
+}
+
+.reader-toc-section strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-toc-section small {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .reader-toc-inline-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
