@@ -2423,7 +2423,10 @@ function renderReadingFootprints(ranges) {
     return;
   }
   rail.className = "reading-footprints";
-  rail.innerHTML = items.map((item, index) => renderFootprintButton({ ...item, index })).join("");
+  rail.innerHTML = [
+    '<button class="footprints-close" type="button" data-action="close-immersive-footprints">关闭</button>',
+    ...items.map((item, index) => renderFootprintButton({ ...item, index })),
+  ].join("");
 }
 
 function focusReadingFootprint(id) {
@@ -7005,6 +7008,11 @@ document.addEventListener("click", (event) => {
 $("readingFootprints").addEventListener("click", async (event) => {
   const target = event.target.closest("button");
   if (!target) return;
+  if (target.dataset.action === "close-immersive-footprints") {
+    closeImmersiveFootprints();
+    focusPanel(".reader-surface", "#chunkText");
+    return;
+  }
   const id = target.dataset.footprintId || "";
   if (id) {
     focusReadingFootprint(id);
