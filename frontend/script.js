@@ -7143,6 +7143,14 @@ $("chunkText").addEventListener("mouseup", () => {
     captureReaderSelection();
   }, 0);
 });
+$("chunkText").addEventListener("dblclick", (event) => {
+  if (!state.immersiveReading) return;
+  event.preventDefault();
+  clearReaderSelection();
+  window.setTimeout(() => {
+    toggleImmersiveCleanRead();
+  }, 0);
+});
 $("chunkText").addEventListener("keyup", (event) => {
   if (event.key === "Shift" || event.key.startsWith("Arrow")) {
     captureReaderSelection();
