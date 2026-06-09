@@ -77,7 +77,7 @@ const READER_SETTINGS_KEY = "vcp-coreading-sidecar.readerSettings";
 const READING_VISIT_KEY = "vcp-coreading-sidecar.readingVisit";
 const READING_VISIT_HISTORY_KEY = "vcp-coreading-sidecar.readingVisitHistory";
 const NOVA_AUTO_READ_KEY = "vcp-coreading-sidecar.novaAutoRead";
-const NOVA_REQUEST_TIMEOUT_MS = 240000;
+const NOVA_REQUEST_TIMEOUT_MS = 360000;
 const READER_FLOW_BATCH_SIZE = 10;
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
 

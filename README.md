@@ -28,19 +28,28 @@ Invoke-RestMethod http://127.0.0.1:8791/api/snapshot
 
 ## Nova 接入
 
-Sidecar 默认调用：
+Sidecar 默认优先调用 VCP `6005` 的 `AgentAssistant`，失败后再尝试 `3100` 的 OpenAI 兼容 bridge：
 
 ```text
+http://127.0.0.1:6005/v1/human/tool
 http://127.0.0.1:3100/v1/chat/completions
 ```
 
 可用环境变量覆盖：
 
 - `VCP_API_KEY` 或 `CO_READING_NOVA_API_KEY`：Nova/VCP 访问 key。
-- `CO_READING_NOVA_BRIDGE_URL`：OpenAI 兼容 chat completions 地址。
+- `CO_READING_NOVA_BACKENDS`：Nova 后端顺序，默认 `agent-assistant,openai`；可设为 `openai` 只走 3100。
+- `CO_READING_NOVA_AGENT_URL`：AgentAssistant 地址，默认 `http://127.0.0.1:6005/v1/human/tool`。
+- `CO_READING_NOVA_AGENT_NAME`：AgentAssistant 目标 agent，默认 `Nova`。
+- `CO_READING_NOVA_AGENT_MAID`：VCP 工具请求中的 `maid`，默认 `Nova`。
+- `CO_READING_NOVA_AGENT_SESSION`：读书会话前缀，默认 `coreading-reader`。
+- `CO_READING_NOVA_AGENT_SESSION_SCOPE`：会话范围，默认 `book`；可选 `global`、`book`、`chunk`。
+- `CO_READING_NOVA_AGENT_INJECT_TOOLS`：临时注入工具，默认 `CoReadingMCP,AnySearch,JinaReader,FileOperator`。
+- `CO_READING_NOVA_BRIDGE_URL`：OpenAI 兼容 chat completions 地址，默认 3100。
 - `CO_READING_NOVA_MODEL`：默认 `gpt-5.5`。
-- `CO_READING_NOVA_TIMEOUT_MS`：Nova 单次请求超时，默认 `240000`；前端默认等待 4 分钟，不自动连环重试。
-- `CO_READING_NOVA_GUIDE_PATH`：读书 Nova 操作手册路径；默认 `prompts\CoReadingNovaGuide.txt`。
+- `CO_READING_NOVA_TIMEOUT_MS`：Nova 单次请求超时，默认 `360000`；前端默认等待 6 分钟，不自动连环重试。
+- `CO_READING_NOVA_GUIDE_PATH`：读书 Nova 行为提示词路径；默认 `prompts\CoReadingNovaGuide.txt`。
+- `CO_READING_NOVA_SKILL_PROMPTS_DIR`：读书 Nova 工具技能提示词目录；默认 `prompts\skills`。
 
 不要把 key 写入 `config.env`、README、日志或 git 历史。仓库只提交源码、前端、脚本、prompt 和 vendor 必要源码；真实阅读数据默认写到 `D:\VCP\VCPToolBox\data\co-reading-mcp`，不提交。
 
@@ -497,21 +506,22 @@ D:\VCP\VCPToolBox\Plugin\CoReadingMCP\prompts\skills\coreading-vcp-tools.txt
 
 `nova-co-reading-reader.txt` 面向普通 OpenAI 兼容前端和 MCP 工具前端，不要求 `始/末` 工具语法。
 
-`CoReadingNovaGuide.txt` 是读书 Nova 的操作手册，包含书库、选区问 Nova、笔记/边注、计划阅读、兴趣回溯、Obsidian/DailyNote/VCPMemory 沉淀和记忆写入边界。Sidecar 的 `/api/nova/ask` 会默认读取它，并自动追加 `prompts\skills\*.txt|*.md`。
+`CoReadingNovaGuide.txt` 是读书 Nova 的行为提示词，主要规定陪读口吻、自主预读边界、选区问答、笔记/边注、计划阅读、兴趣回溯和沉淀边界。Sidecar 的 `/api/nova/ask` 会默认读取它，并自动追加 `prompts\skills\*.txt|*.md`。
 
 `prompts\skills\coreading-vcp-tools.txt` 是读书 Nova 的工具技能页，专门说明 VCP/VCB 的 `<<<[TOOL_REQUEST]>>>` 固定调用块、CoReadingMCP 命令、AnySearch/JinaReader、FileOperator 只读子集，以及 DailyNote 必须经沉淀预览链路落地。
 
-`nova-reader-vcp-bridge.txt` 是 VCPBridgeServer 的备选读书模式 prompt，可按需手动复制或引用；本仓库不会覆盖用户本地 `VCPBridgeServer\nova.txt`。如果要让 3100 bridge 专门进入读书模式，可以在 `D:\VCP\VCPToolBox\Plugin\VCPBridgeServer\config.env` 中临时设置：
+`nova-reader-vcp-bridge.txt` 是 VCPBridgeServer 的备选读书模式 prompt，只引用 `{{VarCoReadingNovaGuide}}` 和 `{{VarCoReadingVcpTools}}`，不覆盖 Nova 通用人格。本仓库不会覆盖用户本地 `VCPBridgeServer\nova.txt`。如果要让 3100 bridge 专门进入读书模式，可以在 `D:\VCP\VCPToolBox\Plugin\VCPBridgeServer\config.env` 中临时设置：
 
 ```env
 BRIDGE_SYSTEM_PROMPT=nova-reader.txt
 BRIDGE_HIJACK_MODE=prepend
 ```
 
-也可以把本手册注册为 VCP TVS 变量：把合并后的 `CoReadingNovaGuide.txt` 放到 `D:\VCP\VCPToolBox\TVStxt\CoReadingNovaGuide.txt`，再在 VCP 根 `config.env` 里追加：
+也可以把读书提示词注册为 VCP TVS 变量：把 `CoReadingNovaGuide.txt` 和 `prompts\skills\coreading-vcp-tools.txt` 分别同步到 `D:\VCP\VCPToolBox\TVStxt\CoReadingNovaGuide.txt`、`D:\VCP\VCPToolBox\TVStxt\CoReadingVcpTools.txt`，再在 VCP 根 `config.env` 里追加：
 
 ```env
 VarCoReadingNovaGuide=CoReadingNovaGuide.txt
+VarCoReadingVcpTools=CoReadingVcpTools.txt
 ```
 
 然后在读书专用 prompt 里使用：
@@ -520,7 +530,7 @@ VarCoReadingNovaGuide=CoReadingNovaGuide.txt
 {{VarCoReadingNovaGuide}}
 ```
 
-默认产品链路采用解耦上下文包：前端/sidecar 显式传入 `bookId`、`chunkId`、原文、选区、offset 和 `contextMode`，Nova 不需要依赖 VCB 工具占位符也能完成当前段落共读。
+默认产品链路采用解耦上下文包：前端/sidecar 显式传入 `bookId`、`chunkId`、原文、选区、offset 和 `contextMode`，Nova 不需要依赖 VCB 工具占位符也能完成当前段落共读。工具链说明独立放在 `prompts\skills\coreading-vcp-tools.txt`，只有 VCP/VCB 工具环境需要展开。
 
 本地书库入口默认扫描 `D:\书库`，也可用环境变量覆盖：
 
@@ -543,6 +553,6 @@ POST /api/local-library/import
 http://127.0.0.1:3100/health
 ```
 
-返回 `hasSystemPrompt=true`，且本地 `VCPBridgeServer\config.env` 使用 `BRIDGE_SYSTEM_PROMPT=nova-reader.txt`。`nova-reader.txt` 负责保留 Nova 人格边界并展开 `{{VarCoReadingNovaGuide}}`，不要把读书规则直接覆盖到通用 `nova.txt`。
+返回 `hasSystemPrompt=true`，且本地 `VCPBridgeServer\config.env` 使用 `BRIDGE_SYSTEM_PROMPT=nova-reader.txt`。`nova-reader.txt` 负责保留 Nova 人格边界并展开 `{{VarCoReadingNovaGuide}}`、`{{VarCoReadingVcpTools}}`，不要把读书规则直接覆盖到通用 `nova.txt`。
 
-如果读书效果不顺、工具调用不到、或占位符没有展开，优先调整 `prompts\CoReadingNovaGuide.txt` 和 `prompts\nova-reader-vcp-bridge.txt` 这两份读书专用 prompt；不要覆盖主题人格 prompt 或用户本地 `VCPBridgeServer\nova.txt`。
+如果读书效果不顺、工具调用不到、或占位符没有展开，优先调整 `prompts\CoReadingNovaGuide.txt` 与 `prompts\skills\coreading-vcp-tools.txt`；不要覆盖主题人格 prompt 或用户本地 `VCPBridgeServer\nova.txt`。

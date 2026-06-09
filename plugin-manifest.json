@@ -51,6 +51,50 @@
       "type": "string",
       "description": "读书 Nova 操作手册路径。留空时使用 prompts\\CoReadingNovaGuide.txt；用于 /api/nova/ask 给 Nova 注入 CoReading 操作、记忆和沉淀边界。"
     },
+    "CO_READING_NOVA_BACKENDS": {
+      "type": "string",
+      "description": "Nova 后端顺序，默认 agent-assistant,openai；优先走 6005 AgentAssistant，失败后走 3100 OpenAI 兼容 bridge。"
+    },
+    "CO_READING_NOVA_AGENT_URL": {
+      "type": "string",
+      "description": "AgentAssistant 地址，默认 http://127.0.0.1:6005/v1/human/tool。"
+    },
+    "CO_READING_NOVA_AGENT_NAME": {
+      "type": "string",
+      "description": "AgentAssistant 目标 agent，默认 Nova。"
+    },
+    "CO_READING_NOVA_AGENT_MAID": {
+      "type": "string",
+      "description": "VCP 工具请求中的 maid，默认 Nova。"
+    },
+    "CO_READING_NOVA_AGENT_SESSION": {
+      "type": "string",
+      "description": "读书 Nova 会话前缀，默认 coreading-reader。"
+    },
+    "CO_READING_NOVA_AGENT_SESSION_SCOPE": {
+      "type": "string",
+      "description": "读书 Nova 会话范围，默认 book；可选 global、book、chunk。"
+    },
+    "CO_READING_NOVA_BRIDGE_URL": {
+      "type": "string",
+      "description": "3100 OpenAI 兼容 chat completions 地址，默认 http://127.0.0.1:3100/v1/chat/completions。"
+    },
+    "CO_READING_NOVA_TIMEOUT_MS": {
+      "type": "integer",
+      "description": "Nova 单次请求超时，默认 360000 毫秒。"
+    },
+    "CO_READING_NOVA_MODEL": {
+      "type": "string",
+      "description": "OpenAI 兼容 bridge 的模型名，默认 gpt-5.5。"
+    },
+    "CO_READING_NOVA_AGENT_INJECT_TOOLS": {
+      "type": "string",
+      "description": "AgentAssistant 临时注入工具列表，默认 CoReadingMCP,AnySearch,JinaReader,FileOperator。"
+    },
+    "CO_READING_NOVA_SKILL_PROMPTS_DIR": {
+      "type": "string",
+      "description": "读书 Nova 工具技能提示词目录，默认 prompts\\skills。"
+    },
     "CO_READING_LIBRARY_DIR": {
       "type": "string",
       "description": "前端本地书库扫描目录。留空时默认 D:\\书库；sidecar 只允许从该目录内的相对路径导入 EPUB/TXT/Markdown。"
