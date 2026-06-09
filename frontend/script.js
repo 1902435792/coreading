@@ -927,11 +927,12 @@ function renderBooks() {
   list.className = "book-list";
   list.innerHTML = "";
   for (const book of books) {
+    const session = readSavedReadingSessionForBook(book.bookId);
     const row = document.createElement("article");
     row.className = `book-row ${book.bookId === selected.bookId ? "active" : ""}`;
     row.innerHTML = `
       <button class="book-select" type="button">
-        <span><strong>${escapeHtml(book.title || book.bookId)}</strong><small>${escapeHtml(book.bookId)} · ${book.chunkCount || 0} chunks</small></span>
+        <span><strong>${escapeHtml(book.title || book.bookId)}</strong><small>${escapeHtml(book.bookId)} · ${book.chunkCount || 0} chunks${session?.chunkId ? ` · 继续 ${escapeHtml(session.chunkId)}` : ""}</small></span>
         <b>${progressPercent(book)}%</b>
       </button>
       <button class="secondary" type="button" data-action="copy-book-progress" data-id="${escapeHtml(book.bookId)}">复制进度</button>
@@ -955,7 +956,9 @@ function renderReaderBookSelect() {
   }
   select.disabled = false;
   for (const book of books) {
-    select.appendChild(new Option(`${book.title || book.bookId} · ${progressPercent(book)}%`, book.bookId));
+    const session = readSavedReadingSessionForBook(book.bookId);
+    const resume = session?.chunkId ? ` · 继续 ${session.chunkId}` : "";
+    select.appendChild(new Option(`${book.title || book.bookId} · ${progressPercent(book)}%${resume}`, book.bookId));
   }
   const selected = activeBook();
   if (selected?.bookId) select.value = selected.bookId;
