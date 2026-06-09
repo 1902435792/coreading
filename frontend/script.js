@@ -33,6 +33,8 @@ const state = {
   planNextCache: {},
   backgroundRunners: [],
   snapshotLoadId: 0,
+  readerMode: "scroll",
+  immersiveReading: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -44,7 +46,218 @@ const READING_BOOK_SESSIONS_KEY = "vcp-coreading-sidecar.readingBookSessions";
 const READING_BOOKMARKS_KEY = "vcp-coreading-sidecar.readingBookmarks";
 const SELF_CHECK_DRAFTS_KEY = "vcp-coreading-sidecar.selfCheckDrafts";
 const LIBRARY_SHOW_TEST_BOOKS_KEY = "vcp-coreading-sidecar.showTestBooks";
+const READER_MODE_KEY = "vcp-coreading-sidecar.readerMode";
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
+
+setupAppLayout();
+setupReaderModeControls();
+loadReaderMode();
+
+function setupAppLayout() {
+  const workspace = $("mainContent");
+  const planPanel = document.querySelector(".plan-panel");
+  if (!workspace || !planPanel || workspace.dataset.layout === "reader-assistant") return;
+
+  const readerPane = document.createElement("section");
+  readerPane.className = "reader-pane";
+  readerPane.setAttribute("aria-label", "阅读区域");
+
+  const assistantPane = document.createElement("aside");
+  assistantPane.className = "assistant-pane";
+  assistantPane.setAttribute("aria-label", "Nova 与共读工具");
+
+  workspace.prepend(readerPane);
+  workspace.appendChild(assistantPane);
+  readerPane.appendChild(planPanel);
+
+  const novaPane = createAssistantPanel("nova-pane");
+  moveExisting(novaPane, [
+    "#selectionDock",
+    "#entityPeek",
+    ".nova-reading-box",
+  ]);
+  assistantPane.appendChild(novaPane);
+
+  moveExisting(assistantPane, [
+    ".library-panel",
+  ]);
+
+  const notesPane = createAssistantPanel("notes-pane");
+  moveExisting(notesPane, [
+    panelHeadSelector("边注"),
+    "#annotationForm",
+    "#annotationList",
+    panelHeadSelector("我的笔记"),
+    "#userNoteForm",
+    ".note-actions",
+    "#userNoteList",
+    "#submissionList",
+  ]);
+  assistantPane.appendChild(notesPane);
+
+  const toolsPane = createAssistantPanel("reading-tools-pane");
+  moveExisting(toolsPane, [
+    ".reading-session",
+    ".reading-queue",
+    ".plan-guide",
+    ".reading-map",
+    ".reading-waypoints",
+    "#selfCheckCard",
+    "#chunkReviewCard",
+    ".trail-guide",
+    ".reader-search-tools",
+    ".backtrack-controls",
+    "#searchResults",
+    "#backtrackEvidence",
+    ".plan-panel > details.tool-drawer",
+  ]);
+  assistantPane.appendChild(toolsPane);
+
+  moveExisting(assistantPane, [
+    ".sink-panel",
+    ".command-panel",
+  ]);
+  workspace.dataset.layout = "reader-assistant";
+}
+
+function createAssistantPanel(className) {
+  const panel = document.createElement("section");
+  panel.className = `panel assistant-panel ${className}`;
+  return panel;
+}
+
+function moveExisting(target, selectors) {
+  for (const selector of selectors) {
+    const node = typeof selector === "string" ? document.querySelector(selector) : selector;
+    if (node) target.appendChild(node);
+  }
+}
+
+function panelHeadSelector(title) {
+  return [...document.querySelectorAll(".panel-head")]
+    .find((head) => head.querySelector("h2")?.textContent.trim() === title);
+}
+
+function setupReaderModeControls() {
+  const actions = document.querySelector(".reader-header-actions");
+  const shell = document.querySelector(".reader-text-shell");
+  if (!actions || !shell || document.querySelector(".reader-mode-toggle")) return;
+
+  const toggle = document.createElement("div");
+  toggle.className = "reader-mode-toggle";
+  toggle.setAttribute("aria-label", "阅读方式");
+  toggle.innerHTML = [
+    '<button class="compact" type="button" data-reader-mode="scroll" aria-pressed="true">滚动</button>',
+    '<button class="compact" type="button" data-reader-mode="paged" aria-pressed="false">翻页</button>',
+  ].join("");
+  actions.prepend(toggle);
+  toggle.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-reader-mode]");
+    if (!button) return;
+    setReaderMode(button.dataset.readerMode || "scroll");
+  });
+
+  const immersiveButton = document.createElement("button");
+  immersiveButton.id = "immersiveReadingBtn";
+  immersiveButton.className = "secondary compact";
+  immersiveButton.type = "button";
+  immersiveButton.textContent = "沉浸";
+  immersiveButton.setAttribute("aria-pressed", "false");
+  toggle.insertAdjacentElement("afterend", immersiveButton);
+  immersiveButton.addEventListener("click", () => {
+    void setImmersiveReading(!state.immersiveReading);
+  });
+
+  const pager = document.createElement("div");
+  pager.className = "reader-pager";
+  pager.innerHTML = [
+    '<button id="readerPagePrevBtn" class="secondary compact" type="button">上一屏</button>',
+    '<span id="readerPageStatus">上下滚动</span>',
+    '<button id="readerPageNextBtn" class="secondary compact" type="button">下一屏</button>',
+  ].join("");
+  shell.insertAdjacentElement("afterend", pager);
+  $("readerPagePrevBtn")?.addEventListener("click", () => turnReaderPage(-1));
+  $("readerPageNextBtn")?.addEventListener("click", () => turnReaderPage(1));
+
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && state.immersiveReading) {
+      void setImmersiveReading(false, { skipFullscreen: true });
+    }
+  });
+}
+
+function loadReaderMode() {
+  const saved = localStorage.getItem(READER_MODE_KEY);
+  setReaderMode(saved === "paged" ? "paged" : "scroll", { persist: false });
+}
+
+function setReaderMode(mode, { persist = true } = {}) {
+  state.readerMode = mode === "paged" ? "paged" : "scroll";
+  document.body.classList.toggle("reader-mode-paged", state.readerMode === "paged");
+  document.querySelectorAll("[data-reader-mode]").forEach((button) => {
+    const pressed = button.dataset.readerMode === state.readerMode;
+    button.classList.toggle("active", pressed);
+    button.setAttribute("aria-pressed", pressed ? "true" : "false");
+  });
+  if (persist) localStorage.setItem(READER_MODE_KEY, state.readerMode);
+  const chunkText = $("chunkText");
+  if (chunkText && state.readerMode === "scroll") chunkText.scrollLeft = 0;
+  updateReaderPageStatus();
+}
+
+function turnReaderPage(direction) {
+  const chunkText = $("chunkText");
+  if (!chunkText) return;
+  if (state.readerMode !== "paged") setReaderMode("paged");
+  const step = Math.max(220, chunkText.clientWidth * 0.92);
+  chunkText.scrollBy({ left: direction * step, behavior: "smooth" });
+  window.setTimeout(updateReaderPageStatus, 180);
+}
+
+function updateReaderPageStatus() {
+  const chunkText = $("chunkText");
+  const status = $("readerPageStatus");
+  const prev = $("readerPagePrevBtn");
+  const next = $("readerPageNextBtn");
+  if (!chunkText || !status || !prev || !next) return;
+  if (state.readerMode !== "paged") {
+    status.textContent = "上下滚动";
+    prev.disabled = true;
+    next.disabled = true;
+    return;
+  }
+  const maxLeft = Math.max(0, chunkText.scrollWidth - chunkText.clientWidth);
+  const total = Math.max(1, Math.ceil(chunkText.scrollWidth / Math.max(1, chunkText.clientWidth)));
+  const current = Math.min(total, Math.max(1, Math.round(chunkText.scrollLeft / Math.max(1, chunkText.clientWidth)) + 1));
+  status.textContent = `第 ${current}/${total} 屏`;
+  prev.disabled = chunkText.scrollLeft <= 1;
+  next.disabled = chunkText.scrollLeft >= maxLeft - 1;
+}
+
+async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
+  state.immersiveReading = !!enabled;
+  document.body.classList.toggle("immersive-reading", state.immersiveReading);
+  const button = $("immersiveReadingBtn");
+  if (button) {
+    button.textContent = state.immersiveReading ? "退出沉浸" : "沉浸";
+    button.setAttribute("aria-pressed", state.immersiveReading ? "true" : "false");
+  }
+  if (!skipFullscreen) {
+    try {
+      if (state.immersiveReading && !document.fullscreenElement) {
+        await document.documentElement.requestFullscreen?.();
+      } else if (!state.immersiveReading && document.fullscreenElement) {
+        await document.exitFullscreen?.();
+      }
+    } catch {
+      // 有些浏览器或自动化环境会拒绝全屏，界面级沉浸仍可继续使用。
+    }
+  }
+  window.setTimeout(() => {
+    updateReaderPageStatus();
+    $("chunkText")?.focus();
+  }, 80);
+}
 
 function announce(text) {
   const el = $("statusAnnouncer");
@@ -8603,6 +8816,7 @@ $("showTestBooksToggle")?.addEventListener("change", async (event) => {
 $("chunkText").addEventListener("scroll", () => {
   saveReadingSession();
   renderReaderProgress();
+  updateReaderPageStatus();
 });
 $("readingMapTrack").addEventListener("click", async (event) => {
   const target = event.target.closest("button[data-chunk-id]");
@@ -9309,6 +9523,7 @@ $("clearSinkSettingsBtn").addEventListener("click", clearSinkSettings);
 $("chunkText").addEventListener("scroll", () => {
   saveReadingSession();
   renderReaderProgress();
+  updateReaderPageStatus();
 }, { passive: true });
 
 void loadSinkDefaults().finally(loadSnapshot);
