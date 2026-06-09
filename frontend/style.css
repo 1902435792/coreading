@@ -1,20 +1,25 @@
 :root {
   color-scheme: light;
-  --bg: #f5f2ec;
-  --surface: #fffdf8;
-  --surface-2: #f0eee7;
-  --ink: #1f2528;
-  --muted: #697074;
-  --line: #d7d0c5;
-  --accent: #2f6f73;
-  --accent-2: #a94735;
-  --good: #2d7a4b;
-  --warn: #9b6a16;
-  --shadow: 0 10px 30px rgba(44, 37, 28, 0.08);
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #f1f1ef;
+  --surface-3: #fafafa;
+  --ink: #171717;
+  --muted: #6f6f69;
+  --line: #deded9;
+  --line-strong: #b9b9b2;
+  --accent: #111111;
+  --accent-strong: #111111;
+  --accent-2: #77736b;
+  --accent-soft: #eeeeeb;
+  --good: #2f6f4e;
+  --warn: #8a681e;
+  --danger: #9f3b24;
+  --shadow: none;
 }
 
 .reader-surface {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  box-shadow: none;
 }
 
 .chunk-text {
@@ -30,7 +35,7 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px;
-  background: #f8fbfa;
+  background: var(--surface-3);
 }
 
 .nova-reading-box textarea {
@@ -69,7 +74,7 @@
 
 .tool-drawer > summary {
   cursor: pointer;
-  color: var(--accent);
+  color: var(--ink);
   font-weight: 700;
   list-style-position: inside;
 }
@@ -162,29 +167,40 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 [tabindex]:focus-visible {
-  outline: 3px solid var(--accent-2);
-  outline-offset: 3px;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 button {
   min-height: 34px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: var(--ink);
-  color: #fff;
+  background: var(--surface);
+  color: var(--ink);
   cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, opacity 160ms ease;
 }
 
 button.secondary {
   background: var(--surface);
-  color: var(--ink);
+  color: var(--muted);
 }
 
 button.primary {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--ink);
+  background: var(--ink);
   color: #fff;
   font-weight: 700;
+}
+
+button:not(:disabled):hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+button.secondary:not(:disabled):hover,
+button:not(.primary):not(:disabled):hover {
+  background: var(--surface-2);
 }
 
 button:disabled {
@@ -217,7 +233,7 @@ button:disabled {
 
 .eyebrow {
   margin: 0 0 4px;
-  color: var(--accent);
+  color: var(--muted);
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
@@ -404,11 +420,11 @@ legend {
 }
 
 .form-error {
-  border: 1px solid #c05031;
+  border: 1px solid var(--danger);
   border-radius: 6px;
   padding: 8px 10px;
-  background: #fff2ec;
-  color: #8e351d;
+  background: #fff8f5;
+  color: var(--danger);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -426,7 +442,7 @@ legend {
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: #f2eee6;
+  background: var(--surface-2);
 }
 
 .import-progress-bar span {
@@ -442,7 +458,7 @@ legend {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
-  background: #f8faf7;
+  background: var(--surface-3);
 }
 
 .backtrack-evidence strong,
@@ -469,7 +485,7 @@ legend {
 .search-row {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .book-row {
@@ -494,8 +510,8 @@ legend {
 }
 
 .book-row.active {
-  border-color: var(--accent);
-  background: #eef7f4;
+  border-color: var(--ink);
+  background: var(--accent-soft);
 }
 
 .book-row strong,
@@ -573,7 +589,7 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 8px 10px;
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
 }
 
@@ -628,7 +644,7 @@ fieldset input {
 }
 
 .card-row small.card-saved-path {
-  color: var(--accent-strong);
+  color: var(--ink);
   overflow-wrap: anywhere;
   white-space: normal;
 }
@@ -670,7 +686,7 @@ fieldset input {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
-  background: #f8fbfa;
+  background: var(--surface-3);
 }
 
 .reading-session span,
@@ -704,16 +720,16 @@ fieldset input {
   gap: 12px;
   align-items: center;
   margin-bottom: 12px;
-  border: 1px solid #b7cecc;
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   padding: 10px 12px;
-  background: rgba(248, 251, 250, 0.96);
-  box-shadow: 0 8px 22px rgba(31, 37, 40, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: none;
 }
 
 .reading-now-bar.empty {
   border-color: var(--line);
-  background: rgba(255, 253, 248, 0.96);
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .reading-now-bar span,
@@ -750,7 +766,7 @@ fieldset input {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
-  background: #fffdf8;
+  background: var(--surface);
 }
 
 .queue-head {
@@ -807,13 +823,13 @@ fieldset input {
 }
 
 .queue-open span {
-  color: #f8f7ef;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.3;
 }
 
 .queue-open.secondary span {
-  color: var(--accent-strong);
+  color: var(--muted);
 }
 
 .queue-open strong {
@@ -844,11 +860,11 @@ fieldset input {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 11px 12px;
-  background: #f8fbfa;
+  background: var(--surface-3);
 }
 
 .plan-guide.empty {
-  background: #fffdf8;
+  background: var(--surface);
 }
 
 .plan-guide span,
@@ -902,7 +918,7 @@ fieldset input {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
-  background: #f9faf7;
+  background: var(--surface-3);
 }
 
 .reader-progress span,
@@ -926,10 +942,10 @@ fieldset input {
 
 .reader-progress-bar {
   overflow: hidden;
-  height: 10px;
+  height: 6px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: #e8e3d8;
+  background: var(--surface-2);
 }
 
 .reader-progress-bar span {
@@ -937,7 +953,7 @@ fieldset input {
   width: 0;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent), #1f8a70);
+  background: var(--ink);
   transition: width 160ms ease;
 }
 
@@ -948,7 +964,7 @@ fieldset input {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
-  background: #fbfaf4;
+  background: var(--surface);
 }
 
 .reading-map-head {
@@ -988,10 +1004,10 @@ fieldset input {
 
 .map-node {
   min-width: 0;
-  border: 1px solid #d9d0bf;
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 4px;
-  background: #fffdf8;
+  background: var(--surface);
   color: var(--muted);
 }
 
@@ -1005,27 +1021,28 @@ fieldset input {
 }
 
 .map-node.active {
-  border-color: var(--accent);
-  background: #e9f7f2;
-  color: var(--accent-strong);
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
 }
 
 .map-node.bookmarked {
-  border-color: #bd8b22;
-  background: #fff6d8;
-  color: #7b5415;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+  color: var(--ink);
 }
 
 .map-node.active.bookmarked {
-  background: #dff3ea;
+  background: var(--ink);
+  color: #fff;
 }
 
 .reading-waypoints {
   margin-bottom: 12px;
-  border: 1px solid #cbd7d8;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
-  background: #f8fbfb;
+  background: var(--surface);
 }
 
 .waypoint-head {
@@ -1068,14 +1085,14 @@ fieldset input {
   min-width: 0;
   min-height: 78px;
   padding: 9px 10px;
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   text-align: left;
 }
 
 .waypoint-item.active {
-  border-color: var(--accent);
-  background: #eef7f4;
+  border-color: var(--ink);
+  background: var(--accent-soft);
 }
 
 .selection-dock {
@@ -1084,10 +1101,10 @@ fieldset input {
   gap: 10px;
   align-items: center;
   margin: 10px 0 14px;
-  border: 1px solid #9ad7c8;
+  border: 1px solid var(--ink);
   border-radius: 8px;
   padding: 10px;
-  background: #f0fbf7;
+  background: var(--surface);
 }
 
 .selection-dock[hidden] {
@@ -1096,7 +1113,7 @@ fieldset input {
 
 .selection-dock span {
   display: block;
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1124,10 +1141,10 @@ fieldset input {
   gap: 12px;
   align-items: center;
   margin: 10px 0 14px;
-  border: 1px solid #c9d6a8;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 11px 12px;
-  background: #fbfcf1;
+  background: var(--surface-3);
 }
 
 .entity-peek[hidden] {
@@ -1183,7 +1200,7 @@ fieldset input {
   margin-bottom: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
   box-shadow: var(--shadow);
 }
 
@@ -1220,7 +1237,7 @@ fieldset input {
   grid-template-columns: minmax(0, 1fr) minmax(190px, 24%);
   align-items: stretch;
   border-top: 1px solid var(--line);
-  background: #fffdf8;
+  background: var(--surface);
 }
 
 .chunk-text {
@@ -1228,34 +1245,36 @@ fieldset input {
   max-height: 72vh;
   border: 0;
   border-radius: 0;
-  padding: 22px 24px;
-  background: #fffdf8;
+  padding: 26px 30px;
+  background: var(--surface);
   color: var(--ink);
   font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
   font-size: 17px;
-  line-height: 2;
+  line-height: 2.05;
 }
 
 .reading-mark {
   border-radius: 4px;
   padding: 1px 2px;
-  background: #fff0a8;
-  box-shadow: 0 0 0 1px rgba(148, 108, 0, 0.16);
+  background: #eeeeeb;
+  box-shadow: inset 0 -1px 0 var(--line-strong);
   color: inherit;
 }
 
 .reading-mark.mine {
-  background: #cdeee4;
-  box-shadow: 0 0 0 1px rgba(31, 138, 112, 0.18);
+  background: #e4e4df;
+  box-shadow: inset 0 -1px 0 var(--ink);
 }
 
 .reading-mark.active {
-  background: #f5c457;
-  box-shadow: 0 0 0 2px rgba(126, 88, 0, 0.35);
+  background: var(--ink);
+  box-shadow: none;
+  color: #fff;
 }
 
 .reading-mark.mine.active {
-  background: #8fdac8;
+  background: var(--ink);
+  color: #fff;
 }
 
 .reading-footprints {
@@ -1263,24 +1282,24 @@ fieldset input {
   max-height: 72vh;
   border-left: 1px solid var(--line);
   padding: 10px;
-  background: #fbfaf4;
+  background: var(--surface-3);
 }
 
 .footprint-card {
   display: block;
   width: 100%;
   margin-bottom: 8px;
-  border: 1px solid #dfd4bd;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px 9px;
-  background: #fffaf0;
+  background: var(--surface);
   color: var(--ink);
   text-align: left;
 }
 
 .footprint-card.mine {
-  border-color: #b7d8cf;
-  background: #f0fbf7;
+  border-color: var(--line-strong);
+  background: var(--surface);
 }
 
 .footprint-card.loose {
@@ -1288,18 +1307,18 @@ fieldset input {
 }
 
 .footprint-card.nova {
-  border-color: #b8c5d6;
-  background: #f6f9fc;
+  border-color: var(--line-strong);
+  background: var(--surface-3);
 }
 
 .footprint-card.sink {
-  border-color: #d6c99c;
-  background: #fffaf0;
+  border-color: var(--line);
+  background: var(--surface);
 }
 
 .footprint-card.active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(31, 138, 112, 0.14);
+  border-color: var(--ink);
+  box-shadow: none;
 }
 
 .footprint-card span,
@@ -1327,7 +1346,7 @@ fieldset input {
   align-items: center;
   border-top: 1px solid var(--line);
   padding: 12px;
-  background: #fbfaf4;
+  background: var(--surface-3);
 }
 
 .reader-next-actions button.compact {
@@ -1338,10 +1357,10 @@ fieldset input {
 
 .self-check-card {
   margin: 12px 0 14px;
-  border: 1px solid #d6c99c;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
-  background: #fffaf0;
+  background: var(--surface);
 }
 
 .self-check-head {
@@ -1372,10 +1391,10 @@ fieldset input {
 
 .self-check-hint {
   margin: 0;
-  border-left: 3px solid #bd8b22;
+  border-left: 2px solid var(--ink);
   padding: 8px 10px;
-  background: #fff5d6;
-  color: #634611;
+  background: var(--surface-3);
+  color: var(--ink);
   line-height: 1.65;
 }
 
@@ -1397,10 +1416,10 @@ fieldset input {
 
 .chunk-review-card {
   margin: 0 0 14px;
-  border: 1px solid #cbd7d8;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
-  background: #f8fbfb;
+  background: var(--surface);
 }
 
 .chunk-review-head {
@@ -1465,7 +1484,7 @@ fieldset input {
   min-width: 0;
   min-height: 84px;
   padding: 10px;
-  background: #fff;
+  background: var(--surface);
   color: var(--ink);
   text-align: left;
 }
@@ -1493,10 +1512,10 @@ fieldset input {
   gap: 12px;
   align-items: center;
   margin: 12px 0;
-  border: 1px solid #bfd8d2;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 11px 12px;
-  background: #f7fbf9;
+  background: var(--surface-3);
 }
 
 .trail-guide span,
@@ -1560,7 +1579,7 @@ body.reading-focus .reading-now-bar {
 }
 
 body.reading-focus .reader-surface {
-  border-color: #c8d8d5;
+  border-color: var(--line-strong);
 }
 
 body.reading-focus .reader-surface header,
@@ -1597,7 +1616,7 @@ body.reading-focus .reading-footprints {
 }
 
 .annotation-row.user-note {
-  border-left: 3px solid #1f8a70;
+  border-left: 2px solid var(--ink);
 }
 
 .note-actions {
@@ -1614,7 +1633,7 @@ body.reading-focus .reading-footprints {
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .submission-row small {
@@ -1687,10 +1706,10 @@ blockquote {
   gap: 10px;
   align-items: center;
   margin: 10px 0 12px;
-  border: 1px solid #9ad7c8;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
-  background: #f0fbf7;
+  background: var(--surface-3);
 }
 
 .sink-guide span,
@@ -1736,7 +1755,7 @@ blockquote {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
-  background: #fffdf8;
+  background: var(--surface);
   color: var(--ink);
   font-family: Consolas, "Microsoft YaHei", monospace;
   font-size: 13px;
@@ -1756,12 +1775,12 @@ blockquote {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .obsidian-diff-panel.warning {
-  border-color: #c2410c;
-  background: #fff7ed;
+  border-color: var(--danger);
+  background: #fff8f5;
 }
 
 .obsidian-diff-panel strong,
@@ -1850,8 +1869,8 @@ blockquote {
 }
 
 .sink-row.active {
-  border-color: #1f8a70;
-  background: #f3fbf7;
+  border-color: var(--ink);
+  background: var(--accent-soft);
 }
 
 .sink-row > strong {
@@ -1912,7 +1931,7 @@ blockquote {
 }
 
 .runner-row {
-  background: #fff;
+  background: var(--surface);
 }
 
 .plan-runner {
@@ -1931,12 +1950,12 @@ blockquote {
 }
 
 .runner-error {
-  border-color: #d38b5d;
+  border-color: var(--danger);
 }
 
 .runner-error-text,
 .runner-error p {
-  color: #9f4f23;
+  color: var(--danger);
 }
 
 .target {
