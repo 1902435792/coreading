@@ -38,6 +38,7 @@ const SINK_SETTINGS_KEY = "vcp-coreading-sidecar.sinkSettings";
 const CARD_SAVE_RESULTS_KEY = "vcp-coreading-sidecar.cardSaveResults";
 const CARD_PREVIEW_RESULTS_KEY = "vcp-coreading-sidecar.cardPreviewResults";
 const READING_SESSION_KEY = "vcp-coreading-sidecar.readingSession";
+const READING_BOOK_SESSIONS_KEY = "vcp-coreading-sidecar.readingBookSessions";
 const READING_BOOKMARKS_KEY = "vcp-coreading-sidecar.readingBookmarks";
 const SELF_CHECK_DRAFTS_KEY = "vcp-coreading-sidecar.selfCheckDrafts";
 
@@ -91,6 +92,24 @@ function readSavedReadingSession() {
   }
 }
 
+function readBookReadingSessions() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(READING_BOOK_SESSIONS_KEY) || "{}");
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function readSavedReadingSessionForBook(bookId) {
+  if (!bookId) return null;
+  const sessions = readBookReadingSessions();
+  const saved = sessions[bookId];
+  if (saved?.bookId === bookId && saved.chunkId) return saved;
+  const legacy = readSavedReadingSession();
+  return legacy?.bookId === bookId ? legacy : null;
+}
+
 function saveReadingSession(extra = {}) {
   const selected = activeBook();
   if (!selected || !state.selectedChunkId) return;
@@ -104,6 +123,9 @@ function saveReadingSession(extra = {}) {
     ...extra
   };
   localStorage.setItem(READING_SESSION_KEY, JSON.stringify(payload));
+  const sessions = readBookReadingSessions();
+  sessions[selected.bookId] = payload;
+  localStorage.setItem(READING_BOOK_SESSIONS_KEY, JSON.stringify(sessions));
 }
 
 function restoreSavedScroll(saved) {
@@ -118,7 +140,9 @@ function restoreSavedScroll(saved) {
 
 function hasSavedReadingSession() {
   const saved = readSavedReadingSession();
-  return !!saved && state.snapshot?.books?.some((book) => book.bookId === saved.bookId);
+  const sessions = readBookReadingSessions();
+  return !!saved && state.snapshot?.books?.some((book) => book.bookId === saved.bookId)
+    || state.snapshot?.books?.some((book) => sessions[book.bookId]?.chunkId);
 }
 
 function chooseInitialBook(snapshot, saved) {
@@ -127,6 +151,11 @@ function chooseInitialBook(snapshot, saved) {
   const byId = new Map(books.map((book) => [book.bookId, book]));
   if (state.selectedBookId && byId.has(state.selectedBookId)) return byId.get(state.selectedBookId);
   if (saved?.bookId && byId.has(saved.bookId)) return byId.get(saved.bookId);
+  const sessions = readBookReadingSessions();
+  const sessionBookId = Object.values(sessions)
+    .filter((session) => session?.bookId && byId.has(session.bookId))
+    .sort((a, b) => String(b.savedAt || "").localeCompare(String(a.savedAt || "")))[0]?.bookId;
+  if (sessionBookId) return byId.get(sessionBookId);
   const recentlyRead = books
     .filter((book) => book.lastReadAt || book.lastChunkId)
     .sort((a, b) => (Date.parse(b.lastReadAt || "") || 0) - (Date.parse(a.lastReadAt || "") || 0))[0];
@@ -428,13 +457,20 @@ function planPercent(plan) {
   return Math.min(100, Math.round((Number(plan.currentStepIndex || 0) / Number(plan.stepCount)) * 100));
 }
 
+function currentChunkScrollPercent() {
+  const scrollEl = $("chunkText");
+  const scrollMax = Math.max(0, Number(scrollEl?.scrollHeight || 0) - Number(scrollEl?.clientHeight || 0));
+  return scrollMax ? clampPercent((Number(scrollEl?.scrollTop || 0) / scrollMax) * 100) : 0;
+}
+
 function renderReadingSession() {
   const selected = activeBook();
   const title = $("sessionTitle");
   const meta = $("sessionMeta");
   const kicker = $("sessionKicker");
   const hasBook = !!selected;
-  $("sessionResumeBtn").disabled = !hasSavedReadingSession();
+  const bookSession = readSavedReadingSessionForBook(selected?.bookId);
+  $("sessionResumeBtn").disabled = !bookSession;
   $("sessionContinueBtn").disabled = !hasBook;
   $("sessionAskNovaBtn").disabled = !hasBook || !state.selectedChunkId;
   $("sessionNoteBtn").disabled = !hasBook || !state.selectedChunkId;
@@ -449,18 +485,19 @@ function renderReadingSession() {
   const nextTitle = chunkTitleById(nextId);
   kicker.textContent = `${percent}% · ${selected.chunksRead || 0}/${selected.chunkCount || 0} chunks`;
   title.textContent = selected.title || selected.bookId;
-  meta.textContent = nextId
-    ? `下一段 ${nextId}${nextTitle ? ` · ${nextTitle}` : ""}`
-    : "这本书暂时没有可继续的段落。";
+  meta.textContent = bookSession
+    ? `继续阅读 ${bookSession.chunkId}${formatSavedAt(bookSession.savedAt) ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""}`
+    : (nextId ? `下一段 ${nextId}${nextTitle ? ` · ${nextTitle}` : ""}` : "这本书暂时没有可继续的段落。");
 }
 
-function renderReadingNowBar({ scrollPercent = 0 } = {}) {
+function renderReadingNowBar({ scrollPercent = currentChunkScrollPercent() } = {}) {
   const bar = $("readingNowBar");
   if (!bar) return;
   const selected = activeBook();
   const index = chunkOrder(state.selectedChunkId);
   const hasChunk = !!selected && index !== null;
   const currentTitle = chunkTitleById(state.selectedChunkId);
+  const bookSession = readSavedReadingSessionForBook(selected?.bookId);
   const { plan, nextStep } = planGuideSelection();
   const planLabel = nextStep ? planStepChunkLabel(nextStep) : "";
   bar.classList.toggle("empty", !selected);
@@ -471,7 +508,7 @@ function renderReadingNowBar({ scrollPercent = 0 } = {}) {
     ? `${selected.title || selected.bookId}${hasChunk ? ` · ${state.selectedChunkId}` : ""}`
     : "还没有选书";
   $("readingNowMeta").textContent = hasChunk
-    ? `${index + 1}/${state.chunks.length} · ${currentTitle || state.selectedChunkId} · 段内 ${clampPercent(scrollPercent)}%${planLabel ? ` · 下一步 ${planLabel}` : ""}`
+    ? `${index + 1}/${state.chunks.length} · ${currentTitle || state.selectedChunkId} · 段内 ${clampPercent(scrollPercent)}%${bookSession?.chunkId ? ` · 本书断点 ${bookSession.chunkId}` : ""}${planLabel ? ` · 下一步 ${planLabel}` : ""}`
     : "选择书籍后可以随时回到正文。";
   $("readingNowFocusBtn").disabled = !hasChunk;
   $("readingNowContinueBtn").disabled = !selected;
@@ -512,6 +549,7 @@ function renderReaderProgress() {
   const hasChunk = !!selected && index !== null;
   const percent = progressPercent(selected);
   const saved = readSavedReadingSession();
+  const bookSession = readSavedReadingSessionForBook(selected?.bookId);
   const nextChunk = hasChunk ? state.chunks[index + 1] : null;
   const nextId = getChunkId(nextChunk);
   const pendingCount = pendingSinkPreviewsForBook(selected).length;
@@ -520,16 +558,14 @@ function renderReaderProgress() {
   const cardCountForBook = countCardsForBook(selected);
   const currentTitle = chunkTitleById(state.selectedChunkId);
   const nextTitle = chunkTitleById(nextId);
-  const scrollEl = $("chunkText");
-  const scrollMax = Math.max(0, Number(scrollEl?.scrollHeight || 0) - Number(scrollEl?.clientHeight || 0));
-  const scrollPercent = scrollMax ? clampPercent((Number(scrollEl?.scrollTop || 0) / scrollMax) * 100) : 0;
+  const scrollPercent = currentChunkScrollPercent();
 
   $("readerProgressValue").textContent = selected
     ? `${percent}% · ${selected.chunksRead || 0}/${selected.chunkCount || state.chunks.length || 0} chunks`
     : "未开始";
   $("readerProgressFill").style.width = `${clampPercent(percent)}%`;
   $("readerResumeHint").textContent = selected
-    ? `${hasChunk ? `当前 ${index + 1}/${state.chunks.length} · ${state.selectedChunkId}` : "未选择段落"}${saved?.bookId === selected.bookId ? ` · 现场 ${saved.chunkId}${formatSavedAt(saved.savedAt) ? ` · ${formatSavedAt(saved.savedAt)}` : ""}` : ""}`
+    ? `${hasChunk ? `当前 ${index + 1}/${state.chunks.length} · ${state.selectedChunkId}` : "未选择段落"}${bookSession ? ` · 本书现场 ${bookSession.chunkId}${formatSavedAt(bookSession.savedAt) ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""}` : ""}${saved?.bookId && saved.bookId !== selected.bookId ? ` · 最近读过 ${saved.bookTitle || saved.bookId}` : ""}`
     : "选择书籍后显示当前断点。";
   $("readerChunkMeta").textContent = hasChunk
     ? `${selected.title || selected.bookId} · ${index + 1}/${state.chunks.length} · ${state.selectedChunkId}${currentTitle && currentTitle !== state.selectedChunkId ? ` · ${currentTitle}` : ""}${scrollPercent ? ` · 段内 ${scrollPercent}%` : ""}`
@@ -889,8 +925,9 @@ async function selectBook(bookId, { focusReader = true } = {}) {
     if (focusReader) focusPanel(".reader-surface", "#chunkText");
     return;
   }
+  const saved = readSavedReadingSessionForBook(bookId);
   state.selectedBookId = bookId;
-  state.selectedChunkId = "";
+  state.selectedChunkId = saved?.chunkId || "";
   state.currentChunk = null;
   state.annotations = [];
   state.userNotes = [];
@@ -905,6 +942,9 @@ async function selectBook(bookId, { focusReader = true } = {}) {
   clearReaderSelection();
   clearEntityPeek();
   await loadChunks(bookId);
+  if (saved?.chunkId && state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)) {
+    state.selectedChunkId = saved.chunkId;
+  }
   await loadCards(bookId);
   renderAll();
   await readSelectedChunk();
@@ -4529,7 +4569,10 @@ async function loadChunks(bookId) {
   }
   state.chunks = (await query({ command: "list_chunks", bookId })) || [];
   if (!state.chunks.some((chunk) => getChunkId(chunk) === state.selectedChunkId)) {
-    state.selectedChunkId = getChunkId(state.chunks[0]);
+    const saved = readSavedReadingSessionForBook(bookId);
+    state.selectedChunkId = saved?.chunkId && state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)
+      ? saved.chunkId
+      : getChunkId(state.chunks[0]);
     state.currentChunk = null;
     state.annotations = [];
     state.userNotes = [];
@@ -4562,7 +4605,7 @@ async function loadCards(bookId) {
 async function readSelectedChunk() {
   const selected = activeBook();
   if (!selected || !state.selectedChunkId) return;
-  const saved = readSavedReadingSession();
+  const saved = readSavedReadingSessionForBook(selected.bookId);
   clearReaderSelection();
   const [chunk, annotations, userNotes, submissions] = await Promise.all([
     query({ command: "read_chunk", bookId: selected.bookId, chunkId: state.selectedChunkId }),
@@ -4584,12 +4627,12 @@ async function readSelectedChunk() {
   renderReaderProgress();
 }
 
-async function selectChunk(chunkId, autoRead = true) {
+async function selectChunk(chunkId, autoRead = true, { resetScroll = true } = {}) {
   clearReaderSelection();
   clearEntityPeek();
   state.selfCheck.hintVisible = false;
   state.selectedChunkId = chunkId;
-  saveReadingSession({ chunkId, scrollTop: 0 });
+  if (resetScroll) saveReadingSession({ chunkId, scrollTop: 0 });
   $("chunkSelect").value = chunkId;
   renderChunks();
   if (autoRead) await readSelectedChunk();
@@ -4608,6 +4651,14 @@ async function moveChunk(delta) {
 async function continueReading() {
   const selected = activeBook();
   if (!selected) return;
+  const saved = readSavedReadingSessionForBook(selected.bookId);
+  if (saved?.chunkId && state.chunks.some((chunk) => getChunkId(chunk) === saved.chunkId)) {
+    await selectChunk(saved.chunkId, true, { resetScroll: false });
+    restoreSavedScroll(saved);
+    focusPanel(".reader-surface", "#chunkText");
+    log(`已回到本书现场: ${selected.title || selected.bookId} · ${saved.chunkId}`);
+    return;
+  }
   clearReaderSelection();
   clearEntityPeek();
   state.selfCheck.hintVisible = false;
@@ -8360,7 +8411,7 @@ $("sessionContinueBtn").addEventListener("click", () => {
   });
 });
 $("sessionResumeBtn").addEventListener("click", async () => {
-  const saved = readSavedReadingSession();
+  const saved = readSavedReadingSessionForBook(state.selectedBookId) || readSavedReadingSession();
   if (!saved) return;
   state.selectedBookId = saved.bookId;
   state.selectedChunkId = saved.chunkId;
