@@ -192,6 +192,14 @@ function setupReaderModeControls() {
     '  <span id="immersivePageStatus">第 1/1 页</span>',
     '  <span id="immersiveBookStatus">未选择书籍</span>',
     '</div>',
+    '<button id="immersiveTocBtn" class="reader-toc-button" type="button" aria-expanded="false" aria-controls="immersiveToc">目录</button>',
+    '<div id="immersiveToc" class="reader-toc" hidden>',
+    '  <div class="reader-toc-head">',
+    '    <strong>目录</strong>',
+    '    <button id="immersiveTocCloseBtn" class="secondary compact" type="button">关闭</button>',
+    '  </div>',
+    '  <div id="immersiveTocList" class="reader-toc-list" role="list"></div>',
+    '</div>',
     '<div class="reader-settings" aria-label="阅读设置">',
     '  <button type="button" data-reader-font="-1" aria-label="缩小字号">A-</button>',
     '  <button type="button" data-reader-font="1" aria-label="放大字号">A+</button>',
@@ -206,6 +214,16 @@ function setupReaderModeControls() {
   shell.insertAdjacentElement("afterend", chrome);
   $("immersivePrevPageBtn")?.addEventListener("click", () => void turnReaderPage(-1));
   $("immersiveNextPageBtn")?.addEventListener("click", () => void turnReaderPage(1));
+  $("immersiveTocBtn")?.addEventListener("click", toggleImmersiveToc);
+  $("immersiveTocCloseBtn")?.addEventListener("click", closeImmersiveToc);
+  $("immersiveTocList")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-toc-chunk-id]");
+    if (!button) return;
+    void selectChunk(button.dataset.tocChunkId, true).then(() => {
+      closeImmersiveToc();
+      focusPanel(".reader-surface", "#chunkText");
+    });
+  });
   chrome.querySelector(".reader-settings")?.addEventListener("click", (event) => {
     const button = event.target.closest("button");
     if (!button) return;
@@ -305,6 +323,9 @@ function handleReaderKeyboard(event) {
     if (document.body.classList.contains("immersive-notes-open")) {
       closeImmersiveNotesPane();
       focusPanel(".reader-surface", "#chunkText");
+    } else if (document.body.classList.contains("immersive-toc-open")) {
+      closeImmersiveToc();
+      focusPanel(".reader-surface", "#chunkText");
     } else if (state.readerSelection?.text) {
       clearReaderSelection();
     } else {
@@ -379,6 +400,58 @@ function updateReaderPageStatus() {
   updateImmersivePageStatus({ current, total, mode: "paged" });
 }
 
+function renderImmersiveToc() {
+  const list = $("immersiveTocList");
+  const button = $("immersiveTocBtn");
+  if (!list || !button) return;
+  const selected = activeBook();
+  button.disabled = !selected || !state.chunks.length;
+  if (!selected || !state.chunks.length) {
+    list.className = "reader-toc-list empty";
+    list.textContent = "暂无目录";
+    return;
+  }
+  list.className = "reader-toc-list";
+  list.innerHTML = state.chunks.map((chunk, index) => {
+    const chunkId = getChunkId(chunk);
+    const active = chunkId === state.selectedChunkId;
+    const title = chunk.title || chunk.sectionTitle || chunkId;
+    const progress = Math.round(((index + 1) / state.chunks.length) * 100);
+    return `
+      <button class="reader-toc-item ${active ? "active" : ""}" type="button" data-toc-chunk-id="${escapeHtml(chunkId)}" role="listitem">
+        <span>${escapeHtml(String(index + 1).padStart(2, "0"))}</span>
+        <strong>${escapeHtml(title)}</strong>
+        <small>${escapeHtml(chunkId)} · ${progress}%</small>
+      </button>
+    `;
+  }).join("");
+  const activeItem = list.querySelector(".reader-toc-item.active");
+  if (activeItem) window.setTimeout(() => activeItem.scrollIntoView({ block: "center" }), 0);
+}
+
+function openImmersiveToc() {
+  if (!state.immersiveReading) return;
+  renderImmersiveToc();
+  document.body.classList.add("immersive-toc-open");
+  const toc = $("immersiveToc");
+  const button = $("immersiveTocBtn");
+  if (toc) toc.hidden = false;
+  if (button) button.setAttribute("aria-expanded", "true");
+}
+
+function closeImmersiveToc() {
+  document.body.classList.remove("immersive-toc-open");
+  const toc = $("immersiveToc");
+  const button = $("immersiveTocBtn");
+  if (toc) toc.hidden = true;
+  if (button) button.setAttribute("aria-expanded", "false");
+}
+
+function toggleImmersiveToc() {
+  if (document.body.classList.contains("immersive-toc-open")) closeImmersiveToc();
+  else openImmersiveToc();
+}
+
 function updateImmersivePageStatus({ current = 1, total = 1, mode = state.readerMode } = {}) {
   const pageStatus = $("immersivePageStatus");
   const bookStatus = $("immersiveBookStatus");
@@ -392,6 +465,7 @@ function updateImmersivePageStatus({ current = 1, total = 1, mode = state.reader
       ? `${selected.title || selected.bookId}${index !== null ? ` · ${index + 1}/${state.chunks.length}` : ""}`
       : "未选择书籍";
   }
+  renderImmersiveToc();
 }
 
 async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
