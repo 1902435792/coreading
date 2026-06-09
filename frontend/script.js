@@ -30,6 +30,7 @@ const state = {
   novaLastRequest: null,
   novaAgentRuns: [],
   novaPreReadHistory: [],
+  agentSkills: [],
   novaPaneCollapsed: false,
   novaPaneWidth: "medium",
   novaAutoReadEnabled: true,
@@ -38,6 +39,7 @@ const state = {
   novaAutoReadTimer: 0,
   readerFlow: { bookId: "", anchorChunkId: "", chunks: [] },
   readerFlowRequestId: 0,
+  readerActiveChunkId: "",
   readerTocOpen: false,
   immersiveNovaCardOpen: false,
   readerSelection: { text: "", offset: null, rect: null },
@@ -78,7 +80,7 @@ const READING_VISIT_KEY = "vcp-coreading-sidecar.readingVisit";
 const READING_VISIT_HISTORY_KEY = "vcp-coreading-sidecar.readingVisitHistory";
 const NOVA_AUTO_READ_KEY = "vcp-coreading-sidecar.novaAutoRead";
 const NOVA_REQUEST_TIMEOUT_MS = 360000;
-const READER_FLOW_BATCH_SIZE = 10;
+const READER_FLOW_BATCH_SIZE = 24;
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
 
 setupAppLayout();
@@ -117,6 +119,14 @@ function setupAppLayout() {
 
   const skillsPane = createSkillPagePanel();
   const skillsBody = skillsPane.querySelector(".skill-page-body");
+
+  const overview = document.createElement("section");
+  overview.className = "skill-overview";
+  overview.innerHTML = [
+    '<div class="skill-overview-head"><strong>Nova 共读技能</strong><small>自主预读、评注、回溯、沉淀都从这里进入。</small></div>',
+    '<div id="skillOverviewList" class="skill-overview-list empty">正在读取技能目录。</div>'
+  ].join("");
+  skillsBody.appendChild(overview);
 
   const libraryGroup = createSkillGroup("书库", "导入与切换书籍", true);
   moveExisting(libraryGroup.body, [".library-panel"]);
@@ -184,6 +194,17 @@ function setupAppLayout() {
     document.body.classList.remove("skills-pane-open");
     skillsToggle.setAttribute("aria-expanded", "false");
     skillsToggle.focus();
+  });
+  skillsPane.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-skill-action]");
+    if (!button) return;
+    const action = button.dataset.skillAction || "";
+    button.disabled = true;
+    void useAgentSkill(action).catch((error) => {
+      log(error.message || String(error));
+    }).finally(() => {
+      button.disabled = false;
+    });
   });
   document.querySelector(".top-actions")?.insertBefore(skillsToggle, $("refreshBtn") || null);
   workspace.dataset.layout = "reader-assistant";
@@ -304,6 +325,7 @@ function setupReaderModeControls() {
     '<button id="immersiveAssistantBtn" class="reader-assistant-toggle" type="button" aria-pressed="false">收起 Nova</button>',
     '<div class="reader-exit-controls">',
     '  <button id="immersiveExitBtn" type="button">退出</button>',
+    '  <button id="immersiveControlsBtn" type="button">显示控件</button>',
     '  <button id="immersiveFullscreenBtn" type="button">全屏</button>',
     '</div>',
     '<button id="immersiveLibraryBtn" class="reader-library-button" type="button" aria-expanded="false" aria-controls="immersiveLibrary">书库</button>',
@@ -448,6 +470,7 @@ function setupReaderModeControls() {
     }).finally(renderReaderProgress);
   });
   $("immersiveCleanReadBtn")?.addEventListener("click", toggleImmersiveCleanRead);
+  $("immersiveControlsBtn")?.addEventListener("click", toggleImmersiveCleanRead);
   $("immersiveAssistantBtn")?.addEventListener("click", toggleImmersiveAssistant);
   $("immersiveExitBtn")?.addEventListener("click", () => void setImmersiveReading(false));
   $("immersiveFullscreenBtn")?.addEventListener("click", () => void toggleReaderFullscreen());
@@ -1409,6 +1432,11 @@ function setImmersiveCleanRead(enabled) {
     button.textContent = active ? "显示控件" : "净读";
     button.setAttribute("aria-pressed", active ? "true" : "false");
   }
+  const controlsButton = $("immersiveControlsBtn");
+  if (controlsButton) {
+    controlsButton.textContent = active ? "显示控件" : "隐藏控件";
+    controlsButton.setAttribute("aria-pressed", active ? "false" : "true");
+  }
 }
 
 function toggleImmersiveAssistant() {
@@ -1475,6 +1503,8 @@ function normalizeNovaPreReadHistoryItem(item = {}) {
     title: String(item.title || item.chunkTitle || result.chunkTitle || chunkTitleById(chunkId) || chunkId),
     prompt: compactText(item.prompt || result.prompt || "", 240),
     note,
+    backend: String(item.backend || result.backend || ""),
+    model: String(item.model || result.model || ""),
     contextMode: "autonomous-reading",
     answeredAt,
     answeredAtMs,
@@ -1503,7 +1533,51 @@ function novaPreReadHistoryForBook(bookId = state.selectedBookId) {
 }
 
 function novaPreReadHistoryForCurrentChunk() {
-  return state.novaPreReadHistory.filter((item) => item.bookId === state.selectedBookId && item.chunkId === state.selectedChunkId);
+  const chunkId = currentReadingChunkId({ preferSelection: true });
+  return state.novaPreReadHistory.filter((item) => item.bookId === state.selectedBookId && item.chunkId === chunkId);
+}
+
+function currentNovaPreReadPreview() {
+  return novaPreReadHistoryForCurrentChunk()[0] || null;
+}
+
+function novaPreReadDisplayContext(item = {}) {
+  return {
+    bookId: item.bookId || state.selectedBookId,
+    chunkId: item.chunkId || currentReadingChunkId(),
+    prompt: item.prompt || "Nova 自主预读",
+    selection: "",
+    selectionOffset: null,
+    backend: item.backend || "",
+    model: item.model || "",
+    contextMode: "autonomous-reading",
+    answeredAt: item.answeredAt || "",
+  };
+}
+
+function currentNovaDisplay() {
+  if (novaReplyBelongsToCurrentChunk()) {
+    const isPreRead = state.novaReplyContext?.contextMode === "autonomous-reading";
+    return {
+      kind: isPreRead ? "pre-read" : "reply",
+      text: state.novaReply,
+      context: state.novaReplyContext,
+      statusText: isPreRead ? "Nova 已先读" : "已回应",
+      canUseReply: !isPreRead,
+    };
+  }
+  const preRead = currentNovaPreReadPreview();
+  if (preRead) {
+    return {
+      kind: "pre-read",
+      text: preRead.note,
+      context: novaPreReadDisplayContext(preRead),
+      statusText: "Nova 已先读",
+      canUseReply: false,
+      historyId: preRead.id,
+    };
+  }
+  return null;
 }
 
 function recordNovaPreReadReply(context, reply, run = null) {
@@ -1544,6 +1618,8 @@ function openNovaPreReadHistory(id) {
     selection: "",
     selectionOffset: null,
     contextMode: "autonomous-reading",
+    backend: item.backend || "",
+    model: item.model || "",
     answeredAt: item.answeredAt,
   };
   state.readerNovaAsideOpen = true;
@@ -1741,15 +1817,20 @@ function saveReadingSession(extra = {}) {
   if (!selected || !state.selectedChunkId) return;
   ensureReadingVisit(selected.bookId);
   const chunkText = $("chunkText");
+  const activeChunkId = extra.chunkId || currentReadingChunkId();
+  const relativeScroll = Number(extra.scrollTop || 0) === 0 && Number(extra.scrollLeft || 0) === 0
+    ? { relativeScrollTop: 0, relativeScrollLeft: 0 }
+    : readerRelativeScroll(activeChunkId);
   const payload = {
     bookId: selected.bookId,
     bookTitle: selected.title || selected.bookId,
-    chunkId: state.selectedChunkId,
+    chunkId: activeChunkId,
     scrollTop: Number(chunkText?.scrollTop || 0),
     scrollLeft: Number(chunkText?.scrollLeft || 0),
     readerMode: state.readerMode,
     scrollPercent: currentChunkScrollPercent(),
     savedAt: new Date().toISOString(),
+    ...relativeScroll,
     ...extra
   };
   localStorage.setItem(READING_SESSION_KEY, JSON.stringify(payload));
@@ -1987,8 +2068,17 @@ function restoreSavedScroll(saved) {
   if (!chunkText) return;
   window.setTimeout(() => {
     if (saved.readerMode) setReaderMode(saved.readerMode, { persist: false });
-    chunkText.scrollTop = Number(saved.scrollTop || 0);
-    chunkText.scrollLeft = Number(saved.scrollLeft || 0);
+    const section = saved.chunkId
+      ? chunkText.querySelector(`.reader-flow-chunk[data-reader-flow-chunk-id="${CSS.escape(saved.chunkId)}"]`)
+      : null;
+    chunkText.scrollTop = section
+      ? Number(section.offsetTop || 0) + Number(saved.relativeScrollTop || 0)
+      : Number(saved.scrollTop || 0);
+    chunkText.scrollLeft = section
+      ? Number(section.offsetLeft || 0) + Number(saved.relativeScrollLeft || 0)
+      : Number(saved.scrollLeft || 0);
+    setReaderActiveChunkId(saved.chunkId || state.selectedChunkId);
+    highlightActiveReaderFlowChunk();
     saveReadingSession();
     updateReaderPageStatus();
   }, 80);
@@ -2345,6 +2435,16 @@ async function loadSinkDefaults() {
   }
 }
 
+async function loadAgentSkills() {
+  try {
+    const result = await api("/api/agent/skills");
+    state.agentSkills = Array.isArray(result.skills) ? result.skills : [];
+  } catch {
+    state.agentSkills = [];
+  }
+  renderSkillOverview();
+}
+
 function clearSinkSettings() {
   for (const input of sinkSettingInputs()) input.value = "";
   localStorage.removeItem(SINK_SETTINGS_KEY);
@@ -2496,6 +2596,84 @@ function currentChunkScrollPercent() {
   return scrollMax ? clampPercent((scrollValue / scrollMax) * 100) : 0;
 }
 
+function activeChunkIdFromViewport() {
+  const chunkText = $("chunkText");
+  const sections = chunkText ? Array.from(chunkText.querySelectorAll(".reader-flow-chunk")) : [];
+  if (!chunkText || !sections.length) return state.selectedChunkId;
+  const target = Number(chunkText.scrollTop || 0) + Math.max(32, Number(chunkText.clientHeight || 0) * 0.28);
+  let active = sections[0];
+  for (const section of sections) {
+    if (Number(section.offsetTop || 0) <= target) active = section;
+    else break;
+  }
+  return active?.dataset?.readerFlowChunkId || state.selectedChunkId;
+}
+
+function highlightActiveReaderFlowChunk() {
+  const activeId = currentReadingChunkId();
+  document.querySelectorAll(".reader-flow-chunk.active").forEach((item) => {
+    if (item.dataset.readerFlowChunkId !== activeId) item.classList.remove("active");
+  });
+  const active = activeId
+    ? document.querySelector(`.reader-flow-chunk[data-reader-flow-chunk-id="${CSS.escape(activeId)}"]`)
+    : null;
+  if (active) active.classList.add("active");
+}
+
+function syncReaderActiveChunkFromScroll({ render = true } = {}) {
+  const activeId = activeChunkIdFromViewport();
+  const changed = setReaderActiveChunkId(activeId);
+  highlightActiveReaderFlowChunk();
+  const chunkSelect = $("chunkSelect");
+  if (changed && chunkSelect && activeId && chunkSelect.value !== activeId) chunkSelect.value = activeId;
+  if (!changed || !render) return changed;
+  renderReaderProgress();
+  renderChunkReview();
+  renderNovaReply();
+  if (state.novaAutoReadEnabled) maybeScheduleNovaAutonomousReading();
+  return changed;
+}
+
+function handleReaderScroll() {
+  const changed = syncReaderActiveChunkFromScroll({ render: false });
+  if (state.immersiveReading && state.readerSelection?.text) renderSelectionDock();
+  saveReadingSession();
+  renderReaderProgress();
+  updateReaderPageStatus();
+  if (changed) {
+    renderChunkReview();
+    renderNovaReply();
+    if (state.novaAutoReadEnabled) maybeScheduleNovaAutonomousReading();
+  }
+}
+
+function readerActiveChunkOrder() {
+  return chunkOrder(currentReadingChunkId());
+}
+
+function readerActiveChunkTitle() {
+  return chunkTitleById(currentReadingChunkId());
+}
+
+function activeReaderFlowSection() {
+  const chunkText = $("chunkText");
+  if (!chunkText) return null;
+  const id = currentReadingChunkId();
+  return id ? chunkText.querySelector(`.reader-flow-chunk[data-reader-flow-chunk-id="${CSS.escape(id)}"]`) : null;
+}
+
+function readerRelativeScroll(chunkId = currentReadingChunkId()) {
+  const chunkText = $("chunkText");
+  const section = chunkId
+    ? chunkText?.querySelector(`.reader-flow-chunk[data-reader-flow-chunk-id="${CSS.escape(chunkId)}"]`)
+    : activeReaderFlowSection();
+  if (!chunkText || !section) return {};
+  return {
+    relativeScrollTop: Math.max(0, Number(chunkText.scrollTop || 0) - Number(section.offsetTop || 0)),
+    relativeScrollLeft: Math.max(0, Number(chunkText.scrollLeft || 0) - Number(section.offsetLeft || 0)),
+  };
+}
+
 function renderReadingSession() {
   const selected = activeBook();
   const title = $("sessionTitle");
@@ -2540,9 +2718,10 @@ function renderReadingNowBar({ scrollPercent = currentChunkScrollPercent() } = {
   const bar = $("readingNowBar");
   if (!bar) return;
   const selected = activeBook();
-  const index = chunkOrder(state.selectedChunkId);
+  const activeChunkId = currentReadingChunkId();
+  const index = chunkOrder(activeChunkId);
   const hasChunk = !!selected && index !== null;
-  const currentTitle = chunkTitleById(state.selectedChunkId);
+  const currentTitle = chunkTitleById(activeChunkId);
   const bookSession = validSavedReadingSessionForBook(selected?.bookId);
   const { plan, nextStep } = planGuideSelection();
   const planLabel = nextStep ? planStepChunkLabel(nextStep) : "";
@@ -2552,10 +2731,10 @@ function renderReadingNowBar({ scrollPercent = currentChunkScrollPercent() } = {
     ? `${progressPercent(selected)}% · ${selected.chunksRead || 0}/${selected.chunkCount || state.chunks.length || 0} chunks`
     : "阅读现场";
   $("readingNowTitle").textContent = selected
-    ? `${selected.title || selected.bookId}${hasChunk ? ` · ${state.selectedChunkId}` : ""}`
+    ? `${selected.title || selected.bookId}${hasChunk ? ` · ${activeChunkId}` : ""}`
     : "还没有选书";
   $("readingNowMeta").textContent = hasChunk
-    ? `${index + 1}/${state.chunks.length} · ${currentTitle || state.selectedChunkId} · 段内 ${clampPercent(scrollPercent)}%${bookSession?.chunkId ? ` · 本书断点 ${bookSession.chunkId}` : ""}${planLabel ? ` · 下一步 ${planLabel}` : ""}${visitSummary ? ` · ${visitSummary}` : ""}`
+    ? `${index + 1}/${state.chunks.length} · ${currentTitle || activeChunkId} · 书内 ${clampPercent(scrollPercent)}%${bookSession?.chunkId ? ` · 本书断点 ${bookSession.chunkId}` : ""}${planLabel ? ` · 下一步 ${planLabel}` : ""}${visitSummary ? ` · ${visitSummary}` : ""}`
     : "选择书籍后可以随时回到正文。";
   $("readingNowFocusBtn").disabled = !hasChunk;
   $("readingNowContinueBtn").disabled = !selected;
@@ -2570,30 +2749,33 @@ function countCardsForBook(book = activeBook()) {
 }
 
 function cardsForCurrentChunk() {
+  const activeChunkId = currentReadingChunkId();
   return [...state.cardInbox, ...cardCollectionItems()].filter((card) => {
     if (!card) return false;
     if (card.bookId && card.bookId !== state.selectedBookId) return false;
-    if (card.chunkId) return card.chunkId === state.selectedChunkId;
-    const title = chunkTitleById(state.selectedChunkId);
+    if (card.chunkId) return card.chunkId === activeChunkId;
+    const title = chunkTitleById(activeChunkId);
     const haystack = [card.subtitle, card.title, card.kicker, card.message].filter(Boolean).join(" ");
-    return Boolean(state.selectedChunkId && haystack.includes(state.selectedChunkId)) || Boolean(title && haystack.includes(title));
+    return Boolean(activeChunkId && haystack.includes(activeChunkId)) || Boolean(title && haystack.includes(title));
   });
 }
 
 function sinkPreviewsForCurrentChunk() {
+  const activeChunkId = currentReadingChunkId();
   return visibleSinkPreviewsForBook(activeBook()).filter((preview) => {
     const source = preview.sourceRange || preview.range || {};
     const notePath = preview.destination?.notePath || preview.notePath || "";
-    return preview.chunkId === state.selectedChunkId
-      || source.startChunkId === state.selectedChunkId
-      || source.endChunkId === state.selectedChunkId
-      || notePath.includes(state.selectedChunkId);
+    return preview.chunkId === activeChunkId
+      || source.startChunkId === activeChunkId
+      || source.endChunkId === activeChunkId
+      || notePath.includes(activeChunkId);
   });
 }
 
 function renderReaderProgress() {
   const selected = activeBook();
-  const index = chunkOrder(state.selectedChunkId);
+  const activeChunkId = currentReadingChunkId();
+  const index = chunkOrder(activeChunkId);
   const hasChunk = !!selected && index !== null;
   const percent = progressPercent(selected);
   const saved = readSavedReadingSession();
@@ -2604,7 +2786,7 @@ function renderReaderProgress() {
   const currentChunkPendingSink = sinkPreviewsForCurrentChunk().find((preview) => preview.status === "pending") || null;
   const currentChunkApprovedSink = sinkPreviewsForCurrentChunk().find((preview) => preview.status === "approved") || null;
   const cardCountForBook = countCardsForBook(selected);
-  const currentTitle = chunkTitleById(state.selectedChunkId);
+  const currentTitle = chunkTitleById(activeChunkId);
   const nextTitle = chunkTitleById(nextId);
   const scrollPercent = currentChunkScrollPercent();
 
@@ -2613,10 +2795,10 @@ function renderReaderProgress() {
     : "未开始";
   $("readerProgressFill").style.width = `${clampPercent(percent)}%`;
   $("readerResumeHint").textContent = selected
-    ? `${hasChunk ? `当前 ${index + 1}/${state.chunks.length} · ${state.selectedChunkId}` : "未选择段落"}${bookSession ? ` · 本书现场 ${bookSession.chunkId}${formatSavedAt(bookSession.savedAt) ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""}` : ""}${saved?.bookId && saved.bookId !== selected.bookId ? ` · 最近读过 ${saved.bookTitle || saved.bookId}` : ""}`
+    ? `${hasChunk ? `当前 ${index + 1}/${state.chunks.length} · ${activeChunkId}` : "未选择段落"}${bookSession ? ` · 本书现场 ${bookSession.chunkId}${formatSavedAt(bookSession.savedAt) ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""}` : ""}${saved?.bookId && saved.bookId !== selected.bookId ? ` · 最近读过 ${saved.bookTitle || saved.bookId}` : ""}`
     : "选择书籍后显示当前断点。";
   $("readerChunkMeta").textContent = hasChunk
-    ? `${selected.title || selected.bookId} · ${index + 1}/${state.chunks.length} · ${state.selectedChunkId}${currentTitle && currentTitle !== state.selectedChunkId ? ` · ${currentTitle}` : ""}${scrollPercent ? ` · 段内 ${scrollPercent}%` : ""}`
+    ? `${selected.title || selected.bookId} · ${index + 1}/${state.chunks.length} · ${activeChunkId}${currentTitle && currentTitle !== activeChunkId ? ` · ${currentTitle}` : ""}${scrollPercent ? ` · 书内 ${scrollPercent}%` : ""}`
     : "还没有阅读现场。";
   $("readerNextTitle").textContent = selected
     ? (nextId ? `下一段 ${nextId}${nextTitle ? ` · ${nextTitle}` : ""}` : "已经到最后一段。")
@@ -2730,6 +2912,7 @@ function readerNovaAsideMeta(context = state.novaReplyContext || state.novaLastR
     chunkId || "当前段",
     title && title !== chunkId ? title : "",
     context.selection ? `选区 ${String(context.selection).length} 字` : "",
+    context.backend ? String(context.model ? `${context.backend} · ${context.model}` : context.backend) : "",
   ].filter(Boolean);
   return parts.join(" · ");
 }
@@ -2738,7 +2921,7 @@ function novaRequestBelongsToCurrentChunk() {
   return Boolean(
     state.novaLastRequest
     && state.novaLastRequest.bookId === state.selectedBookId
-    && state.novaLastRequest.chunkId === state.selectedChunkId
+    && state.novaLastRequest.chunkId === currentReadingChunkId()
   );
 }
 
@@ -2753,7 +2936,7 @@ function toggleReaderNovaAside() {
 
 function focusReaderNovaAside() {
   revealNovaForReadingAction();
-  focusPanel(".nova-reading-box", state.novaReply ? "#novaReply" : "#novaPrompt");
+  focusPanel(".nova-reading-box", currentNovaDisplay()?.text ? "#novaReply" : "#novaPrompt");
 }
 
 async function saveReaderNovaAside() {
@@ -2799,29 +2982,35 @@ function renderReaderNovaAside() {
   const selected = activeBook();
   const pendingForCurrent = Boolean(state.novaAskPending && novaRequestBelongsToCurrentChunk());
   const errorForCurrent = Boolean(state.novaAskError && novaRequestBelongsToCurrentChunk());
-  const replyForCurrent = novaReplyBelongsToCurrentChunk();
-  const shouldShow = Boolean(selected && state.selectedChunkId && (pendingForCurrent || errorForCurrent || replyForCurrent));
+  const display = currentNovaDisplay();
+  const shouldShow = Boolean(selected && state.selectedChunkId && (pendingForCurrent || errorForCurrent || display));
 
   panel.hidden = !shouldShow;
   if (!shouldShow) return;
 
-  const context = pendingForCurrent || errorForCurrent ? state.novaLastRequest : state.novaReplyContext;
-  const canUseReply = Boolean(replyForCurrent && state.novaReply && !state.novaAskPending && !state.novaAskError);
+  const context = pendingForCurrent || errorForCurrent ? state.novaLastRequest : display?.context;
+  const canUseReply = Boolean(display?.canUseReply && !state.novaAskPending && !state.novaAskError);
   panel.classList.toggle("open", state.readerNovaAsideOpen);
   panel.classList.toggle("pending", pendingForCurrent);
   panel.classList.toggle("error", errorForCurrent);
-  if (label) label.textContent = pendingForCurrent ? `${readerNovaAsideModeLabel(context)}中` : readerNovaAsideModeLabel(context);
+  if (label) {
+    label.textContent = pendingForCurrent
+      ? `${readerNovaAsideModeLabel(context)}中`
+      : display?.kind === "pre-read"
+        ? "Nova 已先读"
+        : readerNovaAsideModeLabel(context);
+  }
   if (meta) meta.textContent = readerNovaAsideMeta(context);
   if (text) {
     const body = pendingForCurrent
       ? `Nova 正在读。最长会等 ${Math.round(NOVA_REQUEST_TIMEOUT_MS / 60000)} 分钟，你可以继续看正文。`
       : errorForCurrent
         ? state.novaAskError.message
-        : state.novaReply;
+        : display?.text || "";
     text.textContent = state.readerNovaAsideOpen ? body : compactText(body, 260);
   }
   if (toggle) {
-    toggle.disabled = pendingForCurrent && !state.novaReply;
+    toggle.disabled = pendingForCurrent && !display?.text;
     toggle.textContent = state.readerNovaAsideOpen ? "收起" : "展开";
     toggle.setAttribute("aria-expanded", state.readerNovaAsideOpen ? "true" : "false");
   }
@@ -3528,20 +3717,21 @@ function currentChunkSinkTargets() {
 
 function currentChunkNotesReviewPayload({ quote = null } = {}) {
   const selected = activeBook();
-  const chunk = state.currentChunk?.chunk || state.currentChunk || {};
-  const text = currentChunkText();
+  const chunkId = quote?.chunkId || currentReadingChunkId();
+  const chunk = currentReadingChunkObject(chunkId);
+  const text = readerDisplayChunkText(chunkId);
   const targets = currentChunkSinkTargets();
-  if (!selected || !state.selectedChunkId || !text) throw new Error("请先读取一个段落。");
+  if (!selected || !chunkId || !text) throw new Error("请先读取一个段落。");
   const selectedText = String(quote?.text || "").trim();
   const sourceQuote = selectedText || text.slice(0, 900);
-  const sourceTitle = selectedText ? `选区 @ ${state.selectedChunkId}` : (chunk.title || chunk.sectionTitle || state.selectedChunkId);
+  const sourceTitle = selectedText ? `选区 @ ${chunkId}` : (chunk.title || chunk.sectionTitle || chunkId);
   const novaReplyForChunk = optionsNovaReplyObservation({ quote });
   const noteLines = (state.userNotes || []).slice(0, 8).map((item) => ({
     section: item.kind === "nova-reply" ? "nova_reply" : "user_note",
     source: "user-note",
     kind: item.kind || "note",
-    chunkId: item.chunkId || state.selectedChunkId,
-    quote: item.quote || chunk.title || state.selectedChunkId,
+    chunkId: item.chunkId || chunkId,
+    quote: item.quote || chunk.title || chunkId,
     note: item.note || item.text || "",
     text: item.note || item.text || "",
   }));
@@ -3550,7 +3740,7 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
     source: "annotation",
     kind: item.kind || "annotation",
     author: item.author || "reader",
-    chunkId: item.chunkId || state.selectedChunkId,
+    chunkId: item.chunkId || chunkId,
     quote: item.quote || "",
     note: item.note || "",
     text: item.note || "",
@@ -3559,7 +3749,7 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
     section: "reading_card",
     source: "reading-card",
     cardId: card.id || "",
-    chunkId: card.chunkId || state.selectedChunkId,
+    chunkId: card.chunkId || chunkId,
     title: card.title || card.kicker || card.id || "",
     note: card.message || card.note || card.subtitle || "",
     quote: card.quote || "",
@@ -3569,7 +3759,7 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
     {
       section: "source_quote",
       source: selectedText ? "reader-selection" : "current-chunk",
-      chunkId: state.selectedChunkId,
+      chunkId,
       title: sourceTitle,
       quote: sourceQuote,
       text: sourceQuote,
@@ -3580,9 +3770,9 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
     ...annotationLines,
     ...cardLines,
   ].filter(Boolean).filter((item) => item.text || item.quote || item.note || item.title);
-  const title = chunk.title || chunk.sectionTitle || state.selectedChunkId;
+  const title = chunk.title || chunk.sectionTitle || chunkId;
   const summaryParts = [
-    `${selectedText ? "选区" : "本段"}沉淀预览：${selected.title || selected.bookId} · ${state.selectedChunkId}`,
+    `${selectedText ? "选区" : "本段"}沉淀预览：${selected.title || selected.bookId} · ${chunkId}`,
     title ? `标题：${title}` : "",
     selectedText ? `选区：${selectedText.slice(0, 160)}` : "",
     novaReplyForChunk ? "包含当前 Nova 回复。" : "",
@@ -3593,8 +3783,8 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
   return {
     command: "review_create",
     bookId: selected.bookId,
-    startChunkId: state.selectedChunkId,
-    endChunkId: state.selectedChunkId,
+    startChunkId: chunkId,
+    endChunkId: chunkId,
     summary: summaryParts.join("\n"),
     observations,
     tags: ["co-reading", "sidecar", "chunk-note-sink"],
@@ -3612,12 +3802,13 @@ function optionsNovaReplyObservation({ quote = null } = {}) {
   if (!novaReplyBelongsToCurrentChunk()) return null;
   const context = state.novaReplyContext || {};
   const replyQuote = quote?.text ? quote : novaReplyContextQuote();
+  const chunkId = context.chunkId || quote?.chunkId || currentReadingChunkId();
   return {
     section: "nova_reply",
     source: "nova-reply-current",
     kind: "nova-reply",
-    chunkId: state.selectedChunkId,
-    quote: replyQuote?.text || context.prompt || state.selectedChunkId,
+    chunkId,
+    quote: replyQuote?.text || context.prompt || chunkId,
     quoteOffset: replyQuote?.offset ?? null,
     prompt: context.prompt || String($("novaPrompt")?.value || "").trim(),
     note: state.novaReply,
@@ -3748,16 +3939,20 @@ function selfCheckNovaPrompt(answer) {
 
 function novaReplyNotePayload() {
   const selected = activeBook();
-  if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
+  const replyChunkId = state.novaReplyContext?.chunkId || currentReadingChunkId();
+  if (!selected || !replyChunkId) throw new Error("请先选择一本书和 chunk。");
   if (!state.novaReply) throw new Error("请先向 Nova 提问。");
+  if (!novaReplyBelongsToCurrentChunk() || state.novaReplyContext?.contextMode === "autonomous-reading") {
+    throw new Error("请先在当前段向 Nova 提问，再保存正式回应。");
+  }
   const quote = novaReplyContextQuote() || selectedQuote();
-  const chunk = state.currentChunk?.chunk || state.currentChunk || {};
-  const fallbackQuote = chunk.title || chunk.sectionTitle || state.selectedChunkId;
+  const chunk = currentReadingChunkObject(replyChunkId);
+  const fallbackQuote = chunk.title || chunk.sectionTitle || replyChunkId;
   const prompt = String($("novaPrompt").value || "").trim();
   return {
     command: "user_note_create",
     bookId: selected.bookId,
-    chunkId: state.selectedChunkId,
+    chunkId: replyChunkId,
     quote: quote.text || fallbackQuote,
     quoteOffset: quote.offset ?? null,
     note: [
@@ -3799,7 +3994,7 @@ function novaReplyBelongsToCurrentChunk() {
   return Boolean(
     state.novaReply
     && state.novaReplyContext?.bookId === state.selectedBookId
-    && state.novaReplyContext?.chunkId === state.selectedChunkId
+    && state.novaReplyContext?.chunkId === currentReadingChunkId()
   );
 }
 
@@ -3847,20 +4042,10 @@ function mergeReaderRanges(text) {
   return ranges.sort((a, b) => a.start - b.start || b.end - a.end || a.type.localeCompare(b.type));
 }
 
-function renderChunkTextWithFootprints(text) {
-  const chunkText = $("chunkText");
-  if (!chunkText) return;
-  const source = String(text || "");
-  const ranges = mergeReaderRanges(source);
-  if (!ranges.length) {
-    chunkText.textContent = source;
-    renderReadingFootprints([]);
-    updateReaderFindMatches([]);
-    return;
-  }
+function renderTextRanges(source, ranges) {
   let cursor = 0;
   const parts = [];
-  const renderedRanges = [];
+  const renderedFootprints = [];
   for (const range of ranges) {
     if (range.start < cursor) continue;
     parts.push(escapeHtml(source.slice(cursor, range.start)));
@@ -3868,14 +4053,77 @@ function renderChunkTextWithFootprints(text) {
       parts.push(`<mark class="reader-find-mark" data-reader-find-id="${escapeHtml(range.id)}">${escapeHtml(source.slice(range.start, range.end))}</mark>`);
     } else {
       parts.push(`<mark class="reading-mark ${range.item.source === "user-note" ? "mine" : ""}" data-footprint-id="${escapeHtml(range.id)}">${escapeHtml(source.slice(range.start, range.end))}</mark>`);
-      renderedRanges.push(range);
+      renderedFootprints.push(range);
     }
     cursor = range.end;
   }
   parts.push(escapeHtml(source.slice(cursor)));
-  chunkText.innerHTML = parts.join("");
+  return { html: parts.join(""), renderedFootprints };
+}
+
+function readerFindRangesForChunks(chunks) {
+  const query = String(state.readerFind.query || "").trim();
+  if (!query) return [];
+  const lowerQuery = query.toLowerCase();
+  const ranges = [];
+  for (const chunk of chunks) {
+    const source = String(chunk.text || "");
+    const lowerSource = source.toLowerCase();
+    let start = 0;
+    while (ranges.length < 120) {
+      const index = lowerSource.indexOf(lowerQuery, start);
+      if (index < 0) break;
+      ranges.push({
+        id: `find-${ranges.length}`,
+        chunkId: chunk.chunkId,
+        start: index,
+        end: index + query.length,
+      });
+      start = index + Math.max(1, query.length);
+    }
+    if (ranges.length >= 120) break;
+  }
+  return ranges;
+}
+
+function renderChunkTextWithFootprints(text) {
+  const chunkText = $("chunkText");
+  if (!chunkText) return;
+  const chunks = readerDisplayChunks();
+  if (!chunks.length) {
+    chunkText.textContent = String(text || "");
+    renderReadingFootprints([]);
+    updateReaderFindMatches([]);
+    return;
+  }
+  const findRanges = readerFindRangesForChunks(chunks);
+  const renderedRanges = [];
+  chunkText.innerHTML = chunks.map((chunk, index) => {
+    const source = String(chunk.text || "");
+    const chunkFindRanges = findRanges.filter((range) => range.chunkId === chunk.chunkId).map((range) => ({ ...range, type: "find" }));
+    const footprintRanges = chunk.chunkId === state.selectedChunkId
+      ? readingFootprintRanges(source).map((range) => ({ ...range, type: "footprint" }))
+      : [];
+    const { html, renderedFootprints } = renderTextRanges(
+      source,
+      [...footprintRanges, ...chunkFindRanges].sort((a, b) => a.start - b.start || b.end - a.end || a.type.localeCompare(b.type))
+    );
+    renderedRanges.push(...renderedFootprints);
+    const title = chunk.title || chunkTitleById(chunk.chunkId) || chunk.chunkId;
+    const indexText = String((chunkOrder(chunk.chunkId) ?? index) + 1).padStart(2, "0");
+    return [
+      `<section class="reader-flow-chunk${chunk.chunkId === currentReadingChunkId() ? " active" : ""}" data-reader-flow-chunk-id="${escapeHtml(chunk.chunkId)}">`,
+      `<div class="reader-flow-anchor" aria-label="阅读锚点"><span>${escapeHtml(indexText)}</span><strong>${escapeHtml(title)}</strong></div>`,
+      `<div class="reader-flow-text">${html}</div>`,
+      "</section>",
+    ].join("");
+  }).join("");
   renderReadingFootprints(renderedRanges);
-  updateReaderFindMatches(readerFindRanges(source));
+  updateReaderFindMatches(findRanges);
+  window.requestAnimationFrame(() => {
+    highlightActiveReaderFlowChunk();
+    syncReaderActiveChunkFromScroll({ render: false });
+  });
 }
 
 function updateReaderFindMatches(matches) {
@@ -4065,6 +4313,7 @@ function renderNovaReply() {
   if (!reply || !status || !copyButton || !saveButton || !sinkButton || !autoButton || !autoToggle) return;
   autoToggle.checked = state.novaAutoReadEnabled;
   autoToggle.disabled = state.novaAskPending;
+  const display = currentNovaDisplay();
   if (state.novaAskPending) {
     reply.className = "nova-reply empty";
     reply.textContent = `Nova 正在读。最长会等 ${Math.round(NOVA_REQUEST_TIMEOUT_MS / 60000)} 分钟，你可以继续看书。`;
@@ -4091,9 +4340,9 @@ function renderNovaReply() {
     renderReadingQueue();
     return;
   }
-  if (!state.novaReply) {
+  if (!display) {
     reply.className = "nova-reply empty";
-    reply.textContent = "Nova 的回应会出现在这里。";
+    reply.textContent = "Nova 的自主预读和你的提问回应会出现在这里。";
     status.textContent = "待提问";
     copyButton.disabled = true;
     saveButton.disabled = true;
@@ -4104,12 +4353,12 @@ function renderNovaReply() {
     renderReadingQueue();
     return;
   }
-  reply.className = "nova-reply";
-  reply.textContent = state.novaReply;
-  status.textContent = novaReplyBelongsToCurrentChunk() ? "已回应" : "上一段回应";
+  reply.className = display.kind === "stale-reply" || display.kind === "pre-read" ? "nova-reply muted" : "nova-reply";
+  reply.textContent = display.text;
+  status.textContent = display.statusText;
   copyButton.disabled = false;
-  saveButton.disabled = !activeBook() || !state.selectedChunkId || !novaReplyBelongsToCurrentChunk();
-  sinkButton.disabled = !activeBook() || !state.selectedChunkId || !novaReplyBelongsToCurrentChunk();
+  saveButton.disabled = !activeBook() || !state.selectedChunkId || !display.canUseReply;
+  sinkButton.disabled = !activeBook() || !state.selectedChunkId || !display.canUseReply;
   autoButton.disabled = !activeBook() || !state.selectedChunkId;
   renderImmersiveNovaCard();
   renderReaderNovaAside();
@@ -4134,11 +4383,11 @@ async function askNovaWithPrompt(prompt, { extraContext = {} } = {}) {
   const selected = activeBook();
   if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
   const requestBookId = selected.bookId;
-  const requestChunkId = state.selectedChunkId;
-  const chunk = state.currentChunk?.chunk || state.currentChunk || {};
-  const text = currentChunkText();
-  if (!text) throw new Error("请先读取当前 chunk。");
   const quote = selectedQuote();
+  const requestChunkId = quote.chunkId || currentReadingChunkId();
+  const chunk = currentReadingChunkObject(requestChunkId);
+  const text = readerDisplayChunkText(requestChunkId);
+  if (!text) throw new Error("请先读取当前 chunk。");
   const request = {
     prompt,
     context: {
@@ -4174,8 +4423,8 @@ async function askNovaWithPrompt(prompt, { extraContext = {} } = {}) {
     state.novaAskPending = false;
     state.novaAskError = null;
     renderNovaReply();
-    if (requestBookId === state.selectedBookId && requestChunkId === state.selectedChunkId) {
-      renderReadingFootprints(readingFootprintRanges(currentChunkText()));
+    if (requestBookId === state.selectedBookId && requestChunkId === currentReadingChunkId()) {
+      renderReadingFootprints(readingFootprintRanges(currentReadingChunkText()));
     }
     log(`Nova 已回应 ${requestChunkId}。`);
     return state.novaReply;
@@ -4197,8 +4446,10 @@ async function askNovaWithPrompt(prompt, { extraContext = {} } = {}) {
 
 async function runNovaAutonomousReading({ manual = false } = {}) {
   const selected = activeBook();
-  if (!selected || !state.selectedChunkId || !currentChunkText()) return;
-  const key = `${selected.bookId}:${state.selectedChunkId}`;
+  const requestChunkId = currentReadingChunkId();
+  const requestText = readerDisplayChunkText(requestChunkId);
+  if (!selected || !requestChunkId || !requestText) return;
+  const key = `${selected.bookId}:${requestChunkId}`;
   if (manual) {
     window.clearTimeout(state.novaAutoReadTimer);
   }
@@ -4206,14 +4457,7 @@ async function runNovaAutonomousReading({ manual = false } = {}) {
     log("Nova 已经在读，等这次回来即可。");
     return state.novaReply;
   }
-  if (manual) {
-    const currentHistory = novaPreReadHistoryForCurrentChunk()[0];
-    if (currentHistory) {
-      openNovaPreReadHistory(currentHistory.id);
-      return currentHistory.note;
-    }
-    state.novaAutoReadSeen.add(key);
-  }
+  if (manual) state.novaAutoReadSeen.add(key);
   if (!manual) {
     if (!state.novaAutoReadEnabled || state.novaAutoReadSeen.has(key) || novaPreReadHistoryForCurrentChunk()[0]) return;
     state.novaAutoReadSeen.add(key);
@@ -4222,7 +4466,6 @@ async function runNovaAutonomousReading({ manual = false } = {}) {
   const prompt = buildNovaAutonomousReadingPrompt();
   $("novaPrompt").value = prompt;
   const requestBookId = selected.bookId;
-  const requestChunkId = state.selectedChunkId;
   const quote = selectedQuote();
   state.novaLastRequest = {
     bookId: requestBookId,
@@ -4246,6 +4489,7 @@ async function runNovaAutonomousReading({ manual = false } = {}) {
       prompt,
       selection: { text: quote.text || "", offset: quote.offset ?? null },
       maxCandidates: 3,
+      force: manual,
     });
     const run = response.run || {};
     const result = response.result || run.result || {};
@@ -4257,6 +4501,8 @@ async function runNovaAutonomousReading({ manual = false } = {}) {
       selection: run.selection?.text || quote.text || "",
       selectionOffset: run.selection?.offset ?? quote.offset ?? null,
       contextMode: "autonomous-reading",
+      backend: result.backend || run.result?.backend || "",
+      model: result.model || run.result?.model || "",
       answeredAt: run.completedAt || new Date().toISOString(),
     };
     mergeNovaAgentRun(run);
@@ -4264,8 +4510,8 @@ async function runNovaAutonomousReading({ manual = false } = {}) {
     state.novaAskPending = false;
     state.novaAskError = null;
     renderNovaReply();
-    if (requestBookId === state.selectedBookId && requestChunkId === state.selectedChunkId) {
-      renderReadingFootprints(readingFootprintRanges(currentChunkText()));
+    if (requestBookId === state.selectedBookId && requestChunkId === currentReadingChunkId()) {
+      renderReadingFootprints(readingFootprintRanges(currentReadingChunkText()));
     }
     log(`Nova Agent 已预读 ${requestChunkId}。`);
     return state.novaReply;
@@ -5062,6 +5308,64 @@ function chunkTextFromResult(result) {
   return String(result?.text || chunk.text || "");
 }
 
+function chunkById(chunkId) {
+  return state.chunks.find((chunk) => getChunkId(chunk) === chunkId) || null;
+}
+
+function isKnownChunkId(chunkId) {
+  return Boolean(chunkId && state.chunks.some((chunk) => getChunkId(chunk) === chunkId));
+}
+
+function readerFlowMatchesCurrentBook() {
+  const selected = activeBook();
+  return Boolean(
+    selected
+    && state.readerFlow.bookId === selected.bookId
+    && state.readerFlow.anchorChunkId === state.selectedChunkId
+    && state.readerFlow.chunks.length
+  );
+}
+
+function readerDisplayChunks() {
+  if (readerFlowMatchesCurrentBook()) {
+    return state.readerFlow.chunks.filter((item) => item.text && item.text.trim());
+  }
+  const text = currentChunkText();
+  return text ? [{
+    chunkId: state.selectedChunkId,
+    title: chunkTitleById(state.selectedChunkId),
+    text,
+  }] : [];
+}
+
+function currentReadingChunkId({ preferSelection = false } = {}) {
+  const selectionChunkId = preferSelection ? state.readerSelection?.chunkId : "";
+  const candidate = selectionChunkId || state.readerActiveChunkId || state.selectedChunkId;
+  return isKnownChunkId(candidate) ? candidate : state.selectedChunkId;
+}
+
+function readerDisplayChunkText(chunkId = currentReadingChunkId()) {
+  if (!chunkId) return "";
+  if (chunkId === state.selectedChunkId) return currentChunkText();
+  return String(readerDisplayChunks().find((item) => item.chunkId === chunkId)?.text || "");
+}
+
+function currentReadingChunkText({ preferSelection = false } = {}) {
+  return readerDisplayChunkText(currentReadingChunkId({ preferSelection })) || currentChunkText();
+}
+
+function currentReadingChunkObject(chunkId = currentReadingChunkId()) {
+  if (chunkId === state.selectedChunkId) return state.currentChunk?.chunk || state.currentChunk || chunkById(chunkId) || {};
+  return chunkById(chunkId) || {};
+}
+
+function setReaderActiveChunkId(chunkId = state.selectedChunkId) {
+  if (!isKnownChunkId(chunkId)) return false;
+  if (state.readerActiveChunkId === chunkId) return false;
+  state.readerActiveChunkId = chunkId;
+  return true;
+}
+
 function emptyReaderFlow() {
   return { bookId: "", anchorChunkId: "", chunks: [], totalCount: 0, complete: false, loading: false };
 }
@@ -5069,6 +5373,7 @@ function emptyReaderFlow() {
 function resetReaderFlow() {
   state.readerFlowRequestId += 1;
   state.readerFlow = emptyReaderFlow();
+  state.readerActiveChunkId = "";
 }
 
 function readerDisplayTitle(chunk = {}) {
@@ -5093,6 +5398,7 @@ function readerFlowChunkFromResult(chunkId, result) {
 
 function setReaderFlowFromCurrent(selected) {
   const ids = readerFlowChunkIds(state.selectedChunkId);
+  state.readerActiveChunkId = state.selectedChunkId;
   state.readerFlow = {
     bookId: selected?.bookId || "",
     anchorChunkId: state.selectedChunkId,
@@ -5156,12 +5462,10 @@ async function loadReaderFlow(selected) {
 }
 
 function readerDisplayText() {
-  const selected = activeBook();
-  const flow = state.readerFlow;
-  if (selected && flow.bookId === selected.bookId && flow.anchorChunkId === state.selectedChunkId && flow.chunks.length) {
-    return flow.chunks.map((item) => item.text.trim()).filter(Boolean).join("\n\n");
-  }
-  return currentChunkText();
+  const chunks = readerDisplayChunks();
+  return chunks.length
+    ? chunks.map((item) => item.text.trim()).filter(Boolean).join("\n\n")
+    : currentChunkText();
 }
 
 function compactText(value, maxChars = 1800) {
@@ -5199,6 +5503,19 @@ async function novaAutonomousCandidates(selected) {
   return candidates;
 }
 
+function readerSelectionChunkId(selection = window.getSelection?.()) {
+  const node = selection?.anchorNode || selection?.focusNode || null;
+  const element = node?.nodeType === 3 ? node.parentElement : node;
+  const section = element?.closest?.(".reader-flow-chunk");
+  return section?.dataset?.readerFlowChunkId || currentReadingChunkId();
+}
+
+function offsetInReaderChunk(chunkId, text) {
+  const source = readerDisplayChunkText(chunkId);
+  const offset = source.indexOf(text);
+  return offset >= 0 ? offset : null;
+}
+
 function selectedQuote() {
   if (state.readerSelection?.text) return state.readerSelection;
   const selection = window.getSelection?.();
@@ -5207,9 +5524,9 @@ function selectedQuote() {
   const chunkText = $("chunkText");
   const anchorInsideReader = selection.anchorNode && chunkText.contains(selection.anchorNode);
   const focusInsideReader = selection.focusNode && chunkText.contains(selection.focusNode);
-  const sourceText = readerDisplayText() || currentChunkText();
-  const offset = anchorInsideReader && focusInsideReader ? sourceText.indexOf(text) : -1;
-  return { text: text.slice(0, 500), offset: offset >= 0 ? offset : null, rect: null };
+  const chunkId = anchorInsideReader && focusInsideReader ? readerSelectionChunkId(selection) : currentReadingChunkId();
+  const offset = anchorInsideReader && focusInsideReader ? offsetInReaderChunk(chunkId, text) : null;
+  return { text: text.slice(0, 500), offset, rect: null, chunkId };
 }
 
 function liveSelectedQuote() {
@@ -5220,9 +5537,9 @@ function liveSelectedQuote() {
   const anchorInsideReader = selection.anchorNode && chunkText.contains(selection.anchorNode);
   const focusInsideReader = selection.focusNode && chunkText.contains(selection.focusNode);
   if (!anchorInsideReader || !focusInsideReader) return { text: "", offset: null, rect: null };
-  const sourceText = readerDisplayText() || currentChunkText();
-  const offset = sourceText.indexOf(text);
-  return { text: text.slice(0, 500), offset: offset >= 0 ? offset : null, rect: selectionFloatingRect(selection) };
+  const chunkId = readerSelectionChunkId(selection);
+  const offset = offsetInReaderChunk(chunkId, text);
+  return { text: text.slice(0, 500), offset, rect: selectionFloatingRect(selection), chunkId };
 }
 
 function selectionFloatingRect(selection = window.getSelection?.()) {
@@ -5306,9 +5623,10 @@ function clearEntityPeek() {
 function quotePayloadFromForm(form) {
   const selected = selectedQuote();
   const quote = String(form.get("quote") || "").trim() || selected.text;
-  const sourceText = currentChunkText();
+  const chunkId = selected.chunkId || currentReadingChunkId();
+  const sourceText = readerDisplayChunkText(chunkId);
   const offset = selected.text && quote === selected.text ? selected.offset : sourceText.indexOf(quote);
-  return { quote, quoteOffset: offset >= 0 ? offset : undefined };
+  return { quote, quoteOffset: offset >= 0 ? offset : undefined, chunkId };
 }
 
 function fillQuoteFromSelection(formId) {
@@ -5456,7 +5774,12 @@ function renderImmersiveNovaCard() {
   const ask = $("immersiveNovaAskBtn");
   const save = $("immersiveNovaSaveBtn");
   const sink = $("immersiveNovaSinkBtn");
-  if (meta) meta.textContent = quote ? `${quote.length} 字选区 · ${state.selectedChunkId}` : `当前段 · ${state.selectedChunkId || "未选择"}`;
+  const display = currentNovaDisplay();
+  if (meta) {
+    const chunkId = currentReadingChunkId();
+    const base = quote ? `${quote.length} 字选区 · ${chunkId}` : `当前段 · ${chunkId || "未选择"}`;
+    meta.textContent = display?.statusText ? `${base} · ${display.statusText}` : base;
+  }
   if (state.novaAskPending) {
     if (reply) {
       reply.className = "immersive-nova-reply empty";
@@ -5478,10 +5801,10 @@ function renderImmersiveNovaCard() {
     return;
   }
   if (reply) {
-    reply.className = state.novaReply ? "immersive-nova-reply" : "immersive-nova-reply empty";
-    reply.textContent = state.novaReply || "Nova 的回应会在这里。";
+    reply.className = display?.text ? "immersive-nova-reply" : "immersive-nova-reply empty";
+    reply.textContent = display?.text || "Nova 的回应会在这里。";
   }
-  const canUseReply = Boolean(activeBook() && state.selectedChunkId && novaReplyBelongsToCurrentChunk());
+  const canUseReply = Boolean(activeBook() && state.selectedChunkId && display?.canUseReply);
   if (save) save.disabled = !canUseReply;
   if (sink) sink.disabled = !canUseReply;
 }
@@ -5543,14 +5866,15 @@ function prepareNoteFromCurrentReading() {
   focusPanel("#userNoteForm", '#userNoteForm textarea[name="note"]');
 }
 
-async function saveUserNote({ quote, quoteOffset, note, status = "open", kind = "note" }) {
+async function saveUserNote({ quote, quoteOffset, chunkId: inputChunkId = "", note, status = "open", kind = "note" }) {
   const selected = activeBook();
-  if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和一个 chunk。");
+  const chunkId = inputChunkId || selectedQuote().chunkId || currentReadingChunkId();
+  if (!selected || !chunkId) throw new Error("请先选择一本书和一个 chunk。");
   if (!quote || !note) throw new Error("用户笔记需要引用和内容。");
   await command({
     command: "user_note_create",
     bookId: selected.bookId,
-    chunkId: state.selectedChunkId,
+    chunkId,
     quote,
     quoteOffset,
     note,
@@ -5560,14 +5884,15 @@ async function saveUserNote({ quote, quoteOffset, note, status = "open", kind = 
   });
 }
 
-async function saveAnnotation({ quote, quoteOffset, note, kind = "annotation" }) {
+async function saveAnnotation({ quote, quoteOffset, chunkId: inputChunkId = "", note, kind = "annotation" }) {
   const selected = activeBook();
-  if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和一个 chunk。");
+  const chunkId = inputChunkId || selectedQuote().chunkId || currentReadingChunkId();
+  if (!selected || !chunkId) throw new Error("请先选择一本书和一个 chunk。");
   if (!quote || !note) throw new Error("边注需要引用和内容。");
   await command({
     command: "annotate",
     bookId: selected.bookId,
-    chunkId: state.selectedChunkId,
+    chunkId,
     quote,
     quoteOffset,
     note,
@@ -7795,8 +8120,87 @@ function renderMetrics() {
   $("previewCount").textContent = String((snapshot.sinkPreviews || []).filter((item) => item.status === "pending").length);
 }
 
+function renderSkillOverview() {
+  const list = $("skillOverviewList");
+  if (!list) return;
+  const skills = Array.isArray(state.agentSkills) ? state.agentSkills : [];
+  if (!skills.length) {
+    list.className = "skill-overview-list empty";
+    list.textContent = "技能目录暂不可用；阅读器正文和本地笔记仍可继续使用。";
+    return;
+  }
+  list.className = "skill-overview-list";
+  list.innerHTML = skills.map((skill) => {
+    const tools = Array.isArray(skill.tools) ? skill.tools : [];
+    const toolLabel = tools.length ? `${tools.length} 个工具` : "无工具";
+    return `<article class="skill-card" data-skill-id="${escapeHtml(skill.id)}">
+      <div>
+        <span>${escapeHtml(skill.category || "skill")} · ${escapeHtml(toolLabel)}</span>
+        <strong>${escapeHtml(skill.label || skill.id)}</strong>
+        <p>${escapeHtml(skill.summary || "")}</p>
+        <small>${escapeHtml(skill.howToUse || "")}</small>
+      </div>
+      <button class="secondary compact" type="button" data-skill-action="${escapeHtml(skill.action || "")}">使用</button>
+    </article>`;
+  }).join("");
+}
+
+function closeSkillsPane() {
+  const pane = document.querySelector(".skills-pane");
+  const toggle = $("skillsPageToggleBtn");
+  if (!pane) return;
+  pane.hidden = true;
+  document.body.classList.remove("skills-pane-open");
+  if (toggle) toggle.setAttribute("aria-expanded", "false");
+}
+
+async function useAgentSkill(action) {
+  const selected = activeBook();
+  const hasChunk = !!selected && !!state.selectedChunkId;
+  if (action === "pre-read") {
+    if (!hasChunk) throw new Error("请先选择一本书和段落。");
+    closeSkillsPane();
+    await runNovaAutonomousReading({ manual: true });
+    focusPanel(".reader-surface", "#chunkText");
+    return;
+  }
+  if (action === "review") {
+    if (!hasChunk) throw new Error("请先选择一本书和段落。");
+    const form = $("reviewForm");
+    form.elements.startChunkId.value = currentReadingChunkId();
+    form.elements.endChunkId.value = currentReadingChunkId();
+    form.elements.summary.value = form.elements.summary.value || `读到 ${currentReadingChunkId()}：`;
+    renderReviewRangeStatus();
+    openContainingDrawer(form);
+    focusPanel("#reviewForm", '#reviewForm textarea[name="summary"]');
+    return;
+  }
+  if (action === "backtrack") {
+    if (!hasChunk) throw new Error("请先选择一本书和段落。");
+    closeSkillsPane();
+    await createBacktrackPlan(currentReadingChunkId());
+    focusPanel("#backtrackEvidence", "#backtrackEvidence");
+    return;
+  }
+  if (action === "notes") {
+    if (!hasChunk) throw new Error("请先选择一本书和段落。");
+    const quote = selectedQuote();
+    if (quote.text) fillQuoteFromSelection("userNoteForm");
+    focusPanel("#userNoteForm", '#userNoteForm textarea[name="note"]');
+    return;
+  }
+  if (action === "sink") {
+    if (!hasChunk) throw new Error("请先选择一本书和段落。");
+    closeSkillsPane();
+    const result = await createCurrentChunkSinkPreview({ focusSink: true });
+    log(`已生成本段沉淀预览: ${result.reviewId}`);
+    return;
+  }
+}
+
 function renderAll() {
   renderMetrics();
+  renderSkillOverview();
   renderBooks();
   renderChunks();
   renderReaderToc();
@@ -9444,8 +9848,8 @@ $("chunkText").addEventListener("keyup", (event) => {
   }
 });
 $("chunkText").addEventListener("scroll", () => {
-  if (state.immersiveReading && state.readerSelection?.text) renderSelectionDock();
-});
+  handleReaderScroll();
+}, { passive: true });
 window.addEventListener("resize", () => {
   if (state.immersiveReading && state.readerSelection?.text) renderSelectionDock();
 });
@@ -9555,8 +9959,8 @@ async function saveImmersiveQuickNote(kind = "note") {
   }
   button.disabled = true;
   try {
-    if (kind === "annotation") await saveAnnotation({ quote: quote.text, quoteOffset: quote.offset, note, kind: "annotation" });
-    else await saveUserNote({ quote: quote.text, quoteOffset: quote.offset, note, status: "open" });
+    if (kind === "annotation") await saveAnnotation({ quote: quote.text, quoteOffset: quote.offset, chunkId: quote.chunkId, note, kind: "annotation" });
+    else await saveUserNote({ quote: quote.text, quoteOffset: quote.offset, chunkId: quote.chunkId, note, status: "open" });
     await readSelectedChunk();
     $("immersiveQuickNote").hidden = false;
     state.quickNoteLastQuote = quote;
@@ -12006,10 +12410,8 @@ $("showTestBooksToggle")?.addEventListener("change", async (event) => {
   log(showTestBooks() ? "已显示验证书。" : "已隐藏验证书。");
 });
 $("chunkText").addEventListener("scroll", () => {
-  saveReadingSession();
-  renderReaderProgress();
-  updateReaderPageStatus();
-});
+  handleReaderScroll();
+}, { passive: true });
 $("readingMapTrack").addEventListener("click", async (event) => {
   const target = event.target.closest("button[data-chunk-id]");
   if (!target) return;
@@ -12390,10 +12792,10 @@ $("annotationForm").addEventListener("submit", async (event) => {
     return;
   }
   const form = new FormData(formEl);
-  const { quote, quoteOffset } = quotePayloadFromForm(form);
+  const { quote, quoteOffset, chunkId } = quotePayloadFromForm(form);
   const note = String(form.get("note") || "").trim();
   try {
-    await saveAnnotation({ quote, quoteOffset, note, kind: String(form.get("kind") || "annotation") });
+    await saveAnnotation({ quote, quoteOffset, chunkId, note, kind: String(form.get("kind") || "annotation") });
     formEl.reset();
     await readSelectedChunk();
   } catch (error) {
@@ -12410,10 +12812,10 @@ $("userNoteForm").addEventListener("submit", async (event) => {
     return;
   }
   const form = new FormData(formEl);
-  const { quote, quoteOffset } = quotePayloadFromForm(form);
+  const { quote, quoteOffset, chunkId } = quotePayloadFromForm(form);
   const note = String(form.get("note") || "").trim();
   try {
-    await saveUserNote({ quote, quoteOffset, note, status: String(form.get("status") || "open") });
+    await saveUserNote({ quote, quoteOffset, chunkId, note, status: String(form.get("status") || "open") });
     formEl.reset();
     await readSelectedChunk();
   } catch (error) {
@@ -12476,8 +12878,10 @@ $("narrowNovaPaneBtn").addEventListener("click", () => setNovaPaneWidth("medium"
 $("wideNovaPaneBtn").addEventListener("click", () => setNovaPaneWidth("wide"));
 $("copyNovaReplyBtn").addEventListener("click", async () => {
   try {
-    await copyTextToClipboard(state.novaReply);
-    log("已复制 Nova 回复。");
+    const display = currentNovaDisplay();
+    if (!display?.text) throw new Error("当前没有可复制的 Nova 文本。");
+    await copyTextToClipboard(display.text);
+    log(display.kind === "pre-read" ? "已复制 Nova 预读。" : "已复制 Nova 回复。");
   } catch (error) {
     log(error.message || String(error));
   }
@@ -12718,12 +13122,10 @@ $("copySinkSettingsBtn").addEventListener("click", async () => {
 });
 $("clearSinkSettingsBtn").addEventListener("click", clearSinkSettings);
 $("chunkText").addEventListener("scroll", () => {
-  saveReadingSession();
-  renderReaderProgress();
-  updateReaderPageStatus();
+  handleReaderScroll();
 }, { passive: true });
 
-void loadSinkDefaults().finally(loadSnapshot);
+void Promise.allSettled([loadSinkDefaults(), loadAgentSkills()]).finally(loadSnapshot);
 
 setInterval(() => {
   if (state.backgroundRunners.some((runner) => ["running", "waiting"].includes(runner.status))) {

@@ -25,8 +25,9 @@ const VENDOR_DIR = path.resolve(process.env.CO_READING_VENDOR_DIR || path.join(P
 const HOST = process.env.CO_READING_SIDECAR_HOST || "127.0.0.1";
 const PORT = Number(process.env.CO_READING_SIDECAR_PORT || 8791);
 const MAX_BODY_BYTES = Number(process.env.CO_READING_SIDECAR_MAX_BODY_BYTES || 2_000_000);
-const NOVA_BACKENDS = normalizeNovaBackends(process.env.CO_READING_NOVA_BACKENDS || "agent-assistant,openai");
-const NOVA_BRIDGE_URL = process.env.CO_READING_NOVA_BRIDGE_URL || "http://127.0.0.1:3100/v1/chat/completions";
+const NOVA_BACKENDS = normalizeNovaBackends(process.env.CO_READING_NOVA_BACKENDS || "vcp,bridge");
+const NOVA_VCP_URL = normalizeChatCompletionsUrl(process.env.CO_READING_NOVA_VCP_URL || "http://127.0.0.1:6005/v1/chat/completions");
+const NOVA_BRIDGE_URL = normalizeChatCompletionsUrl(process.env.CO_READING_NOVA_BRIDGE_URL || "http://127.0.0.1:3100/v1/chat/completions");
 const NOVA_AGENT_URL = normalizeAgentAssistantUrl(process.env.CO_READING_NOVA_AGENT_URL || "http://127.0.0.1:6005/v1/human/tool");
 const NOVA_AGENT_NAME = process.env.CO_READING_NOVA_AGENT_NAME || "Nova";
 const NOVA_AGENT_MAID = process.env.CO_READING_NOVA_AGENT_MAID || "Nova";
@@ -36,6 +37,7 @@ const NOVA_AGENT_INJECT_TOOLS = process.env.CO_READING_NOVA_AGENT_INJECT_TOOLS |
 const NOVA_MODEL = process.env.CO_READING_NOVA_MODEL || "gpt-5.5";
 const NOVA_GUIDE_PATH = process.env.CO_READING_NOVA_GUIDE_PATH || path.join(PROMPTS_DIR, "CoReadingNovaGuide.txt");
 const NOVA_TIMEOUT_MS = Math.max(3000, Math.min(600000, Number(process.env.CO_READING_NOVA_TIMEOUT_MS || 360000)));
+const NOVA_FALLBACK_TIMEOUT_MS = Math.max(800, Math.min(60000, Number(process.env.CO_READING_NOVA_FALLBACK_TIMEOUT_MS || 1500)));
 const LOCAL_LIBRARY_DIR = path.resolve(process.env.CO_READING_LIBRARY_DIR || "D:\\书库");
 
 process.env.READING_MCP_DATA_DIR = DATA_DIR;
@@ -515,9 +517,9 @@ function postJson(url, payload, headers = {}, { timeoutMs = 30000, label = "requ
             json = { raw: text };
           }
           if (res.statusCode >= 400) {
-            const error = new Error(json.error?.message || json.error || `Nova bridge HTTP ${res.statusCode}`);
+            const error = new Error(json.error?.message || json.error || `${label} HTTP ${res.statusCode}`);
             error.statusCode = 502;
-            error.details = { bridgeStatus: res.statusCode, body: json };
+            error.details = { httpStatus: res.statusCode, label, body: json };
             finish(reject, error);
             return;
           }
@@ -616,17 +618,29 @@ function normalizeNovaBackends(value) {
     ["agent", "agent-assistant"],
     ["assistant", "agent-assistant"],
     ["agent_assistant", "agent-assistant"],
-    ["6005", "agent-assistant"],
-    ["bridge", "openai"],
-    ["chat", "openai"],
-    ["chat-completions", "openai"],
-    ["3100", "openai"]
+    ["6005", "vcp"],
+    ["vcp-chat", "vcp"],
+    ["vcp_chat", "vcp"],
+    ["vcp-openai", "vcp"],
+    ["vcp_openai", "vcp"],
+    ["bridge", "bridge"],
+    ["3100", "bridge"],
+    ["openai", "bridge"],
+    ["chat", "bridge"],
+    ["chat-completions", "bridge"]
   ]);
   const backends = String(value || "")
     .split(/[,\s]+/u)
     .map((item) => aliases.get(item.trim().toLowerCase()) || item.trim().toLowerCase())
-    .filter((item) => item === "agent-assistant" || item === "openai");
-  return [...new Set(backends)].length ? [...new Set(backends)] : ["agent-assistant", "openai"];
+    .filter((item) => item === "vcp" || item === "bridge" || item === "agent-assistant");
+  return [...new Set(backends)].length ? [...new Set(backends)] : ["vcp", "bridge"];
+}
+
+function normalizeChatCompletionsUrl(value) {
+  const raw = String(value || "").trim();
+  if (/\/v1\/chat\/completions\/?$/u.test(raw)) return raw.replace(/\/$/u, "");
+  const base = raw.replace(/\/+$/u, "").replace(/\/v1$/u, "");
+  return `${base}/v1/chat/completions`;
 }
 
 function normalizeAgentAssistantUrl(value) {
@@ -636,14 +650,38 @@ function normalizeAgentAssistantUrl(value) {
   return `${base}/v1/human/tool`;
 }
 
+function novaApiKeyRecord() {
+  const candidates = [
+    ["CO_READING_NOVA_API_KEY", process.env.CO_READING_NOVA_API_KEY],
+    ["VCP_API_KEY", process.env.VCP_API_KEY],
+    ["VCP_Key", process.env.VCP_Key],
+    ["VCP_KEY", process.env.VCP_KEY],
+    ["VCP_SERVER_ACCESS_KEY", process.env.VCP_SERVER_ACCESS_KEY]
+  ];
+  const found = candidates.find(([, value]) => String(value || "").trim());
+  return found ? { source: found[0], value: String(found[1]).trim() } : { source: "", value: "" };
+}
+
 function novaApiKey() {
-  return process.env.CO_READING_NOVA_API_KEY || process.env.VCP_API_KEY || "";
+  return novaApiKeyRecord().value;
+}
+
+function novaApiKeySource() {
+  return novaApiKeyRecord().source;
 }
 
 function novaRequestTimeoutMs(body = {}) {
   const requested = Number(body.timeoutMs || body.clientTimeoutMs || 0);
   if (!Number.isFinite(requested) || requested <= 0) return NOVA_TIMEOUT_MS;
   return Math.max(3000, Math.min(NOVA_TIMEOUT_MS, requested));
+}
+
+function novaAttemptTimeoutMs(backend, index, totalTimeoutMs) {
+  if (backend === "bridge" && NOVA_BACKENDS.includes("vcp") && NOVA_BACKENDS.length > 1) {
+    return Math.min(NOVA_FALLBACK_TIMEOUT_MS, totalTimeoutMs);
+  }
+  if (index === 0 || NOVA_BACKENDS.length === 1) return totalTimeoutMs;
+  return Math.max(3000, Math.min(totalTimeoutMs, NOVA_FALLBACK_TIMEOUT_MS * 4));
 }
 
 function novaSessionId(context = {}) {
@@ -745,22 +783,47 @@ function classifyNovaResponse(backend, result) {
 }
 
 function novaAttemptError(backend, error) {
+  const upstreamStatus = error.details?.httpStatus || error.details?.agentStatus || error.details?.bridgeStatus || null;
+  const timeout = error.code === "ETIMEDOUT" || error.statusCode === 504;
+  const unauthorized = upstreamStatus === 401 || upstreamStatus === 403;
   return {
     backend,
-    kind: error.code === "ECONNREFUSED" ? "connection_refused" : error.code === "ETIMEDOUT" ? "timeout" : "transport_error",
+    kind: error.code === "ECONNREFUSED"
+      ? "connection_refused"
+      : timeout
+        ? "timeout"
+        : unauthorized
+          ? "unauthorized"
+          : upstreamStatus
+            ? "upstream_http_error"
+            : "transport_error",
     message: error.message || String(error),
     statusCode: error.statusCode || null,
+    upstreamStatus,
     details: error.details || null
   };
 }
 
 function novaFailureResult(body, attempts, timeoutMs = NOVA_TIMEOUT_MS) {
+  const vcpFailure = attempts.find((attempt) => attempt.backend === "vcp");
+  const bridgeFailure = attempts.find((attempt) => attempt.backend === "bridge");
+  const agentFailure = attempts.find((attempt) => attempt.backend === "agent-assistant");
+  const failed = [
+    vcpFailure ? "6005 VCP 模型接口" : "",
+    bridgeFailure ? "3100 bridge" : "",
+    agentFailure ? "6005 AgentAssistant" : ""
+  ].filter(Boolean);
+  const authFailed = attempts.some((attempt) => attempt.kind === "unauthorized");
+  const statusHint = failed.length ? `${failed.join("、")}没有返回可用文本。` : "Nova 后端没有返回可用文本。";
   return {
     status: "error",
     model: body.model || NOVA_MODEL,
     timeoutMs,
+    fallbackTimeoutMs: NOVA_FALLBACK_TIMEOUT_MS,
     backendAttempts: attempts,
-    error: "Nova 当前不可用：6005 AgentAssistant 与 3100/OpenAI 兼容后端都没有返回可用文本。"
+    error: authFailed
+      ? "Nova 当前不可用：VCP 鉴权未通过。请确认 VCP_Key、VCP_API_KEY 或 CO_READING_NOVA_API_KEY。阅读和本地笔记仍可继续。"
+      : `Nova 当前不可用：${statusHint}阅读和本地笔记仍可继续。`
   };
 }
 
@@ -858,9 +921,9 @@ function buildNovaAgentPrompt(body, novaGuide) {
   ].filter(Boolean).join("\n");
 }
 
-async function askNovaViaOpenAi(body, messages, apiKey, timeoutMs) {
+async function askNovaViaChatBackend(backend, url, body, messages, apiKey, timeoutMs) {
   const raw = await postJson(
-    NOVA_BRIDGE_URL,
+    url,
     {
       model: body.model || NOVA_MODEL,
       messages,
@@ -870,13 +933,14 @@ async function askNovaViaOpenAi(body, messages, apiKey, timeoutMs) {
       metadata: {
         source: "CoReadingMCP",
         interaction: "single-short-reading-ask",
+        backend,
         timeoutMs
       }
     },
     apiKey ? { authorization: `Bearer ${apiKey}` } : {},
-    { timeoutMs, label: "Nova OpenAI bridge request" }
+    { timeoutMs, label: backend === "vcp" ? "Nova VCP model request" : "Nova 3100 bridge request" }
   );
-  return { raw, classified: classifyNovaResponse("openai", raw) };
+  return { raw, classified: classifyNovaResponse(backend, raw) };
 }
 
 async function askNovaViaAgentAssistant(body, prompt, apiKey, timeoutMs) {
@@ -898,15 +962,24 @@ async function askNova(body) {
   const agentPrompt = buildNovaAgentPrompt(body, novaGuide);
   const attempts = [];
 
-  for (const backend of NOVA_BACKENDS) {
+  for (const [index, backend] of NOVA_BACKENDS.entries()) {
+    const attemptTimeoutMs = novaAttemptTimeoutMs(backend, index, timeoutMs);
     try {
       const result = backend === "agent-assistant"
-        ? await askNovaViaAgentAssistant(body, agentPrompt, apiKey, timeoutMs)
-        : await askNovaViaOpenAi(body, messages, apiKey, timeoutMs);
+        ? await askNovaViaAgentAssistant(body, agentPrompt, apiKey, attemptTimeoutMs)
+        : await askNovaViaChatBackend(
+          backend,
+          backend === "vcp" ? NOVA_VCP_URL : NOVA_BRIDGE_URL,
+          body,
+          messages,
+          apiKey,
+          attemptTimeoutMs
+        );
       const attempt = {
         backend,
         kind: result.classified.kind,
         ok: result.classified.ok,
+        timeoutMs: attemptTimeoutMs,
         status: result.raw?.status || null,
         id: result.raw?.id || result.raw?.job_id || result.raw?.task_id || result.raw?.run_id || null
       };
@@ -917,6 +990,7 @@ async function askNova(body) {
           backend,
           model: body.model || NOVA_MODEL,
           timeoutMs,
+          fallbackTimeoutMs: NOVA_FALLBACK_TIMEOUT_MS,
           content: result.classified.content,
           backendAttempts: attempts,
           raw: result.raw
@@ -924,7 +998,7 @@ async function askNova(body) {
       }
       attempts.push({ ...attempt, ...result.classified });
     } catch (error) {
-      attempts.push(novaAttemptError(backend, error));
+      attempts.push({ ...novaAttemptError(backend, error), timeoutMs: attemptTimeoutMs });
     }
   }
 
@@ -1335,6 +1409,62 @@ function listPiAgentTools(filters = {}) {
     .map(agentToolDefinition);
 }
 
+const NOVA_AGENT_SKILL_DEFINITIONS = [
+  {
+    id: "autonomous-reading",
+    label: "Nova 自主预读",
+    category: "reading",
+    summary: "Nova 自动读取当前段附近候选，先留下短旁注；用户可以继续看正文，不需要先提问。",
+    howToUse: "打开一本书后直接阅读；自动预读开启时 Nova 会在当前段先读，手动可点“Nova 预读”。",
+    action: "pre-read",
+    toolNames: ["reading_list_chunks", "reading_read_chunk"]
+  },
+  {
+    id: "range-review",
+    label: "章节/段落评注",
+    category: "reading",
+    summary: "把当前段、选区或一小段范围整理成可回看的 review，作为沉淀前的判断层。",
+    howToUse: "选中原文或定位当前段，点“写评注”；补一句判断后可生成沉淀预览。",
+    action: "review",
+    toolNames: ["review_create", "reading_read_chunk"]
+  },
+  {
+    id: "interest-backtrack",
+    label: "兴趣点回溯",
+    category: "search",
+    summary: "围绕一个词、问题或当前段，回溯有限范围内的相关 evidence，不塞整本书。",
+    howToUse: "选中词句或在搜索框输入线索，点“追线索”；结果可以继续做成沉淀预览。",
+    action: "backtrack",
+    toolNames: ["interest_backtrack", "reading_search", "vcp_any_search", "vcp_jina_reader"]
+  },
+  {
+    id: "reading-notes",
+    label: "边注与私有笔记",
+    category: "reading",
+    summary: "用户可以写自己的笔记，Nova 可以留下短边注；两者都锚定到当前段或选区。",
+    howToUse: "选中文本后点“记笔记”或“写边注”；私有笔记可再提交给 Nova 回应。",
+    action: "notes",
+    toolNames: ["vcp_file_read", "vcp_file_search"]
+  },
+  {
+    id: "safe-sink",
+    label: "Obsidian/日记沉淀",
+    category: "diary",
+    summary: "把评注、回溯或本次阅读会话做成待批准 preview，再执行写入。",
+    howToUse: "点“沉淀本段”或“沉淀回溯”；先看预览，批准后才允许写入目标位置。",
+    action: "sink",
+    toolNames: ["sink_preview_create", "backtrack_sink_preview_create", "sink_preview_approve", "sink_execute"]
+  }
+];
+
+function listNovaAgentSkills() {
+  const tools = new Map(listPiAgentTools().map((tool) => [tool.name, tool]));
+  return NOVA_AGENT_SKILL_DEFINITIONS.map((skill) => ({
+    ...skill,
+    tools: (skill.toolNames || []).map((name) => tools.get(name)).filter(Boolean)
+  }));
+}
+
 function findPiAgentTool(name) {
   const tool = VCP_AGENT_PLUGIN_TOOLS.get(normalizeAgentToolName(name));
   if (!tool) {
@@ -1624,6 +1754,9 @@ function normalizeNovaAgentRun(run = {}) {
       note: compactText(result.note || result.content || "", 9000),
       chosenChunkId: String(result.chosenChunkId || run.chunkId || ""),
       candidates: Array.isArray(result.candidates) ? result.candidates.slice(0, 8) : [],
+      backend: String(result.backend || ""),
+      model: String(result.model || ""),
+      backendAttempts: Array.isArray(result.backendAttempts) ? result.backendAttempts.slice(0, 8) : [],
       contextMode: String(result.contextMode || run.contextMode || "agent"),
       prompt: compactText(result.prompt || run.prompt || "", 1200),
       backtrack: compactStructuredValue(result.backtrack, 26000),
@@ -1653,11 +1786,20 @@ function listNovaAgentRuns(filters = {}) {
   const limit = normalizeListLimit(filters.limit, 50);
   return readNovaAgentStore().runs
     .map(normalizeNovaAgentRun)
+    .filter((run) => !filters.runId || run.id === String(filters.runId))
     .filter((run) => !filters.bookId || run.bookId === String(filters.bookId))
     .filter((run) => !filters.chunkId || run.chunkId === String(filters.chunkId))
     .filter((run) => !filters.action || run.action === normalizeAgentAction(filters.action))
     .sort((a, b) => String(b.completedAt || b.startedAt).localeCompare(String(a.completedAt || a.startedAt)))
     .slice(0, limit);
+}
+
+function pendingNovaAgentRun(action, payload = {}) {
+  const normalized = normalizeAgentAction(action);
+  const bookId = String(payload.bookId || "").trim();
+  const chunkId = String(payload.chunkId || payload.anchorChunkId || "").trim();
+  return listNovaAgentRuns({ action: normalized, bookId, chunkId, limit: NOVA_AGENT_HISTORY_LIMIT })
+    .find((run) => run.status === "running" || run.status === "queued") || null;
 }
 
 function publicToolResult(name, status, details = {}) {
@@ -1806,6 +1948,9 @@ async function runNovaPreReadAgent(payload) {
       note: nova.content || "Nova 暂无文本回复。",
       chosenChunkId: chunkId,
       candidates,
+      backend: nova.backend || "",
+      model: nova.model || "",
+      backendAttempts: Array.isArray(nova.backendAttempts) ? nova.backendAttempts : [],
       contextMode: "autonomous-reading",
       prompt
     };
@@ -2252,6 +2397,7 @@ async function handleApi(req, res, url) {
       vendorDir: VENDOR_DIR,
       localLibraryDir: LOCAL_LIBRARY_DIR,
       novaBackends: NOVA_BACKENDS,
+      novaVcpUrl: NOVA_VCP_URL,
       novaBridgeUrl: NOVA_BRIDGE_URL,
       novaAgentUrl: NOVA_AGENT_URL,
       novaAgentName: NOVA_AGENT_NAME,
@@ -2259,11 +2405,14 @@ async function handleApi(req, res, url) {
       novaAgentSessionScope: NOVA_AGENT_SESSION_SCOPE,
       novaAgentInjectTools: NOVA_AGENT_INJECT_TOOLS,
       novaTimeoutMs: NOVA_TIMEOUT_MS,
+      novaFallbackTimeoutMs: NOVA_FALLBACK_TIMEOUT_MS,
+      novaAuthSource: novaApiKeySource(),
       novaGuidePath: NOVA_GUIDE_PATH,
       novaSkillPromptDir: NOVA_SKILL_PROMPTS_DIR,
       novaSkillGuideCount: readNovaSkillGuides().count,
       sinkDefaults: configuredSinkDefaults(),
       agentToolCount: listPiAgentTools().length,
+      agentSkillCount: listNovaAgentSkills().length,
       runnerJobsPath: RUNNER_JOBS_PATH,
       novaAgentRunsPath: NOVA_AGENT_RUNS_PATH,
       novaAgentRunCount: listNovaAgentRuns({ limit: NOVA_AGENT_HISTORY_LIMIT }).length,
@@ -2325,6 +2474,13 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, {
       status: "success",
       tools: listPiAgentTools({ category: url.searchParams.get("category") || "" })
+    });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/agent/skills") {
+    return sendJson(res, 200, {
+      status: "success",
+      skills: listNovaAgentSkills()
     });
   }
 

@@ -28,26 +28,28 @@ Invoke-RestMethod http://127.0.0.1:8791/api/snapshot
 
 ## Nova 接入
 
-Sidecar 默认优先调用 VCP `6005` 的 `AgentAssistant`，失败后再尝试 `3100` 的 OpenAI 兼容 bridge：
+Sidecar 默认优先调用 VCP `6005` 的 OpenAI 兼容模型接口，失败后再短探测 `3100` bridge：
 
 ```text
-http://127.0.0.1:6005/v1/human/tool
+http://127.0.0.1:6005/v1/chat/completions
 http://127.0.0.1:3100/v1/chat/completions
 ```
 
 可用环境变量覆盖：
 
-- `VCP_API_KEY` 或 `CO_READING_NOVA_API_KEY`：Nova/VCP 访问 key。
-- `CO_READING_NOVA_BACKENDS`：Nova 后端顺序，默认 `agent-assistant,openai`；可设为 `openai` 只走 3100。
-- `CO_READING_NOVA_AGENT_URL`：AgentAssistant 地址，默认 `http://127.0.0.1:6005/v1/human/tool`。
-- `CO_READING_NOVA_AGENT_NAME`：AgentAssistant 目标 agent，默认 `Nova`。
-- `CO_READING_NOVA_AGENT_MAID`：VCP 工具请求中的 `maid`，默认 `Nova`。
+- `VCP_API_KEY`、`VCP_Key` 或 `CO_READING_NOVA_API_KEY`：Nova/VCP 访问 key。
+- `CO_READING_NOVA_BACKENDS`：Nova 后端顺序，默认 `vcp,bridge`；可设为 `vcp` 只走 6005，或显式追加 `agent-assistant`。
+- `CO_READING_NOVA_VCP_URL`：VCP 模型接口，默认 `http://127.0.0.1:6005/v1/chat/completions`。
+- `CO_READING_NOVA_BRIDGE_URL`：3100 bridge chat completions 地址，默认 `http://127.0.0.1:3100/v1/chat/completions`。
+- `CO_READING_NOVA_AGENT_URL`：可选 AgentAssistant 地址，默认 `http://127.0.0.1:6005/v1/human/tool`。
+- `CO_READING_NOVA_AGENT_NAME`：可选 AgentAssistant 目标 agent，默认 `Nova`。
+- `CO_READING_NOVA_AGENT_MAID`：可选 AgentAssistant 工具请求中的 `maid`，默认 `Nova`。
 - `CO_READING_NOVA_AGENT_SESSION`：读书会话前缀，默认 `coreading-reader`。
 - `CO_READING_NOVA_AGENT_SESSION_SCOPE`：会话范围，默认 `book`；可选 `global`、`book`、`chunk`。
 - `CO_READING_NOVA_AGENT_INJECT_TOOLS`：临时注入工具，默认 `CoReadingMCP,AnySearch,JinaReader,FileOperator`。
-- `CO_READING_NOVA_BRIDGE_URL`：OpenAI 兼容 chat completions 地址，默认 3100。
 - `CO_READING_NOVA_MODEL`：默认 `gpt-5.5`。
 - `CO_READING_NOVA_TIMEOUT_MS`：Nova 单次请求超时，默认 `360000`；前端默认等待 6 分钟，不自动连环重试。
+- `CO_READING_NOVA_FALLBACK_TIMEOUT_MS`：非主路后端短探测超时，默认 `1500`，避免 3100 不可用时拖住阅读。
 - `CO_READING_NOVA_GUIDE_PATH`：读书 Nova 行为提示词路径；默认 `prompts\CoReadingNovaGuide.txt`。
 - `CO_READING_NOVA_SKILL_PROMPTS_DIR`：读书 Nova 工具技能提示词目录；默认 `prompts\skills`。
 
@@ -296,7 +298,7 @@ Sidecar 提供轻量 Agent API，用现有 VCP/Nova 接口执行读书任务：
 - `GET /api/agent/runs?bookId=...&chunkId=...&action=pre_read`：读取 Agent 运行历史。
 - `/api/snapshot` 会带出最近 `agentRuns`，前端据此显示“Nova 已先读”、本段回看和阅读足迹。
 
-`pre_read` 会由后端读取 `list_chunks/read_chunk`，挑选当前段附近候选段，再调用 `/api/nova/ask` 所用的 Nova bridge。相同 `action/bookId/chunkId` 正在执行时，sidecar 复用同一个运行 promise，不会并发重复请求 Nova；需要强制重跑时可传 `force:true`。
+`pre_read` 会由后端读取 `list_chunks/read_chunk`，挑选当前段附近候选段，再调用 `/api/nova/ask` 所用的 Nova 后端链路。相同 `action/bookId/chunkId` 正在执行时，sidecar 复用同一个运行 promise，不会并发重复请求 Nova；需要强制重跑时可传 `force:true`。
 
 `interest_backtrack` 会把搜索/回溯/沉淀都记成一条 Agent trace，默认通过 `interest_backtrack` 工具返回 bounded evidence，再由 `backtrack_sink_preview_create` 或 `sink_preview_create` 进入沉淀链路。`tool_call` 则把 `AnySearch`、`JinaReader`、`FileOperator` 的只读子集，以及 `sink_preview_*`、`obsidian_note_*` 这类共读动作统一成一层 Pi 风格工具背包。直接 spawn VCP 插件时，sidecar 会合并 VCP 根 `config.env` 和插件自己的 `config.env`，模拟 VCP 主程序加载配置的方式。
 
