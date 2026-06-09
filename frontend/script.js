@@ -225,6 +225,30 @@ function visibleBooks() {
   return showTestBooks() ? books : books.filter((book) => !isTestBook(book));
 }
 
+function normalizeBookTitleKey(book) {
+  const title = String(book?.title || book?.bookId || "").trim().toLocaleLowerCase("zh-CN");
+  const author = String(book?.author || "").trim().toLocaleLowerCase("zh-CN");
+  return `${title}::${author}`;
+}
+
+function duplicateBookIndex(books = visibleBooks()) {
+  const groups = new Map();
+  for (const book of books) {
+    const key = normalizeBookTitleKey(book);
+    if (!key || key === "::") continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(book.bookId);
+  }
+  return groups;
+}
+
+function duplicateBookLabel(book, groups = duplicateBookIndex()) {
+  const group = groups.get(normalizeBookTitleKey(book)) || [];
+  if (group.length <= 1) return "";
+  const index = group.indexOf(book.bookId);
+  return `重复 ${group.length} 本 · 当前 ${index >= 0 ? index + 1 : 1}/${group.length}`;
+}
+
 function chooseInitialBook(snapshot, saved) {
   const books = (snapshot?.books || []).filter((book) => showTestBooks() || !isTestBook(book));
   if (!books.length) return null;
@@ -984,6 +1008,7 @@ function renderPlanGuide() {
 function renderBooks() {
   const allBooks = state.snapshot?.books || [];
   const books = visibleBooks();
+  const duplicates = duplicateBookIndex(books);
   const list = $("bookList");
   renderReaderBookSelect();
   const showToggle = $("showTestBooksToggle");
@@ -1008,11 +1033,18 @@ function renderBooks() {
   list.innerHTML = "";
   for (const book of books) {
     const session = readSavedReadingSessionForBook(book.bookId);
+    const duplicateLabel = duplicateBookLabel(book, duplicates);
+    const meta = [
+      book.bookId,
+      `${book.chunkCount || 0} chunks`,
+      duplicateLabel,
+      session?.chunkId ? `继续 ${session.chunkId}` : "",
+    ].filter(Boolean).join(" · ");
     const row = document.createElement("article");
     row.className = `book-row ${book.bookId === selected.bookId ? "active" : ""}`;
     row.innerHTML = `
       <button class="book-select" type="button">
-        <span><strong>${escapeHtml(book.title || book.bookId)}</strong><small>${escapeHtml(book.bookId)} · ${book.chunkCount || 0} chunks${session?.chunkId ? ` · 继续 ${escapeHtml(session.chunkId)}` : ""}</small></span>
+        <span><strong>${escapeHtml(book.title || book.bookId)}</strong><small>${escapeHtml(meta)}</small></span>
         <b>${progressPercent(book)}%</b>
       </button>
       <button class="secondary" type="button" data-action="copy-book-progress" data-id="${escapeHtml(book.bookId)}">复制进度</button>
@@ -1028,6 +1060,7 @@ function renderReaderBookSelect() {
   const select = $("readerBookSelect");
   if (!select) return;
   const books = visibleBooks();
+  const duplicates = duplicateBookIndex(books);
   select.innerHTML = "";
   if (!books.length) {
     select.disabled = true;
@@ -1038,7 +1071,9 @@ function renderReaderBookSelect() {
   for (const book of books) {
     const session = readSavedReadingSessionForBook(book.bookId);
     const resume = session?.chunkId ? ` · 继续 ${session.chunkId}` : "";
-    select.appendChild(new Option(`${book.title || book.bookId} · ${progressPercent(book)}%${resume}`, book.bookId));
+    const duplicate = duplicateBookLabel(book, duplicates);
+    const duplicateText = duplicate ? ` · ${duplicate}` : "";
+    select.appendChild(new Option(`${book.title || book.bookId} · ${progressPercent(book)}%${duplicateText}${resume}`, book.bookId));
   }
   const selected = activeBook();
   if (selected?.bookId) select.value = selected.bookId;
