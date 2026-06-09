@@ -44,6 +44,7 @@ const state = {
   entityPeek: null,
   selfCheck: { variant: 0, hintVisible: false },
   readingFocus: false,
+  readerFootprintsOpen: false,
   readingVisit: { bookId: "", startedAt: 0, completedChunks: 0, targetChunks: 3 },
   lastCompletedChunk: null,
   restartUndo: null,
@@ -2536,6 +2537,22 @@ function currentReaderFootprintCount() {
   return rail.querySelectorAll(".footprint-card").length;
 }
 
+function setReaderFootprintsOpen(open) {
+  const hasFootprints = currentReaderFootprintCount() > 0;
+  state.readerFootprintsOpen = Boolean(open && hasFootprints);
+  document.body.classList.toggle("reader-footprints-open", state.readerFootprintsOpen);
+  const button = $("readerFootprintsBtn");
+  if (button) {
+    button.disabled = !hasFootprints;
+    button.setAttribute("aria-expanded", state.readerFootprintsOpen ? "true" : "false");
+    button.textContent = hasFootprints ? `足迹 ${currentReaderFootprintCount()}` : "足迹";
+  }
+}
+
+function toggleReaderFootprints() {
+  setReaderFootprintsOpen(!state.readerFootprintsOpen);
+}
+
 function currentReadingFootprintItems(limit = 7) {
   const text = readerDisplayText() || currentChunkText();
   const anchored = readingFootprintRanges(text).map(({ id, item }) => ({ id, item, anchored: true }));
@@ -3602,14 +3619,16 @@ function renderReadingFootprints(ranges) {
   if (!items.length) {
     rail.className = "reading-footprints empty";
     rail.textContent = "暂无高亮足迹";
+    setReaderFootprintsOpen(false);
     renderImmersiveReadingMemory();
     return;
   }
   rail.className = "reading-footprints";
   rail.innerHTML = [
-    '<button class="footprints-close" type="button" data-action="close-immersive-footprints">关闭</button>',
+    '<button class="footprints-close" type="button" data-action="close-footprints">关闭</button>',
     ...items.map((item, index) => renderFootprintButton({ ...item, index })),
   ].join("");
+  setReaderFootprintsOpen(state.readerFootprintsOpen);
   renderImmersiveReadingMemory();
 }
 
@@ -8856,7 +8875,8 @@ document.addEventListener("click", (event) => {
 $("readingFootprints").addEventListener("click", async (event) => {
   const target = event.target.closest("button");
   if (!target) return;
-  if (target.dataset.action === "close-immersive-footprints") {
+  if (target.dataset.action === "close-footprints") {
+    setReaderFootprintsOpen(false);
     closeImmersiveFootprints();
     focusPanel(".reader-surface", "#chunkText");
     return;
@@ -11818,6 +11838,7 @@ $("readingNowAskBtn").addEventListener("click", () => {
 $("readingNowNoteBtn").addEventListener("click", () => {
   prepareNoteFromCurrentReading();
 });
+$("readerFootprintsBtn").addEventListener("click", toggleReaderFootprints);
 $("copyChunkIndexBtn").addEventListener("click", async () => {
   $("copyChunkIndexBtn").disabled = true;
   try {
