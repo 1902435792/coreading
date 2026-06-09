@@ -1258,6 +1258,7 @@ function ensureRuntimeEnv() {
   }
   fs.mkdirSync(dataDir, { recursive: true });
   process.env.READING_MCP_DATA_DIR = dataDir;
+  process.env.READING_IMPORT_MAX_BYTES = process.env.READING_IMPORT_MAX_BYTES || "100000000";
   return { vendorDir, dataDir };
 }
 

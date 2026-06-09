@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 
@@ -23,6 +24,9 @@ const NOVA_BRIDGE_URL = process.env.CO_READING_NOVA_BRIDGE_URL || "http://127.0.
 const NOVA_MODEL = process.env.CO_READING_NOVA_MODEL || "gpt-5.5";
 
 process.env.READING_MCP_DATA_DIR = DATA_DIR;
+process.env.READING_IMPORT_MAX_BYTES = process.env.READING_IMPORT_MAX_BYTES || "100000000";
+const IMPORT_MAX_BYTES = Number(process.env.READING_IMPORT_MAX_BYTES || 100_000_000);
+const UPLOAD_SESSIONS = new Map();
 
 function configuredSinkDefaults() {
   const defaults = {
@@ -44,6 +48,10 @@ const ALLOWED_COMMANDS = new Set([
   "read_chunk",
   "continue",
   "import_file",
+  "import_begin",
+  "import_part",
+  "import_finish",
+  "import_cancel",
   "list_annotations",
   "annotate",
   "user_note_create",
@@ -164,6 +172,133 @@ function parseJsonBlock(text) {
   const objectMatch = raw.match(/\n(\{[\s\S]*\})\s*$/);
   if (objectMatch) return JSON.parse(objectMatch[1]);
   return null;
+}
+
+function sidecarUploadDir(uploadId) {
+  return path.join(DATA_DIR, "uploads", "sidecar", uploadId);
+}
+
+function importOptionPayload(payload, extra = {}) {
+  return {
+    filename: payload.filename,
+    format: payload.format,
+    bookId: payload.bookId,
+    title: payload.title,
+    author: payload.author,
+    maxChars: payload.maxChars,
+    headingRegex: payload.headingRegex,
+    minSectionChars: payload.minSectionChars,
+    overwrite: payload.overwrite,
+    ...extra
+  };
+}
+
+async function beginSidecarImport(payload) {
+  if (!payload.filename) throw new Error("filename 是必需参数。");
+  const expectedBytes = Number(payload.expectedBytes || 0) || null;
+  if (expectedBytes && expectedBytes > IMPORT_MAX_BYTES) {
+    const error = new Error(`Imported file exceeds ${IMPORT_MAX_BYTES} bytes`);
+    error.statusCode = 413;
+    throw error;
+  }
+  const uploadId = crypto.randomUUID();
+  const dir = sidecarUploadDir(uploadId);
+  await fs.promises.mkdir(dir, { recursive: true });
+  const filePath = path.join(dir, "upload.bin");
+  await fs.promises.writeFile(filePath, "");
+  UPLOAD_SESSIONS.set(uploadId, {
+    uploadId,
+    filePath,
+    dir,
+    options: importOptionPayload(payload),
+    expectedBytes,
+    bytes: 0,
+    parts: 0,
+    createdAt: new Date().toISOString()
+  });
+  return {
+    status: "success",
+    command: "import_begin",
+    data: {
+      uploadId,
+      filename: payload.filename,
+      expectedBytes,
+      maxImportBytes: IMPORT_MAX_BYTES,
+      message: "Sidecar upload started."
+    },
+    raw: null,
+    stderr: null
+  };
+}
+
+async function appendSidecarImportPart(payload) {
+  const uploadId = String(payload.uploadId || "");
+  const session = UPLOAD_SESSIONS.get(uploadId);
+  if (!session) throw new Error(`Unknown uploadId: ${uploadId}`);
+  if (payload.index !== undefined && Number(payload.index) !== session.parts) {
+    throw new Error(`Unexpected part index ${payload.index}; expected ${session.parts}`);
+  }
+  const buffer = Buffer.from(String(payload.dataBase64 || ""), "base64");
+  if (!buffer.length) throw new Error("Import part is empty");
+  if (session.bytes + buffer.length > IMPORT_MAX_BYTES) {
+    const error = new Error(`Imported file exceeds ${IMPORT_MAX_BYTES} bytes`);
+    error.statusCode = 413;
+    throw error;
+  }
+  await fs.promises.appendFile(session.filePath, buffer);
+  session.bytes += buffer.length;
+  session.parts += 1;
+  return {
+    status: "success",
+    command: "import_part",
+    data: { uploadId, bytes: session.bytes, parts: session.parts, done: false },
+    raw: null,
+    stderr: null
+  };
+}
+
+async function finishSidecarImport(payload) {
+  const uploadId = String(payload.uploadId || "");
+  const session = UPLOAD_SESSIONS.get(uploadId);
+  if (!session) throw new Error(`Unknown uploadId: ${uploadId}`);
+  const info = await fs.promises.stat(session.filePath);
+  if (info.size === 0) throw new Error("Imported file is empty");
+  if (session.expectedBytes && info.size !== session.expectedBytes) {
+    throw new Error(`Uploaded ${info.size} bytes, expected ${session.expectedBytes}`);
+  }
+  const dataBase64 = (await fs.promises.readFile(session.filePath)).toString("base64");
+  try {
+    const result = await runWrapper({
+      command: "import_file",
+      ...session.options,
+      dataBase64
+    });
+    UPLOAD_SESSIONS.delete(uploadId);
+    await fs.promises.rm(session.dir, { recursive: true, force: true });
+    return { ...result, command: "import_finish" };
+  } catch (error) {
+    throw error;
+  }
+}
+
+async function cancelSidecarImport(payload) {
+  const uploadId = String(payload.uploadId || "");
+  const session = UPLOAD_SESSIONS.get(uploadId);
+  if (!session) {
+    return { status: "success", command: "import_cancel", data: { uploadId, cancelled: false }, raw: null, stderr: null };
+  }
+  UPLOAD_SESSIONS.delete(uploadId);
+  await fs.promises.rm(session.dir, { recursive: true, force: true });
+  return { status: "success", command: "import_cancel", data: { uploadId, cancelled: true }, raw: null, stderr: null };
+}
+
+async function runCommand(payload) {
+  const command = String(payload.command || "").trim();
+  if (command === "import_begin") return beginSidecarImport(payload);
+  if (command === "import_part") return appendSidecarImportPart(payload);
+  if (command === "import_finish") return finishSidecarImport(payload);
+  if (command === "import_cancel") return cancelSidecarImport(payload);
+  return runWrapper(payload);
 }
 
 function runWrapper(payload) {
@@ -646,7 +781,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/command") {
-    return sendJson(res, 200, await runWrapper(await readJsonBody(req)));
+    return sendJson(res, 200, await runCommand(await readJsonBody(req)));
   }
 
   if (req.method === "POST" && url.pathname === "/api/nova/ask") {

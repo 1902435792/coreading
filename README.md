@@ -200,13 +200,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-autostart.
 - `CO_READING_SIDECAR_HOST`：监听地址，默认 `127.0.0.1`。
 - `CO_READING_SIDECAR_PORT`：监听端口，默认 `8791`。
 - `CO_READING_SIDECAR_MAX_BODY_BYTES`：sidecar 单次请求体上限，默认约 2MB。
+- `READING_IMPORT_MAX_BYTES`：导入文件大小上限，wrapper 默认约 100MB。
 - `CO_READING_DATA_DIR`：阅读数据目录；可指向临时目录做无污染测试。
 - `PYTHON`：导入器使用的 Python 命令；Windows 默认 `python`，其它平台默认 `python3`。
 
 Sidecar 页面支持：
 
 - 查看书库、计划、评价、沉淀预览。
-- 从浏览器选择小型 TXT/Markdown/EPUB 文件导入书库；大书可用 CLI 分片导入或调大 sidecar 请求上限。
+- 从浏览器选择 TXT/Markdown/EPUB 文件导入书库；超过单次请求体上限的大书会自动走分片导入。
 - 创建范围/全书/兴趣线索/自由共读计划。
 - 读取 chunk 原文、搜索兴趣点、按选区/偏移写入和查看 Nova/AI 边注。
 - 用阅读地图查看全书 chunk 节点、当前全书/段内进度；本地插书签并返回最近书签。

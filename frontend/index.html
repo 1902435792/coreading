@@ -40,7 +40,7 @@
 
           <form id="importForm" class="import-form">
             <h3>导入书籍</h3>
-            <p class="form-hint">适合小型 TXT/Markdown/EPUB；大书请用命令行导入或调大 sidecar 请求上限。</p>
+            <p class="form-hint">支持 TXT/Markdown/EPUB；大书会自动分片导入。重复导入同一文件需勾选覆盖同名书。</p>
             <label>
               <span>文件</span>
               <input name="file" type="file" accept=".txt,.text,.md,.markdown,.epub">
@@ -68,6 +68,10 @@
                 <span>覆盖同名书</span>
                 <input name="overwrite" type="checkbox">
               </label>
+            </div>
+            <div id="importProgress" class="import-progress" hidden>
+              <span id="importProgressLabel">准备导入</span>
+              <div class="import-progress-bar" aria-hidden="true"><span id="importProgressFill"></span></div>
             </div>
             <button type="submit">导入</button>
           </form>

@@ -4890,6 +4890,10 @@ function pastedBookFilename(title, format) {
 
 function arrayBufferToBase64(buffer) {
   const bytes = new Uint8Array(buffer);
+  return bytesToBase64(bytes);
+}
+
+function bytesToBase64(bytes) {
   let binary = "";
   const chunkSize = 0x8000;
   for (let index = 0; index < bytes.length; index += chunkSize) {
@@ -4898,10 +4902,20 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-async function importFile(file, options) {
+function renderImportProgress(label = "", percent = 0) {
+  const box = $("importProgress");
+  const text = $("importProgressLabel");
+  const fill = $("importProgressFill");
+  if (!box || !text || !fill) return;
+  box.hidden = !label;
+  text.textContent = label || "准备导入";
+  fill.style.width = `${clampPercent(percent)}%`;
+}
+
+async function importSmallFile(file, options) {
   const maxBytes = 1_250_000;
   if (file.size > maxBytes) {
-    throw new Error("sidecar 当前单次导入上限约 1.25MB；大书请先用命令行 import_*，或调大 CO_READING_SIDECAR_MAX_BODY_BYTES。");
+    return null;
   }
   const buffer = await file.arrayBuffer();
   return query({
@@ -4916,6 +4930,58 @@ async function importFile(file, options) {
     headingRegex: options.headingRegex || undefined,
     overwrite: options.overwrite,
   });
+}
+
+async function importChunkedFile(file, options) {
+  const partBytes = 700_000;
+  let upload = null;
+  try {
+    renderImportProgress("建立分片导入", 1);
+    upload = await query({
+      command: "import_begin",
+      filename: file.name,
+      format: fileFormat(file),
+      bookId: bookIdFromFile(file),
+      expectedBytes: file.size,
+      title: options.title || undefined,
+      author: options.author || undefined,
+      maxChars: options.maxChars || undefined,
+      headingRegex: options.headingRegex || undefined,
+      overwrite: options.overwrite,
+    });
+    const uploadId = upload.uploadId;
+    if (!uploadId) throw new Error("分片导入没有返回 uploadId。");
+    let partIndex = 0;
+    for (let start = 0; start < file.size; start += partBytes) {
+      const end = Math.min(file.size, start + partBytes);
+      const buffer = await file.slice(start, end).arrayBuffer();
+      await query({
+        command: "import_part",
+        uploadId,
+        index: partIndex,
+        dataBase64: bytesToBase64(new Uint8Array(buffer)),
+      });
+      partIndex += 1;
+      renderImportProgress(`上传 ${Math.round((end / file.size) * 100)}%`, (end / file.size) * 90);
+    }
+    renderImportProgress("解析 EPUB/TXT", 95);
+    return query({ command: "import_finish", uploadId });
+  } catch (error) {
+    if (upload?.uploadId) {
+      try {
+        await query({ command: "import_cancel", uploadId: upload.uploadId });
+      } catch {
+        // Best effort cleanup; original import error is more useful to show.
+      }
+    }
+    throw error;
+  }
+}
+
+async function importFile(file, options) {
+  const small = await importSmallFile(file, options);
+  if (small) return small;
+  return importChunkedFile(file, options);
 }
 
 async function openImportedBook(imported) {
@@ -6550,6 +6616,7 @@ $("importForm").addEventListener("submit", async (event) => {
   }
   try {
     setStatus("导入中", "busy");
+    renderImportProgress("准备导入", 0);
     const imported = await importFile(file, {
       title: String(form.get("title") || "").trim(),
       author: String(form.get("author") || "").trim(),
@@ -6559,10 +6626,13 @@ $("importForm").addEventListener("submit", async (event) => {
     });
     log(imported);
     formEl.reset();
+    renderImportProgress("导入完成", 100);
     await openImportedBook(imported);
   } catch (error) {
     setStatus("导入失败");
     setFormError(formEl, error.message || String(error));
+  } finally {
+    window.setTimeout(() => renderImportProgress("", 0), 1200);
   }
 });
 $("pasteImportForm").addEventListener("submit", async (event) => {
@@ -6579,6 +6649,7 @@ $("pasteImportForm").addEventListener("submit", async (event) => {
   }
   try {
     setStatus("导入中", "busy");
+    renderImportProgress("准备导入", 0);
     const file = new File([content], pastedBookFilename(title, format), { type: format === "markdown" ? "text/markdown" : "text/plain" });
     const imported = await importFile(file, {
       title,
@@ -6589,11 +6660,14 @@ $("pasteImportForm").addEventListener("submit", async (event) => {
     });
     log(imported);
     formEl.reset();
+    renderImportProgress("导入完成", 100);
     await openImportedBook(imported);
     focusPanel(".reader-surface", "#chunkText");
   } catch (error) {
     setStatus("导入失败");
     setFormError(formEl, error.message || String(error));
+  } finally {
+    window.setTimeout(() => renderImportProgress("", 0), 1200);
   }
 });
 $("saveSinkContentBtn").addEventListener("click", async () => {

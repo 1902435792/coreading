@@ -384,6 +384,31 @@ legend {
   line-height: 1.5;
 }
 
+.import-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.import-progress-bar {
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f2eee6;
+}
+
+.import-progress-bar span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
 .backtrack-evidence {
   border: 1px solid var(--line);
   border-radius: 8px;
