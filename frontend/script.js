@@ -511,7 +511,9 @@ function renderReadingSession() {
   const bookSession = readSavedReadingSessionForBook(selected?.bookId);
   const canUndoRestart = !!state.restartUndo && state.restartUndo.bookId === selected?.bookId;
   $("sessionResumeBtn").disabled = !bookSession;
+  $("sessionResumeBtn").textContent = bookSession?.chunkId ? `回 ${bookSession.chunkId}` : "回现场";
   $("sessionContinueBtn").disabled = !hasBook;
+  $("sessionContinueBtn").textContent = bookSession?.chunkId ? `继续 ${bookSession.chunkId}` : "继续读";
   $("sessionRestartBtn").disabled = !hasBook;
   $("sessionRestartBtn").textContent = canUndoRestart ? "撤销从头读" : "从头读";
   $("sessionAskNovaBtn").disabled = !hasBook || !state.selectedChunkId;
@@ -554,6 +556,7 @@ function renderReadingNowBar({ scrollPercent = currentChunkScrollPercent() } = {
     : "选择书籍后可以随时回到正文。";
   $("readingNowFocusBtn").disabled = !hasChunk;
   $("readingNowContinueBtn").disabled = !selected;
+  $("readingNowContinueBtn").textContent = bookSession?.chunkId ? `继续 ${bookSession.chunkId}` : "继续读";
   $("readingNowPlanBtn").disabled = !plan || !nextStep;
   $("readingNowAskBtn").disabled = !hasChunk;
   $("readingNowNoteBtn").disabled = !hasChunk;
@@ -1030,10 +1033,12 @@ function renderChunks() {
 function renderChunkNavigation() {
   const index = chunkOrder(state.selectedChunkId);
   const hasChunk = index !== null;
+  const bookSession = readSavedReadingSessionForBook(state.selectedBookId);
   $("chunkPosition").textContent = hasChunk
     ? `当前位置 ${index + 1}/${state.chunks.length} · ${state.selectedChunkId}`
     : "未选择位置";
   $("continueReadingBtn").disabled = !activeBook();
+  $("continueReadingBtn").textContent = bookSession?.chunkId ? `继续 ${bookSession.chunkId}` : "继续读";
   $("prevChunkBtn").disabled = !hasChunk || index <= 0;
   $("nextChunkBtn").disabled = !hasChunk || index >= state.chunks.length - 1;
   renderReadingSession();
