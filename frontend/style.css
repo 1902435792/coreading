@@ -817,14 +817,15 @@ fieldset input {
 }
 
 .reader-toc-search {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   gap: 8px;
   align-items: center;
+  justify-content: flex-start;
   margin-bottom: 8px;
 }
 
 .reader-toc-search input {
+  display: none;
   min-height: 34px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -841,7 +842,7 @@ fieldset input {
 }
 
 .reader-toc-inline {
-  display: grid;
+  display: none;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 6px;
   max-height: 132px;
@@ -851,9 +852,52 @@ fieldset input {
 }
 
 .reader-toc-inline.empty {
-  display: block;
   color: var(--muted);
   font-size: 12px;
+}
+
+body.reader-toc-open .plan-panel > .reader-toc-search {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 35;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  width: min(380px, calc(100vw - 28px));
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+  padding: 10px;
+  background: var(--surface);
+  box-shadow: 0 12px 34px rgba(55, 53, 47, 0.12);
+}
+
+body.reader-toc-open .plan-panel > .reader-toc-search input {
+  display: block;
+  grid-column: 1 / -1;
+}
+
+body.reader-toc-open #readerTocList.reader-toc-inline {
+  position: fixed;
+  top: 154px;
+  bottom: 14px;
+  left: 14px;
+  z-index: 34;
+  display: grid;
+  grid-template-columns: 1fr;
+  width: min(380px, calc(100vw - 28px));
+  max-height: none;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  padding: 10px;
+  background: var(--surface);
+  box-shadow: 0 18px 44px rgba(55, 53, 47, 0.12);
+}
+
+body.reader-toc-open #readerTocList.reader-toc-inline.empty {
+  display: block;
 }
 
 .reader-toc-section {
@@ -1693,6 +1737,22 @@ fieldset input {
   display: none;
 }
 
+.reader-focus-tools,
+.reader-exit-controls {
+  display: none;
+}
+
+.reader-focus-tools button,
+.reader-exit-controls button {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 11px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--ink);
+  font-size: 13px;
+}
+
 .reader-find {
   display: none;
 }
@@ -1774,8 +1834,13 @@ body.immersive-reading .shell {
 body.immersive-reading .topbar,
 body.immersive-reading .metrics,
 body.immersive-reading .reading-now-bar,
+body.immersive-reading .reader-toc-search,
+body.immersive-reading #readerTocList,
 body.immersive-reading .chunk-position,
 body.immersive-reading .reader-progress,
+body.immersive-reading .reader-pager,
+body.immersive-reading .reading-map,
+body.immersive-reading .reading-waypoints,
 body.immersive-reading .plan-panel > .panel-head,
 body.immersive-reading .library-panel,
 body.immersive-reading .notes-pane,
@@ -1813,24 +1878,7 @@ body.immersive-reading .plan-panel {
 }
 
 body.immersive-reading .reader-nav-tools {
-  position: absolute;
-  top: 0;
-  right: var(--reader-assistant-width);
-  left: 0;
-  z-index: 8;
-  height: 50px;
-  min-height: 50px;
-  margin: 0;
-  border-bottom: 1px solid var(--line);
-  padding: 7px 24px;
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
-  opacity: 0;
-  transition: opacity 180ms ease;
-}
-
-body.immersive-reading .reader-nav-tools:hover,
-body.immersive-reading .reader-nav-tools:focus-within {
-  opacity: 1;
+  display: none;
 }
 
 body.immersive-reading .reader-nav-tools #copyChunkIndexBtn,
@@ -2244,6 +2292,21 @@ body.immersive-reading .reader-chrome {
   display: block;
 }
 
+body.immersive-reading .reader-exit-controls {
+  position: fixed;
+  top: 14px;
+  right: calc(var(--reader-assistant-width) + 14px);
+  z-index: 30;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+body.immersive-reading .reader-exit-controls button {
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
 body.immersive-reading .reader-page-turn {
   position: fixed;
   top: 50px;
@@ -2360,26 +2423,15 @@ body.immersive-reading .reader-position-nav button:focus-visible {
 }
 
 body.immersive-reading .reader-clean-button {
-  position: fixed;
-  right: calc(var(--reader-assistant-width) + 18px);
-  bottom: 62px;
-  z-index: 9;
-  min-height: 30px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 5px 10px;
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
-  color: var(--muted);
-  font-size: 12px;
-  opacity: 0.12;
-  transition: opacity 180ms ease;
+  display: none;
 }
 
 body.immersive-reading .reader-assistant-toggle {
   position: fixed;
-  right: calc(var(--reader-assistant-width) + 18px);
-  bottom: 62px;
-  z-index: 9;
+  top: 14px;
+  right: calc(var(--reader-assistant-width) + 168px);
+  z-index: 30;
+  min-width: 86px;
   min-height: 30px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2387,7 +2439,8 @@ body.immersive-reading .reader-assistant-toggle {
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   color: var(--muted);
   font-size: 12px;
-  opacity: 0.18;
+  opacity: 0.72;
+  white-space: nowrap;
   transition: opacity 180ms ease;
 }
 
@@ -2405,8 +2458,11 @@ body.immersive-reading.immersive-clean-reading .reader-settings,
 body.immersive-reading.immersive-clean-reading .reader-find,
 body.immersive-reading.immersive-clean-reading .reader-bookmark-tools,
 body.immersive-reading.immersive-clean-reading .reader-action-tools,
+body.immersive-reading.immersive-clean-reading .reader-page-meter,
+body.immersive-reading.immersive-clean-reading .reader-immersive-progress,
 body.immersive-reading.immersive-clean-reading .reader-position-nav,
 body.immersive-reading.immersive-clean-reading .reader-backtrack-card,
+body.immersive-reading.immersive-clean-reading .immersive-reading-memory,
 body.immersive-reading.immersive-clean-reading .immersive-nova-card,
 body.immersive-reading.immersive-clean-reading .reader-library-button,
 body.immersive-reading.immersive-clean-reading .reader-library-card,
@@ -2416,6 +2472,16 @@ body.immersive-reading.immersive-clean-reading .reader-toc-button,
 body.immersive-reading.immersive-clean-reading .reader-toc,
 body.immersive-reading.immersive-clean-reading .reading-footprints {
   display: none;
+}
+
+body.immersive-reading.immersive-clean-reading .reader-surface header {
+  display: none;
+}
+
+body.immersive-reading.immersive-clean-reading .chunk-text {
+  height: 100vh;
+  padding-top: clamp(56px, 7vh, 86px);
+  padding-bottom: clamp(42px, 6vh, 72px);
 }
 
 body.immersive-reading .reader-toc-button {
@@ -2782,6 +2848,10 @@ body.immersive-reading .reader-toc-search input {
   padding: 7px 9px;
   background: var(--surface);
   color: var(--ink);
+}
+
+body.immersive-reading .plan-panel > .reader-toc-search {
+  display: none;
 }
 
 body.immersive-reading .reader-toc-count {
@@ -3362,7 +3432,8 @@ body.immersive-reading .reader-action-tools span {
 }
 
 body.reading-focus .shell {
-  width: min(1180px, calc(100vw - 32px));
+  width: min(1020px, calc(100vw - 32px));
+  padding-top: 18px;
 }
 
 body.reading-focus .metrics,
@@ -3379,9 +3450,30 @@ body.reading-focus .note-actions,
 body.reading-focus .submission-list,
 body.reading-focus .nova-reading-box,
 body.reading-focus .trail-guide,
+body.reading-focus .reading-now-bar,
+body.reading-focus .reader-nav-tools,
+body.reading-focus .reader-toc-search,
+body.reading-focus #readerTocList,
+body.reading-focus .chunk-position,
+body.reading-focus .reader-progress,
+body.reading-focus .reader-next,
+body.reading-focus .reader-pager,
+body.reading-focus .reading-map,
+body.reading-focus .reading-waypoints,
+body.reading-focus .reading-footprints,
 body.reading-focus .plan-panel > .panel-head.spaced,
 body.reading-focus .plan-panel > details.tool-drawer {
   display: none;
+}
+
+body.reading-focus .reader-focus-tools {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 30;
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 body.reading-focus .workspace {
@@ -3389,40 +3481,34 @@ body.reading-focus .workspace {
 }
 
 body.reading-focus .plan-panel {
-  max-width: 1040px;
+  max-width: 100%;
   margin: 0 auto;
-  padding: 18px;
-}
-
-body.reading-focus .reading-now-bar {
-  top: 10px;
-  margin-bottom: 14px;
+  padding: 0;
 }
 
 body.reading-focus .reader-surface {
-  border-color: var(--line-strong);
+  min-height: calc(100vh - 36px);
+  border: 0;
+  background: transparent;
 }
 
-body.reading-focus .reader-surface header,
-body.reading-focus .reader-next {
-  padding-right: 18px;
-  padding-left: 18px;
+body.reading-focus .reader-surface header {
+  display: none;
 }
 
 body.reading-focus .reader-text-shell {
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 20%);
+  grid-template-columns: minmax(0, 1fr);
+  border-top: 0;
+  background: transparent;
 }
 
 body.reading-focus .chunk-text {
   max-height: none;
-  min-height: 72vh;
-  padding: 30px 42px;
+  min-height: calc(100vh - 36px);
+  padding: clamp(42px, 7vh, 76px) clamp(24px, 7vw, 76px);
+  background: transparent;
   font-size: 18px;
   line-height: 2.05;
-}
-
-body.reading-focus .reading-footprints {
-  max-height: none;
 }
 
 .annotation-row strong,
@@ -4015,13 +4101,18 @@ pre {
   }
 
   body.immersive-reading .reader-clean-button {
-    right: 12px;
-    bottom: 42px;
+    display: none;
+  }
+
+  body.immersive-reading .reader-exit-controls {
+    top: 10px;
+    right: 10px;
   }
 
   body.immersive-reading .reader-assistant-toggle {
-    right: 86px;
-    bottom: 42px;
+    top: 10px;
+    right: 156px;
+    bottom: auto;
   }
 
   body.immersive-reading .reader-settings {
@@ -4246,9 +4337,14 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  body.reading-focus .reader-focus-tools {
+    top: 10px;
+    right: 10px;
+  }
+
   body.reading-focus .chunk-text {
     width: 100%;
-    padding: 22px 18px;
+    padding: 58px 18px 28px;
     font-size: 16px;
     line-height: 1.9;
   }

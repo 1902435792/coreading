@@ -283,7 +283,7 @@
         <section class="panel plan-panel">
           <div class="panel-head">
             <h2>原文范围</h2>
-            <span id="chunkCount">0 chunks</span>
+            <span id="chunkCount">0 段</span>
           </div>
           <section id="readingNowBar" class="reading-now-bar empty" aria-label="阅读现场条">
             <div>
@@ -302,7 +302,7 @@
           <div class="reader-tools reader-nav-tools">
             <select id="readerBookSelect" aria-label="切换书籍"></select>
             <button id="prevChunkBtn" class="secondary compact" type="button">上一段</button>
-            <select id="chunkSelect" aria-label="选择 chunk"></select>
+            <select id="chunkSelect" aria-label="选择正文位置"></select>
             <button id="continueReadingBtn" class="primary compact" type="button">继续读</button>
             <button id="readChunkBtn" type="button">读取</button>
             <button id="copyChunkIndexBtn" class="secondary compact" type="button" disabled>复制目录</button>
@@ -312,6 +312,7 @@
             <button id="nextChunkBtn" class="secondary compact" type="button">下一段</button>
           </div>
           <div class="reader-toc-search">
+            <button id="readerTocToggleBtn" class="secondary compact" type="button" aria-expanded="false" aria-controls="readerTocList">目录</button>
             <input id="readerTocSearch" type="search" placeholder="搜索目录、标题、chunk 或序号" aria-label="搜索目录">
             <span id="readerTocCount">0 项</span>
           </div>
@@ -329,7 +330,7 @@
               </div>
             </header>
             <div class="reader-text-shell">
-              <pre id="chunkText" class="chunk-text">选择一本书和一个 chunk 后开始共读。</pre>
+              <pre id="chunkText" class="chunk-text">选择一本书后开始阅读。</pre>
               <aside id="readingFootprints" class="reading-footprints empty" aria-label="阅读足迹">暂无高亮足迹</aside>
             </div>
             <footer class="reader-next">

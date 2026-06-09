@@ -33,6 +33,9 @@ const state = {
   novaAutoReadEnabled: true,
   novaAutoReadSeen: new Set(),
   novaAutoReadTimer: 0,
+  readerFlow: { bookId: "", anchorChunkId: "", chunks: [] },
+  readerFlowRequestId: 0,
+  readerTocOpen: false,
   immersiveNovaCardOpen: false,
   readerSelection: { text: "", offset: null, rect: null },
   selectionCaptureTimer: 0,
@@ -70,6 +73,7 @@ const READING_VISIT_KEY = "vcp-coreading-sidecar.readingVisit";
 const READING_VISIT_HISTORY_KEY = "vcp-coreading-sidecar.readingVisitHistory";
 const NOVA_AUTO_READ_KEY = "vcp-coreading-sidecar.novaAutoRead";
 const NOVA_REQUEST_TIMEOUT_MS = 240000;
+const READER_FLOW_BATCH_SIZE = 10;
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
 
 setupAppLayout();
@@ -79,6 +83,7 @@ loadReaderSettings();
 loadReadingVisit();
 loadNovaAutoReadSetting();
 setNovaPaneWidth("medium");
+document.addEventListener("fullscreenchange", renderReaderFullscreenButtons);
 
 function setupAppLayout() {
   const workspace = $("mainContent");
@@ -206,6 +211,18 @@ function setupReaderModeControls() {
   $("readerPagePrevBtn")?.addEventListener("click", () => void turnReaderPage(-1));
   $("readerPageNextBtn")?.addEventListener("click", () => void turnReaderPage(1));
 
+  const focusTools = document.createElement("div");
+  focusTools.className = "reader-focus-tools";
+  focusTools.setAttribute("aria-label", "专注阅读控制");
+  focusTools.innerHTML = [
+    '<button id="readerFocusExitBtn" type="button">退出专注</button>',
+    '<button id="readerFocusFullscreenBtn" type="button">全屏</button>',
+  ].join("");
+  shell.insertAdjacentElement("afterend", focusTools);
+  $("readerFocusExitBtn")?.addEventListener("click", () => void setReadingFocus(false));
+  $("readerFocusFullscreenBtn")?.addEventListener("click", () => void toggleReaderFullscreen());
+  renderReaderFullscreenButtons();
+
   const chrome = document.createElement("div");
   chrome.className = "reader-chrome";
   chrome.setAttribute("aria-label", "沉浸阅读控制");
@@ -225,6 +242,10 @@ function setupReaderModeControls() {
     '</div>',
     '<button id="immersiveCleanReadBtn" class="reader-clean-button" type="button" aria-pressed="false">净读</button>',
     '<button id="immersiveAssistantBtn" class="reader-assistant-toggle" type="button" aria-pressed="false">收起 Nova</button>',
+    '<div class="reader-exit-controls">',
+    '  <button id="immersiveExitBtn" type="button">退出</button>',
+    '  <button id="immersiveFullscreenBtn" type="button">全屏</button>',
+    '</div>',
     '<button id="immersiveLibraryBtn" class="reader-library-button" type="button" aria-expanded="false" aria-controls="immersiveLibrary">书库</button>',
     '<div id="immersiveLibrary" class="reader-library-card" hidden>',
     '  <div class="reader-library-head">',
@@ -368,6 +389,8 @@ function setupReaderModeControls() {
   });
   $("immersiveCleanReadBtn")?.addEventListener("click", toggleImmersiveCleanRead);
   $("immersiveAssistantBtn")?.addEventListener("click", toggleImmersiveAssistant);
+  $("immersiveExitBtn")?.addEventListener("click", () => void setImmersiveReading(false));
+  $("immersiveFullscreenBtn")?.addEventListener("click", () => void toggleReaderFullscreen());
   $("immersiveLibraryBtn")?.addEventListener("click", toggleImmersiveLibrary);
   $("immersiveLibraryCloseBtn")?.addEventListener("click", closeImmersiveLibrary);
   $("immersiveLibrarySearch")?.addEventListener("input", renderImmersiveLibrary);
@@ -611,7 +634,14 @@ function setReaderMode(mode, { persist = true } = {}) {
 }
 
 function handleReaderKeyboard(event) {
-  if (!state.immersiveReading) return;
+  if (!state.immersiveReading) {
+    if (event.key === "Escape" && state.readerTocOpen) {
+      event.preventDefault();
+      closeReaderToc();
+      focusPanel(".reader-surface", "#chunkText");
+    }
+    return;
+  }
   const editable = event.target?.closest?.("input, textarea, select, [contenteditable='true']");
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
@@ -867,9 +897,15 @@ function toggleImmersiveToc() {
 function renderReaderToc() {
   const list = $("readerTocList");
   const count = $("readerTocCount");
+  const button = $("readerTocToggleBtn");
   if (!list) return;
   const selected = activeBook();
   const query = String($("readerTocSearch")?.value || "").trim();
+  if (button) {
+    button.disabled = !selected || !state.chunks.length;
+    button.textContent = state.readerTocOpen ? "收起目录" : "目录";
+    button.setAttribute("aria-expanded", state.readerTocOpen ? "true" : "false");
+  }
   if (!selected || !state.chunks.length) {
     list.className = "reader-toc-inline empty";
     list.textContent = "选择书籍后显示目录。";
@@ -898,6 +934,22 @@ function renderReaderToc() {
       <small>${escapeHtml(chunkId)} · ${progress}%</small>
     </button>`;
   }).join("");
+}
+
+function setReaderTocOpen(open) {
+  const selected = activeBook();
+  state.readerTocOpen = Boolean(open && selected && state.chunks.length);
+  document.body.classList.toggle("reader-toc-open", state.readerTocOpen);
+  renderReaderToc();
+  if (state.readerTocOpen) window.setTimeout(() => $("readerTocSearch")?.focus(), 80);
+}
+
+function closeReaderToc() {
+  setReaderTocOpen(false);
+}
+
+function toggleReaderToc() {
+  setReaderTocOpen(!state.readerTocOpen);
 }
 
 function openImmersivePlan() {
@@ -1216,6 +1268,7 @@ function renderImmersivePositionNav({ current = 1, total = 1, mode = state.reade
 
 async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
   state.immersiveReading = !!enabled;
+  if (state.immersiveReading) closeReaderToc();
   document.body.classList.toggle("immersive-reading", state.immersiveReading);
   if (!state.immersiveReading) {
     setImmersiveCleanRead(false);
@@ -1247,6 +1300,35 @@ async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
     updateReaderPageStatus();
     $("chunkText")?.focus();
   }, 80);
+}
+
+async function toggleReaderFullscreen() {
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen?.();
+    } else {
+      await document.documentElement.requestFullscreen?.();
+    }
+    renderReaderFullscreenButtons();
+  } catch {
+    log("当前浏览器没有允许全屏。");
+  }
+}
+
+function renderReaderFullscreenButtons() {
+  const label = document.fullscreenElement ? "退出全屏" : "全屏";
+  const focusButton = $("readerFocusFullscreenBtn");
+  const immersiveButton = $("immersiveFullscreenBtn");
+  if (focusButton) focusButton.textContent = label;
+  if (immersiveButton) immersiveButton.textContent = label;
+}
+
+async function setReadingFocus(enabled, { fullscreen = false } = {}) {
+  state.readingFocus = Boolean(enabled);
+  document.body.classList.toggle("reading-focus", state.readingFocus);
+  renderReaderProgress();
+  focusPanel(".reader-surface", "#chunkText");
+  if (fullscreen && state.readingFocus && !document.fullscreenElement) await toggleReaderFullscreen();
 }
 
 function toggleImmersiveCleanRead() {
@@ -2455,7 +2537,7 @@ function currentReaderFootprintCount() {
 }
 
 function currentReadingFootprintItems(limit = 7) {
-  const text = currentChunkText();
+  const text = readerDisplayText() || currentChunkText();
   const anchored = readingFootprintRanges(text).map(({ id, item }) => ({ id, item, anchored: true }));
   const loose = currentLooseFootprints().map((item) => ({ id: noteFingerprint(item), item, anchored: false }));
   return [...anchored, ...loose].slice(0, limit);
@@ -2940,6 +3022,7 @@ async function selectBook(bookId, { focusReader = true } = {}) {
   state.selectedCard = null;
   state.novaReply = "";
   state.novaReplyContext = null;
+  resetReaderFlow();
   state.lastCompletedChunk = null;
   clearReaderSelection();
   clearEntityPeek();
@@ -2960,12 +3043,12 @@ async function selectBook(bookId, { focusReader = true } = {}) {
 
 function renderChunks() {
   const select = $("chunkSelect");
-  $("chunkCount").textContent = `${state.chunks.length} chunks`;
+  $("chunkCount").textContent = `${state.chunks.length} 段`;
   select.innerHTML = "";
   if (!state.chunks.length) {
     const option = document.createElement("option");
     option.value = "";
-    option.textContent = "暂无 chunk";
+    option.textContent = "暂无正文";
     select.appendChild(option);
     $("copyChunkIndexBtn").disabled = true;
     renderChunkNavigation();
@@ -2976,7 +3059,7 @@ function renderChunks() {
     const chunkId = getChunkId(chunk);
     const option = document.createElement("option");
     option.value = chunkId;
-    option.textContent = `${chunkId} · ${chunk.title || chunk.sectionTitle || "untitled"}`;
+    option.textContent = `${chunkId} · ${chunk.title || chunk.sectionTitle || "未命名"}`;
     select.appendChild(option);
   }
   if (!state.selectedChunkId || !state.chunks.some((chunk) => getChunkId(chunk) === state.selectedChunkId)) {
@@ -3008,8 +3091,8 @@ function renderChunkNavigation() {
 function renderReader() {
   const current = state.currentChunk;
   const chunk = current?.chunk || current || {};
-  $("chunkTitle").textContent = chunk.title || chunk.id || state.selectedChunkId || "未选择 chunk";
-  renderChunkTextWithFootprints(current?.text || chunk.text || "选择一本书和一个 chunk 后开始共读。");
+  $("chunkTitle").textContent = readerDisplayTitle(chunk);
+  renderChunkTextWithFootprints(readerDisplayText() || "选择一本书后开始阅读。");
   renderSelfCheck();
   renderChunkReview();
   renderReadingSession();
@@ -4533,6 +4616,113 @@ function currentChunkText() {
   return String(current?.text || chunk.text || "");
 }
 
+function chunkTextFromResult(result) {
+  const chunk = result?.chunk || result || {};
+  return String(result?.text || chunk.text || "");
+}
+
+function emptyReaderFlow() {
+  return { bookId: "", anchorChunkId: "", chunks: [], totalCount: 0, complete: false, loading: false };
+}
+
+function resetReaderFlow() {
+  state.readerFlowRequestId += 1;
+  state.readerFlow = emptyReaderFlow();
+}
+
+function readerDisplayTitle(chunk = {}) {
+  const selected = activeBook();
+  const title = selected?.title || selected?.bookId || chunk.title || chunk.sectionTitle || chunkTitleById(state.selectedChunkId);
+  return title || "阅读";
+}
+
+function readerFlowChunkIds(anchorChunkId = state.selectedChunkId) {
+  const index = chunkOrder(anchorChunkId);
+  if (index === null) return anchorChunkId ? [anchorChunkId] : [];
+  return state.chunks.slice(index).map(getChunkId).filter(Boolean);
+}
+
+function readerFlowChunkFromResult(chunkId, result) {
+  return {
+    chunkId,
+    title: chunkTitleById(chunkId),
+    text: chunkTextFromResult(result),
+  };
+}
+
+function setReaderFlowFromCurrent(selected) {
+  const ids = readerFlowChunkIds(state.selectedChunkId);
+  state.readerFlow = {
+    bookId: selected?.bookId || "",
+    anchorChunkId: state.selectedChunkId,
+    chunks: [{
+      chunkId: state.selectedChunkId,
+      title: chunkTitleById(state.selectedChunkId),
+      text: currentChunkText(),
+    }],
+    totalCount: ids.length || 1,
+    complete: false,
+    loading: true,
+  };
+}
+
+function renderReaderPreservingScroll() {
+  const chunkText = $("chunkText");
+  const scrollTop = Number(chunkText?.scrollTop || 0);
+  const scrollLeft = Number(chunkText?.scrollLeft || 0);
+  renderReader();
+  window.requestAnimationFrame(() => {
+    const next = $("chunkText");
+    if (!next) return;
+    next.scrollTop = scrollTop;
+    next.scrollLeft = scrollLeft;
+    updateReaderPageStatus();
+  });
+}
+
+async function loadReaderFlow(selected) {
+  if (!selected || !state.selectedChunkId) return;
+  const requestId = ++state.readerFlowRequestId;
+  const anchorChunkId = state.selectedChunkId;
+  const ids = readerFlowChunkIds(anchorChunkId);
+  const totalCount = ids.length;
+  const chunks = [];
+  for (let start = 0; start < ids.length; start += READER_FLOW_BATCH_SIZE) {
+    const batch = ids.slice(start, start + READER_FLOW_BATCH_SIZE);
+    const batchChunks = await Promise.all(batch.map(async (chunkId) => {
+      try {
+        const result = chunkId === anchorChunkId && state.currentChunk
+          ? state.currentChunk
+          : await query({ command: "read_chunk", bookId: selected.bookId, chunkId });
+        return readerFlowChunkFromResult(chunkId, result);
+      } catch {
+        return { chunkId, title: chunkTitleById(chunkId), text: "" };
+      }
+    }));
+    if (requestId !== state.readerFlowRequestId || selected.bookId !== state.selectedBookId || anchorChunkId !== state.selectedChunkId) return;
+    chunks.push(...batchChunks.filter((item) => item.text.trim()));
+    const isComplete = start + READER_FLOW_BATCH_SIZE >= ids.length;
+    state.readerFlow = {
+      bookId: selected.bookId,
+      anchorChunkId,
+      chunks: chunks.length ? chunks.slice() : state.readerFlow.chunks,
+      totalCount,
+      complete: isComplete,
+      loading: !isComplete,
+    };
+    renderReaderPreservingScroll();
+  }
+}
+
+function readerDisplayText() {
+  const selected = activeBook();
+  const flow = state.readerFlow;
+  if (selected && flow.bookId === selected.bookId && flow.anchorChunkId === state.selectedChunkId && flow.chunks.length) {
+    return flow.chunks.map((item) => item.text.trim()).filter(Boolean).join("\n\n");
+  }
+  return currentChunkText();
+}
+
 function compactText(value, maxChars = 1800) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   return text.length > maxChars ? `${text.slice(0, maxChars)}...` : text;
@@ -4583,7 +4773,7 @@ function selectedQuote() {
   const chunkText = $("chunkText");
   const anchorInsideReader = selection.anchorNode && chunkText.contains(selection.anchorNode);
   const focusInsideReader = selection.focusNode && chunkText.contains(selection.focusNode);
-  const sourceText = currentChunkText();
+  const sourceText = readerDisplayText() || currentChunkText();
   const offset = anchorInsideReader && focusInsideReader ? sourceText.indexOf(text) : -1;
   return { text: text.slice(0, 500), offset: offset >= 0 ? offset : null, rect: null };
 }
@@ -4596,7 +4786,7 @@ function liveSelectedQuote() {
   const anchorInsideReader = selection.anchorNode && chunkText.contains(selection.anchorNode);
   const focusInsideReader = selection.focusNode && chunkText.contains(selection.focusNode);
   if (!anchorInsideReader || !focusInsideReader) return { text: "", offset: null, rect: null };
-  const sourceText = currentChunkText();
+  const sourceText = readerDisplayText() || currentChunkText();
   const offset = sourceText.indexOf(text);
   return { text: text.slice(0, 500), offset: offset >= 0 ? offset : null, rect: selectionFloatingRect(selection) };
 }
@@ -7201,6 +7391,7 @@ async function loadChunks(bookId) {
     state.cardCollection = { items: [], bookCards: [] };
     state.selectedCard = null;
     state.selectedCardSaveResult = null;
+    resetReaderFlow();
     return;
   }
   state.chunks = (await query({ command: "list_chunks", bookId })) || [];
@@ -7253,7 +7444,9 @@ async function readSelectedChunk() {
   state.annotations = Array.isArray(annotations) ? annotations : [];
   state.userNotes = Array.isArray(userNotes?.notes) ? userNotes.notes : [];
   state.submissions = Array.isArray(submissions) ? submissions : [];
+  setReaderFlowFromCurrent(selected);
   renderReader();
+  void loadReaderFlow(selected).catch((error) => log(error.message || String(error)));
   renderChunkReview();
   renderAnnotations();
   renderUserNotes();
@@ -11304,11 +11497,13 @@ $("readerBookSelect").addEventListener("change", (event) => {
     renderReaderBookSelect();
   });
 });
+$("readerTocToggleBtn")?.addEventListener("click", toggleReaderToc);
 $("readerTocSearch").addEventListener("input", renderReaderToc);
 $("readerTocList").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-reader-toc-chunk-id]");
   if (!button) return;
   button.disabled = true;
+  closeReaderToc();
   void selectChunk(button.dataset.readerTocChunkId, true).then(() => {
     focusPanel(".reader-surface", "#chunkText");
   }).catch((error) => {
@@ -11457,10 +11652,7 @@ $("nextChunkBtn").addEventListener("click", () => {
   void moveChunk(1);
 });
 $("focusReadingBtn").addEventListener("click", () => {
-  state.readingFocus = !state.readingFocus;
-  document.body.classList.toggle("reading-focus", state.readingFocus);
-  renderReaderProgress();
-  focusPanel(".reader-surface", "#chunkText");
+  void setReadingFocus(!state.readingFocus);
 });
 $("readerNextBtn").addEventListener("click", () => {
   $("readerNextBtn").disabled = true;
@@ -11485,9 +11677,7 @@ $("readerAskNovaBtn").addEventListener("click", () => {
 });
 $("readerOpenSinkBtn").addEventListener("click", async () => {
   if (state.readingFocus) {
-    state.readingFocus = false;
-    document.body.classList.remove("reading-focus");
-    renderReaderProgress();
+    await setReadingFocus(false);
   }
   await openBestSinkPreview();
 });
