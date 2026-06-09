@@ -45,6 +45,7 @@ const state = {
   immersiveReading: false,
   readerSettings: { fontScale: 1, measure: "medium", theme: "light" },
   readerFind: { query: "", matches: [], activeIndex: -1 },
+  immersiveLocalLibrary: { root: "", books: [], loaded: false, loading: false, importingPath: "" },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -221,6 +222,10 @@ function setupReaderModeControls() {
     '    <button id="immersiveLibraryCloseBtn" class="secondary compact" type="button">关闭</button>',
     '  </div>',
     '  <input id="immersiveLibrarySearch" type="search" placeholder="搜索书名、作者或 bookId">',
+    '  <div class="reader-library-actions">',
+    '    <button id="immersiveLocalLibraryScanBtn" class="secondary compact" type="button">扫描本地书库</button>',
+    '    <small id="immersiveLocalLibraryStatus">可从 D:\\书库 直接导入开读。</small>',
+    '  </div>',
     '  <div id="immersiveLibraryList" class="reader-library-list">暂无书籍</div>',
     '</div>',
     '<button id="immersivePlanBtn" class="reader-plan-button" type="button" aria-expanded="false" aria-controls="immersivePlan">计划</button>',
@@ -334,7 +339,25 @@ function setupReaderModeControls() {
   $("immersiveLibraryBtn")?.addEventListener("click", toggleImmersiveLibrary);
   $("immersiveLibraryCloseBtn")?.addEventListener("click", closeImmersiveLibrary);
   $("immersiveLibrarySearch")?.addEventListener("input", renderImmersiveLibrary);
+  $("immersiveLocalLibraryScanBtn")?.addEventListener("click", () => {
+    void loadImmersiveLocalLibrary().catch((error) => {
+      log(error.message || String(error));
+      renderImmersiveLibrary();
+    });
+  });
   $("immersiveLibraryList")?.addEventListener("click", (event) => {
+    const localButton = event.target.closest("button[data-local-library-action][data-relative-path]");
+    if (localButton) {
+      localButton.disabled = true;
+      const action = localButton.dataset.localLibraryAction || "import";
+      const task = action === "open"
+        ? openImmersiveLibraryBook(localButton.dataset.bookId || "", { continueBook: true })
+        : importImmersiveLocalLibraryBook(localButton.dataset.relativePath || "");
+      void task.catch((error) => {
+        log(error.message || String(error));
+      }).finally(renderImmersiveLibrary);
+      return;
+    }
     const button = event.target.closest("button[data-library-action][data-book-id]");
     if (!button) return;
     button.disabled = true;
@@ -834,6 +857,38 @@ function bookSearchText(book) {
   return [book?.title, book?.author, book?.bookId].filter(Boolean).join(" ").toLocaleLowerCase("zh-CN");
 }
 
+function localLibrarySearchText(book) {
+  return [book?.name, book?.relativePath, book?.format].filter(Boolean).join(" ").toLocaleLowerCase("zh-CN");
+}
+
+function localBookMetaLine(book) {
+  return [
+    book?.format ? String(book.format).toUpperCase() : "",
+    formatBytes(book?.size || 0),
+    book?.relativePath || "",
+  ].filter(Boolean).join(" · ");
+}
+
+function normalizeBookKey(value) {
+  return String(value || "")
+    .toLocaleLowerCase("zh-CN")
+    .replace(/\.[^.]+$/u, "")
+    .replace(/\s*\((z-library|z-lib|z-library\.sk|1lib\.sk|未知|etc\.)[^)]*\)\s*/giu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function importedBookForLocalBook(localBook) {
+  const titleKey = normalizeBookKey(titleFromLocalBookPath(localBook?.relativePath));
+  const pathKey = normalizeBookKey(localBook?.relativePath);
+  return visibleBooks().find((book) => {
+    const bookIdKey = normalizeBookKey(book.bookId);
+    const bookTitleKey = normalizeBookKey(book.title);
+    return Boolean(titleKey && (bookTitleKey === titleKey || bookIdKey === titleKey))
+      || Boolean(pathKey && pathKey.includes(bookIdKey) && bookIdKey.length > 8)
+      || Boolean(bookTitleKey && pathKey.includes(bookTitleKey) && bookTitleKey.length > 8);
+  }) || null;
+}
+
 function renderImmersiveLibrary() {
   const card = $("immersiveLibrary");
   const list = $("immersiveLibraryList");
@@ -842,15 +897,29 @@ function renderImmersiveLibrary() {
   const selected = activeBook();
   const queryText = immersiveLibraryQuery();
   const filtered = books.filter((book) => !queryText || bookSearchText(book).includes(queryText)).slice(0, 24);
+  const local = state.immersiveLocalLibrary;
+  const localFiltered = local.books
+    .filter((book) => !queryText || localLibrarySearchText(book).includes(queryText))
+    .slice(0, 16);
   const meta = $("immersiveLibraryMeta");
+  const localStatus = $("immersiveLocalLibraryStatus");
+  const scanButton = $("immersiveLocalLibraryScanBtn");
   if (meta) meta.textContent = `${filtered.length}/${books.length} 本 · 当前 ${selected?.title || selected?.bookId || "未选择"}`;
-  if (!filtered.length) {
+  if (localStatus) {
+    localStatus.textContent = local.loading
+      ? "扫描中"
+      : local.loaded
+        ? `${local.root || "本地书库"} · ${localFiltered.length}/${local.books.length} 本`
+        : "可从 D:\\书库 直接导入开读。";
+  }
+  if (scanButton) scanButton.disabled = local.loading;
+  if (!filtered.length && !localFiltered.length) {
     list.className = "reader-library-list empty";
-    list.textContent = books.length ? "没有匹配的书。" : "暂无书籍。";
+    list.textContent = books.length || local.loaded ? "没有匹配的书。" : "暂无已导入书。点“扫描本地书库”可从 D:\\书库 开读。";
     return;
   }
   list.className = "reader-library-list";
-  list.innerHTML = filtered.map((book) => {
+  const importedHtml = filtered.map((book) => {
     const session = readSavedReadingSessionForBook(book.bookId);
     const percent = progressPercent(book);
     const active = selected?.bookId === book.bookId;
@@ -872,6 +941,25 @@ function renderImmersiveLibrary() {
       </article>
     `;
   }).join("");
+  const localHtml = localFiltered.map((book) => {
+    const importing = local.importingPath === book.relativePath;
+    const imported = importedBookForLocalBook(book);
+    return `
+      <article class="reader-library-row local">
+        <button type="button" data-local-library-action="${imported ? "open" : "import"}" data-relative-path="${escapeHtml(book.relativePath)}" data-book-id="${escapeHtml(imported?.bookId || "")}" ${importing ? "disabled" : ""}>
+          <span>${escapeHtml(importing ? "导入中" : imported ? "已在书库" : "本地书")}</span>
+          <strong>${escapeHtml(titleFromLocalBookPath(book.relativePath) || book.name || book.relativePath)}</strong>
+          <small>${escapeHtml(localBookMetaLine(book))}</small>
+        </button>
+        <button class="secondary compact" type="button" data-local-library-action="${imported ? "open" : "import"}" data-relative-path="${escapeHtml(book.relativePath)}" data-book-id="${escapeHtml(imported?.bookId || "")}" ${importing ? "disabled" : ""}>${imported ? "打开" : "导入"}</button>
+        <b>${escapeHtml(book.format || "")}</b>
+      </article>
+    `;
+  }).join("");
+  list.innerHTML = [
+    importedHtml ? `<div class="reader-library-section">已导入</div>${importedHtml}` : "",
+    localHtml ? `<div class="reader-library-section">本地书库</div>${localHtml}` : "",
+  ].filter(Boolean).join("");
 }
 
 async function openImmersiveLibraryBook(bookId, { continueBook = false } = {}) {
@@ -881,6 +969,48 @@ async function openImmersiveLibraryBook(bookId, { continueBook = false } = {}) {
   closeImmersiveLibrary();
   focusPanel(".reader-surface", "#chunkText");
   renderReaderProgress();
+}
+
+async function loadImmersiveLocalLibrary() {
+  state.immersiveLocalLibrary.loading = true;
+  renderImmersiveLibrary();
+  try {
+    const data = await loadLocalLibrary();
+    state.immersiveLocalLibrary = {
+      root: data?.root || "",
+      books: Array.isArray(data?.books) ? data.books : [],
+      loaded: true,
+      loading: false,
+      importingPath: "",
+    };
+  } catch (error) {
+    state.immersiveLocalLibrary.loading = false;
+    throw error;
+  } finally {
+    renderImmersiveLibrary();
+  }
+}
+
+async function importImmersiveLocalLibraryBook(relativePath) {
+  if (!relativePath) return;
+  state.immersiveLocalLibrary.importingPath = relativePath;
+  renderImmersiveLibrary();
+  setStatus("导入中", "busy");
+  try {
+    const imported = await importLocalLibraryPayload({
+      relativePath,
+      title: titleFromLocalBookPath(relativePath),
+      maxChars: 12000,
+      overwrite: false,
+    });
+    log(imported);
+    await openImportedBook(imported);
+    closeImmersiveLibrary();
+    focusPanel(".reader-surface", "#chunkText");
+    renderReaderProgress();
+  } finally {
+    state.immersiveLocalLibrary.importingPath = "";
+  }
 }
 
 function openImmersiveBacktrack() {
@@ -6611,16 +6741,13 @@ async function importLocalLibraryBook(formEl) {
   }
   const title = String(form.get("title") || "").trim() || titleFromLocalBookPath(relativePath);
   setStatus("导入中", "busy");
-  const imported = await api("/api/local-library/import", {
-    method: "POST",
-    body: JSON.stringify({
-      relativePath,
-      title,
-      author: String(form.get("author") || "").trim(),
-      headingRegex: String(form.get("headingRegex") || "").trim(),
-      maxChars: Number(form.get("maxChars") || 12000),
-      overwrite: form.get("overwrite") === "on",
-    }),
+  const imported = await importLocalLibraryPayload({
+    relativePath,
+    title,
+    author: String(form.get("author") || "").trim(),
+    headingRegex: String(form.get("headingRegex") || "").trim(),
+    maxChars: Number(form.get("maxChars") || 12000),
+    overwrite: form.get("overwrite") === "on",
   });
   log(imported);
   const keepSelectValue = relativePath;
@@ -6628,6 +6755,20 @@ async function importLocalLibraryBook(formEl) {
   $("localLibrarySelect").value = keepSelectValue;
   await openImportedBook(imported);
   focusPanel(".reader-surface", "#chunkText");
+}
+
+async function importLocalLibraryPayload(payload) {
+  return api("/api/local-library/import", {
+    method: "POST",
+    body: JSON.stringify({
+      relativePath: payload.relativePath,
+      title: payload.title,
+      author: payload.author || "",
+      headingRegex: payload.headingRegex || "",
+      maxChars: Number(payload.maxChars || 12000),
+      overwrite: Boolean(payload.overwrite),
+    }),
+  });
 }
 
 function arrayBufferToBase64(buffer) {

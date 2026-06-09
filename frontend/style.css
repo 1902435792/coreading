@@ -2194,7 +2194,7 @@ body.immersive-reading .reader-library-card {
   bottom: 66px;
   z-index: 12;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 12px;
   width: min(560px, calc(100vw - var(--reader-assistant-width) - 70px));
   border: 1px solid var(--line);
@@ -2233,6 +2233,21 @@ body.immersive-reading .reader-library-card input {
   width: 100%;
 }
 
+body.immersive-reading .reader-library-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+body.immersive-reading .reader-library-actions small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 body.immersive-reading .reader-library-list {
   display: grid;
   gap: 8px;
@@ -2252,6 +2267,12 @@ body.immersive-reading .reader-library-row {
   align-items: stretch;
 }
 
+body.immersive-reading .reader-library-section {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 body.immersive-reading .reader-library-row > button:first-child {
   display: block;
   min-width: 0;
@@ -2264,6 +2285,10 @@ body.immersive-reading .reader-library-row > button:first-child {
 
 body.immersive-reading .reader-library-row.active > button:first-child {
   border-color: color-mix(in srgb, var(--ink) 42%, var(--line));
+}
+
+body.immersive-reading .reader-library-row.local > button:first-child {
+  background: color-mix(in srgb, var(--surface-2) 58%, transparent);
 }
 
 body.immersive-reading .reader-library-row > button:first-child strong,
