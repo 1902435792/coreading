@@ -110,6 +110,15 @@ function readSavedReadingSessionForBook(bookId) {
   return legacy?.bookId === bookId ? legacy : null;
 }
 
+function clearSavedReadingSessionForBook(bookId) {
+  if (!bookId) return;
+  const sessions = readBookReadingSessions();
+  delete sessions[bookId];
+  localStorage.setItem(READING_BOOK_SESSIONS_KEY, JSON.stringify(sessions));
+  const legacy = readSavedReadingSession();
+  if (legacy?.bookId === bookId) localStorage.removeItem(READING_SESSION_KEY);
+}
+
 function saveReadingSession(extra = {}) {
   const selected = activeBook();
   if (!selected || !state.selectedChunkId) return;
@@ -472,6 +481,7 @@ function renderReadingSession() {
   const bookSession = readSavedReadingSessionForBook(selected?.bookId);
   $("sessionResumeBtn").disabled = !bookSession;
   $("sessionContinueBtn").disabled = !hasBook;
+  $("sessionRestartBtn").disabled = !hasBook;
   $("sessionAskNovaBtn").disabled = !hasBook || !state.selectedChunkId;
   $("sessionNoteBtn").disabled = !hasBook || !state.selectedChunkId;
   if (!selected) {
@@ -8409,6 +8419,26 @@ $("sessionContinueBtn").addEventListener("click", () => {
   void continueReading().finally(() => {
     $("sessionContinueBtn").disabled = !activeBook();
   });
+});
+$("sessionRestartBtn").addEventListener("click", async () => {
+  const selected = activeBook();
+  if (!selected) return;
+  $("sessionRestartBtn").disabled = true;
+  try {
+    clearSavedReadingSessionForBook(selected.bookId);
+    const firstChunkId = getChunkId(state.chunks[0]);
+    if (!firstChunkId) throw new Error("当前书没有可读取的段落。");
+    await selectChunk(firstChunkId, true);
+    saveReadingSession({ chunkId: firstChunkId, scrollTop: 0 });
+    focusPanel(".reader-surface", "#chunkText");
+    log(`已清除本书断点，从头阅读: ${selected.title || selected.bookId}`);
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    $("sessionRestartBtn").disabled = !activeBook();
+    renderReaderProgress();
+    renderReadingSession();
+  }
 });
 $("sessionResumeBtn").addEventListener("click", async () => {
   const saved = readSavedReadingSessionForBook(state.selectedBookId) || readSavedReadingSession();
