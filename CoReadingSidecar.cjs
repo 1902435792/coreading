@@ -24,6 +24,7 @@ const MAX_BODY_BYTES = Number(process.env.CO_READING_SIDECAR_MAX_BODY_BYTES || 2
 const NOVA_BRIDGE_URL = process.env.CO_READING_NOVA_BRIDGE_URL || "http://127.0.0.1:3100/v1/chat/completions";
 const NOVA_MODEL = process.env.CO_READING_NOVA_MODEL || "gpt-5.5";
 const NOVA_GUIDE_PATH = process.env.CO_READING_NOVA_GUIDE_PATH || path.join(PROMPTS_DIR, "CoReadingNovaGuide.txt");
+const LOCAL_LIBRARY_DIR = path.resolve(process.env.CO_READING_LIBRARY_DIR || "D:\\书库");
 
 process.env.READING_MCP_DATA_DIR = DATA_DIR;
 process.env.READING_IMPORT_MAX_BYTES = process.env.READING_IMPORT_MAX_BYTES || "100000000";
@@ -126,6 +127,8 @@ const CONTENT_TYPES = {
   ".svg": "image/svg+xml; charset=utf-8"
 };
 
+const LOCAL_BOOK_EXTENSIONS = new Set([".epub", ".txt", ".text", ".md", ".markdown"]);
+
 async function handleCardImage(res, cardId) {
   const storeModule = await import(pathToFileURL(path.join(VENDOR_DIR, "src", "store.js")).href);
   const rendererModule = await import(pathToFileURL(path.join(VENDOR_DIR, "src", "card-renderer.js")).href);
@@ -174,6 +177,109 @@ function parseJsonBlock(text) {
   const objectMatch = raw.match(/\n(\{[\s\S]*\})\s*$/);
   if (objectMatch) return JSON.parse(objectMatch[1]);
   return null;
+}
+
+function isPathInside(parent, target) {
+  const relative = path.relative(parent, target);
+  return relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function localBookFormat(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".epub") return "epub";
+  if (ext === ".md" || ext === ".markdown") return "markdown";
+  return "txt";
+}
+
+function localBookFormatRank(format) {
+  if (format === "epub") return 0;
+  if (format === "markdown") return 1;
+  return 2;
+}
+
+function bookIdFromLocalPath(relativePath) {
+  return path.basename(String(relativePath || ""), path.extname(String(relativePath || "")))
+    .trim()
+    .replace(/[^\w.\-\u4e00-\u9fff]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || `local-book-${Date.now()}`;
+}
+
+function safeLocalBookPath(relativePath) {
+  const raw = String(relativePath || "").trim();
+  if (!raw) throw new Error("relativePath 是必需参数。");
+  if (path.isAbsolute(raw)) throw new Error("本地书源只接受相对路径。");
+  const resolved = path.resolve(LOCAL_LIBRARY_DIR, raw);
+  if (!isPathInside(LOCAL_LIBRARY_DIR, resolved)) throw new Error("本地书源路径越界。");
+  return resolved;
+}
+
+async function listLocalLibraryBooks() {
+  const maxFiles = 200;
+  const results = [];
+  async function walk(dir) {
+    if (results.length >= maxFiles) return;
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (results.length >= maxFiles) return;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const ext = path.extname(entry.name).toLowerCase();
+      if (!LOCAL_BOOK_EXTENSIONS.has(ext)) continue;
+      const stat = await fs.promises.stat(fullPath);
+      results.push({
+        name: entry.name,
+        relativePath: path.relative(LOCAL_LIBRARY_DIR, fullPath),
+        size: stat.size,
+        format: localBookFormat(fullPath),
+        updatedAt: stat.mtime.toISOString()
+      });
+    }
+  }
+  if (fs.existsSync(LOCAL_LIBRARY_DIR)) await walk(LOCAL_LIBRARY_DIR);
+  results.sort((a, b) => (
+    localBookFormatRank(a.format) - localBookFormatRank(b.format)
+    || a.relativePath.localeCompare(b.relativePath, "zh-CN")
+  ));
+  return { status: "success", root: LOCAL_LIBRARY_DIR, count: results.length, books: results };
+}
+
+async function importLocalLibraryBook(payload) {
+  const filePath = safeLocalBookPath(payload.relativePath);
+  const stat = await fs.promises.stat(filePath);
+  if (!stat.isFile()) throw new Error("本地书源路径不是文件。");
+  if (stat.size > IMPORT_MAX_BYTES) {
+    const error = new Error(`Imported file exceeds ${IMPORT_MAX_BYTES} bytes`);
+    error.statusCode = 413;
+    throw error;
+  }
+  const ext = path.extname(filePath).toLowerCase();
+  if (!LOCAL_BOOK_EXTENSIONS.has(ext)) throw new Error("仅支持 EPUB/TXT/Markdown 本地书源。");
+  const dataBase64 = (await fs.promises.readFile(filePath)).toString("base64");
+  const result = await runWrapper({
+    command: "import_file",
+    filename: path.basename(filePath),
+    format: localBookFormat(filePath),
+    bookId: payload.bookId || bookIdFromLocalPath(payload.relativePath),
+    title: payload.title,
+    author: payload.author,
+    maxChars: payload.maxChars,
+    headingRegex: payload.headingRegex,
+    overwrite: payload.overwrite,
+    dataBase64
+  });
+  const data = result.data || {};
+  return {
+    ...result,
+    ...data,
+    command: "import_local_book",
+    data,
+    source: { root: LOCAL_LIBRARY_DIR, relativePath: payload.relativePath }
+  };
 }
 
 function sidecarUploadDir(uploadId) {
@@ -753,6 +859,7 @@ async function handleApi(req, res, url) {
       uptimeSeconds: Math.round(process.uptime()),
       dataDir: DATA_DIR,
       vendorDir: VENDOR_DIR,
+      localLibraryDir: LOCAL_LIBRARY_DIR,
       sinkDefaults: configuredSinkDefaults(),
       runnerJobsPath: RUNNER_JOBS_PATH,
       runnerCount: BACKGROUND_RUNNERS.size,
@@ -794,6 +901,14 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/command") {
     return sendJson(res, 200, await runCommand(await readJsonBody(req)));
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/local-library") {
+    return sendJson(res, 200, await listLocalLibraryBooks());
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/local-library/import") {
+    return sendJson(res, 200, await importLocalLibraryBook(await readJsonBody(req)));
   }
 
   if (req.method === "POST" && url.pathname === "/api/nova/ask") {

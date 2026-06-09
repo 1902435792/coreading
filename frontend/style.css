@@ -334,6 +334,19 @@ legend {
   gap: 6px;
 }
 
+.local-library-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.local-library-head small {
+  min-width: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .panel-actions {
   display: flex;
   align-items: center;

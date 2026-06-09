@@ -79,6 +79,45 @@
             </div>
             <button type="submit">导入</button>
           </form>
+          <form id="localLibraryForm" class="import-form local-library-form">
+            <h3>本地书库</h3>
+            <p class="form-hint">从 sidecar 配置的本地书源读取，默认 D:\书库；只导入 EPUB/TXT/Markdown。</p>
+            <div class="local-library-head">
+              <button id="refreshLocalLibraryBtn" class="secondary compact" type="button">扫描</button>
+              <small id="localLibraryStatus">尚未扫描</small>
+            </div>
+            <label>
+              <span>书源文件</span>
+              <select id="localLibrarySelect" name="relativePath">
+                <option value="">先扫描本地书库</option>
+              </select>
+            </label>
+            <div class="two">
+              <label>
+                <span>书名</span>
+                <input name="title" placeholder="默认使用文件名">
+              </label>
+              <label>
+                <span>作者</span>
+                <input name="author" placeholder="可选">
+              </label>
+            </div>
+            <label>
+              <span>章节正则</span>
+              <input name="headingRegex" placeholder="TXT 可选，如 ^第.+章">
+            </label>
+            <div class="two">
+              <label>
+                <span>每块字数</span>
+                <input name="maxChars" type="number" min="1000" max="50000" value="12000">
+              </label>
+              <label class="inline-check">
+                <span>覆盖同名书</span>
+                <input name="overwrite" type="checkbox">
+              </label>
+            </div>
+            <button type="submit">导入本地书</button>
+          </form>
           <form id="pasteImportForm" class="import-form paste-import-form">
             <h3>粘贴开读</h3>
             <p class="form-hint">临时文章、小说片段或 Markdown 可以直接贴进来，不必先保存成文件。</p>

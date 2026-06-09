@@ -498,4 +498,27 @@ VarCoReadingNovaGuide=CoReadingNovaGuide.txt
 
 默认产品链路采用解耦上下文包：前端/sidecar 显式传入 `bookId`、`chunkId`、原文、选区、offset 和 `contextMode`，Nova 不需要依赖 VCB 工具占位符也能完成当前段落共读。
 
+本地书库入口默认扫描 `D:\书库`，也可用环境变量覆盖：
+
+```env
+CO_READING_LIBRARY_DIR=D:\书库
+```
+
+前端“本地书库”区域会调用：
+
+```text
+GET  /api/local-library
+POST /api/local-library/import
+```
+
+导入接口只接受 `CO_READING_LIBRARY_DIR` 内的相对路径，拒绝绝对路径和越界路径。
+
+如果要让 Nova 通过 3100 真正使用读书版提示词，确认：
+
+```text
+http://127.0.0.1:3100/health
+```
+
+返回 `hasSystemPrompt=true`，且本地 `VCPBridgeServer\config.env` 使用 `BRIDGE_SYSTEM_PROMPT=nova-reader.txt`。`nova-reader.txt` 负责保留 Nova 人格边界并展开 `{{VarCoReadingNovaGuide}}`，不要把读书规则直接覆盖到通用 `nova.txt`。
+
 如果读书效果不顺、工具调用不到、或占位符没有展开，优先调整 `prompts\CoReadingNovaGuide.txt` 和 `prompts\nova-reader-vcp-bridge.txt` 这两份读书专用 prompt；不要覆盖主题人格 prompt 或用户本地 `VCPBridgeServer\nova.txt`。

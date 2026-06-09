@@ -208,6 +208,13 @@ function setShowTestBooks(value) {
   localStorage.setItem(LIBRARY_SHOW_TEST_BOOKS_KEY, value ? "true" : "false");
 }
 
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  if (value >= 1024) return `${Math.round(value / 1024)} KB`;
+  return `${value} B`;
+}
+
 function isTestBook(book) {
   const text = [book?.bookId, book?.title, book?.author].filter(Boolean).join(" ");
   return TEST_BOOK_RE.test(text);
@@ -4945,6 +4952,83 @@ function pastedBookFilename(title, format) {
   return `${safeTitle}.${format === "markdown" ? "md" : "txt"}`;
 }
 
+function titleFromLocalBookPath(relativePath) {
+  return String(relativePath || "")
+    .split(/[\\/]/)
+    .pop()
+    .replace(/\.[^.]+$/, "")
+    .replace(/\s*\((Z-Library|z-lib|未知)[^)]+\)\s*$/i, "")
+    .trim();
+}
+
+function renderLocalLibraryBooks(data) {
+  const select = $("localLibrarySelect");
+  const status = $("localLibraryStatus");
+  if (!select || !status) return;
+  const books = Array.isArray(data?.books) ? data.books : [];
+  select.innerHTML = "";
+  if (!books.length) {
+    select.disabled = true;
+    select.appendChild(new Option("未找到可导入的书", ""));
+    status.textContent = data?.root ? `${data.root} · 0 本` : "未找到书";
+    return;
+  }
+  select.disabled = false;
+  select.appendChild(new Option("选择一本本地书", ""));
+  for (const book of books) {
+    const label = `${book.relativePath} · ${book.format || "txt"} · ${formatBytes(book.size)}`;
+    select.appendChild(new Option(label, book.relativePath));
+  }
+  status.textContent = `${data.root || "本地书库"} · ${books.length} 本`;
+}
+
+async function loadLocalLibrary() {
+  const button = $("refreshLocalLibraryBtn");
+  const status = $("localLibraryStatus");
+  if (button) button.disabled = true;
+  if (status) status.textContent = "扫描中";
+  try {
+    const data = await api("/api/local-library");
+    renderLocalLibraryBooks(data);
+    log(`已扫描本地书库: ${data.count || 0} 本`);
+    return data;
+  } catch (error) {
+    if (status) status.textContent = "扫描失败";
+    log(error.message || String(error));
+    throw error;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function importLocalLibraryBook(formEl) {
+  const form = new FormData(formEl);
+  const relativePath = String(form.get("relativePath") || "").trim();
+  if (!relativePath) {
+    setFormError(formEl, "请先扫描并选择一本本地书。");
+    return;
+  }
+  const title = String(form.get("title") || "").trim() || titleFromLocalBookPath(relativePath);
+  setStatus("导入中", "busy");
+  const imported = await api("/api/local-library/import", {
+    method: "POST",
+    body: JSON.stringify({
+      relativePath,
+      title,
+      author: String(form.get("author") || "").trim(),
+      headingRegex: String(form.get("headingRegex") || "").trim(),
+      maxChars: Number(form.get("maxChars") || 12000),
+      overwrite: form.get("overwrite") === "on",
+    }),
+  });
+  log(imported);
+  const keepSelectValue = relativePath;
+  formEl.reset();
+  $("localLibrarySelect").value = keepSelectValue;
+  await openImportedBook(imported);
+  focusPanel(".reader-surface", "#chunkText");
+}
+
 function arrayBufferToBase64(buffer) {
   const bytes = new Uint8Array(buffer);
   return bytesToBase64(bytes);
@@ -5042,13 +5126,14 @@ async function importFile(file, options) {
 }
 
 async function openImportedBook(imported) {
-  const bookId = imported?.bookId || imported?.book?.bookId || "";
+  const bookId = imported?.bookId || imported?.data?.bookId || imported?.book?.bookId || "";
   if (!bookId) {
     await loadSnapshot();
     return;
   }
   state.selectedBookId = bookId;
-  state.selectedChunkId = imported.firstChunkId || "";
+  const firstChunkId = imported?.firstChunkId || imported?.data?.firstChunkId || "";
+  state.selectedChunkId = firstChunkId;
   state.currentChunk = null;
   state.annotations = [];
   state.userNotes = [];
@@ -5057,9 +5142,9 @@ async function openImportedBook(imported) {
   await loadSnapshot();
   state.selectedBookId = bookId;
   await loadChunks(bookId);
-  const importedFirst = state.chunks.find((chunk) => getChunkId(chunk) === imported.firstChunkId);
+  const importedFirst = state.chunks.find((chunk) => getChunkId(chunk) === firstChunkId);
   state.selectedChunkId = isPreferredReadingChunk(importedFirst)
-    ? imported.firstChunkId
+    ? firstChunkId
     : preferredReadingChunkIdFrom();
   await loadCards(bookId);
   if (state.selectedChunkId) await readSelectedChunk();
@@ -6693,6 +6778,30 @@ $("importForm").addEventListener("submit", async (event) => {
     setFormError(formEl, error.message || String(error));
   } finally {
     window.setTimeout(() => renderImportProgress("", 0), 1200);
+  }
+});
+$("refreshLocalLibraryBtn")?.addEventListener("click", () => {
+  void loadLocalLibrary().catch((error) => {
+    const formEl = $("localLibraryForm");
+    if (formEl) setFormError(formEl, error.message || String(error));
+  });
+});
+$("localLibrarySelect")?.addEventListener("change", (event) => {
+  const formEl = $("localLibraryForm");
+  const titleInput = formEl?.querySelector('input[name="title"]');
+  if (titleInput && !titleInput.value.trim()) {
+    titleInput.value = titleFromLocalBookPath(event.target.value);
+  }
+});
+$("localLibraryForm")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formEl = event.currentTarget;
+  clearFormError(formEl);
+  try {
+    await importLocalLibraryBook(formEl);
+  } catch (error) {
+    setStatus("导入失败");
+    setFormError(formEl, error.message || String(error));
   }
 });
 $("pasteImportForm").addEventListener("submit", async (event) => {
