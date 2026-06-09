@@ -28,7 +28,7 @@ const state = {
   novaAskPending: false,
   novaAskError: null,
   novaLastRequest: null,
-  readerSelection: { text: "", offset: null },
+  readerSelection: { text: "", offset: null, rect: null },
   selectionCaptureTimer: 0,
   quickNoteLastQuote: null,
   quickNoteSinkPreviewId: "",
@@ -3907,20 +3907,58 @@ function selectedQuote() {
   const focusInsideReader = selection.focusNode && chunkText.contains(selection.focusNode);
   const sourceText = currentChunkText();
   const offset = anchorInsideReader && focusInsideReader ? sourceText.indexOf(text) : -1;
-  return { text: text.slice(0, 500), offset: offset >= 0 ? offset : null };
+  return { text: text.slice(0, 500), offset: offset >= 0 ? offset : null, rect: null };
 }
 
 function liveSelectedQuote() {
   const selection = window.getSelection?.();
   const text = selection ? String(selection.toString() || "").trim() : "";
-  if (!selection || !text) return { text: "", offset: null };
+  if (!selection || !text) return { text: "", offset: null, rect: null };
   const chunkText = $("chunkText");
   const anchorInsideReader = selection.anchorNode && chunkText.contains(selection.anchorNode);
   const focusInsideReader = selection.focusNode && chunkText.contains(selection.focusNode);
-  if (!anchorInsideReader || !focusInsideReader) return { text: "", offset: null };
+  if (!anchorInsideReader || !focusInsideReader) return { text: "", offset: null, rect: null };
   const sourceText = currentChunkText();
   const offset = sourceText.indexOf(text);
-  return { text: text.slice(0, 500), offset: offset >= 0 ? offset : null };
+  return { text: text.slice(0, 500), offset: offset >= 0 ? offset : null, rect: selectionFloatingRect(selection) };
+}
+
+function selectionFloatingRect(selection = window.getSelection?.()) {
+  if (!selection || selection.rangeCount < 1) return null;
+  const range = selection.getRangeAt(0);
+  const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
+  const rect = rects[0] || range.getBoundingClientRect();
+  if (!rect || !rect.width || !rect.height) return null;
+  return {
+    left: Math.round(rect.left),
+    top: Math.round(rect.top),
+    right: Math.round(rect.right),
+    bottom: Math.round(rect.bottom),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  };
+}
+
+function positionImmersiveSelectionDock(dock) {
+  if (!state.immersiveReading || !state.readerSelection?.rect) {
+    dock.classList.remove("selection-dock-floating");
+    dock.style.removeProperty("--selection-dock-left");
+    dock.style.removeProperty("--selection-dock-top");
+    dock.style.removeProperty("--selection-dock-width");
+    return;
+  }
+  const rect = state.readerSelection.rect;
+  const assistantWidth = document.body.classList.contains("immersive-assistant-collapsed")
+    ? 0
+    : Math.max(0, window.innerWidth - (document.querySelector(".assistant-pane")?.getBoundingClientRect().left || window.innerWidth));
+  const maxRight = Math.max(280, window.innerWidth - assistantWidth - 18);
+  const width = Math.min(680, Math.max(320, maxRight - 36));
+  const left = Math.max(18, Math.min(rect.left, maxRight - width));
+  const top = Math.max(18, Math.min(window.innerHeight - 112, rect.bottom + 10));
+  dock.classList.add("selection-dock-floating");
+  dock.style.setProperty("--selection-dock-left", `${Math.round(left)}px`);
+  dock.style.setProperty("--selection-dock-top", `${Math.round(top)}px`);
+  dock.style.setProperty("--selection-dock-width", `${Math.round(width)}px`);
 }
 
 function renderSelectionDock() {
@@ -3929,7 +3967,9 @@ function renderSelectionDock() {
   const quote = state.readerSelection?.text || "";
   dock.hidden = !quote;
   document.body.classList.toggle("reader-selection-active", Boolean(quote));
-  $("selectionDockQuote").textContent = quote ? quote.slice(0, 180) : "未选择原文";
+  positionImmersiveSelectionDock(dock);
+  const quoteLabel = quote ? `${quote.length} 字 · ${quote.slice(0, 180)}` : "未选择原文";
+  $("selectionDockQuote").textContent = quoteLabel;
   $("selectionAskNovaBtn").disabled = !quote;
   $("selectionBacktrackBtn").disabled = !quote;
   $("selectionSinkBtn").disabled = !quote;
@@ -3949,7 +3989,7 @@ function captureReaderSelection() {
 }
 
 function clearReaderSelection() {
-  state.readerSelection = { text: "", offset: null };
+  state.readerSelection = { text: "", offset: null, rect: null };
   window.getSelection?.().removeAllRanges?.();
   closeImmersiveNotesPane();
   closeImmersiveQuickNote({ clear: true });
@@ -7931,6 +7971,12 @@ $("chunkText").addEventListener("keyup", (event) => {
   if (event.key === "Shift" || event.key.startsWith("Arrow")) {
     captureReaderSelection();
   }
+});
+$("chunkText").addEventListener("scroll", () => {
+  if (state.immersiveReading && state.readerSelection?.text) renderSelectionDock();
+});
+window.addEventListener("resize", () => {
+  if (state.immersiveReading && state.readerSelection?.text) renderSelectionDock();
 });
 document.addEventListener("selectionchange", () => {
   if (!state.immersiveReading) return;

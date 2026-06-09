@@ -1826,7 +1826,10 @@ body.immersive-reading .selection-dock {
   left: clamp(42px, 8vw, 140px);
   z-index: 9;
   grid-template-columns: minmax(0, 1fr) auto;
-  max-width: min(760px, calc(100vw - var(--reader-assistant-width) - 132px));
+  width: auto;
+  max-width: min(760px, calc(100vw - var(--reader-assistant-width) - 36px));
+  min-width: 0;
+  max-height: 96px;
   margin: 0;
   border-color: var(--line);
   border-radius: 7px;
@@ -1837,11 +1840,23 @@ body.immersive-reading .selection-dock {
   backdrop-filter: blur(10px);
 }
 
+body.immersive-reading .selection-dock.selection-dock-floating {
+  top: var(--selection-dock-top);
+  right: auto;
+  bottom: auto;
+  left: var(--selection-dock-left);
+  width: var(--selection-dock-width);
+}
+
 body.immersive-reading.immersive-assistant-collapsed .selection-dock {
   right: 18px;
   max-width: min(860px, calc(100vw - 132px));
   visibility: visible;
   pointer-events: auto;
+}
+
+body.immersive-reading.immersive-assistant-collapsed .selection-dock.selection-dock-floating {
+  right: auto;
 }
 
 body.immersive-reading .selection-dock strong {
