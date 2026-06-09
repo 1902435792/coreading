@@ -3772,6 +3772,7 @@ function renderSinkDetail() {
     $("copySinkAuditContextBtn").disabled = true;
     $("copySinkDecisionPacketBtn").disabled = true;
     $("copySinkSavePayloadBtn").disabled = true;
+    $("previewSinkLocalDiffBtn").disabled = true;
     $("compactSinkContentBtn").disabled = true;
     $("saveSinkContentBtn").disabled = true;
     $("copySinkSaveApprovePayloadBtn").disabled = true;
@@ -3830,6 +3831,7 @@ function renderSinkDetail() {
   $("copySinkAuditContextBtn").disabled = false;
   $("copySinkDecisionPacketBtn").disabled = false;
   $("copySinkSavePayloadBtn").disabled = !editable;
+  $("previewSinkLocalDiffBtn").disabled = !editable;
   $("compactSinkContentBtn").disabled = !editable;
   $("saveSinkContentBtn").disabled = !editable;
   $("copySinkSaveApprovePayloadBtn").disabled = !editable;
@@ -4141,6 +4143,14 @@ function renderObsidianDiffPanel() {
       <strong>${title}</strong>
       <small>新增 ${escapeHtml(diff.addedLineCount || 0)} · 移除 ${escapeHtml(diff.removedLineCount || 0)}</small>
       <pre>${escapeHtml(data.resolved ? (data.resolvedMarker || data.marker || "该 preview 的 proposed update 已标记整理。") : (data.alreadyMerged ? (data.marker || "该 preview 已追加到目标笔记。") : ([...(diff.addedPreview || []).map((line) => `+ ${line}`), ...(diff.removedPreview || []).map((line) => `- ${line}`)].join("\n") || "无差异")))}</pre>
+    `;
+    return;
+  }
+  if (data.kind === "local-content-diff") {
+    panel.innerHTML = `
+      <strong>${data.identical ? "正文未改动" : "保存前改动"}</strong>
+      <small>新增 ${escapeHtml(data.addedLineCount || 0)} · 移除 ${escapeHtml(data.removedLineCount || 0)}</small>
+      <pre>${escapeHtml(data.preview || "无差异")}</pre>
     `;
     return;
   }
@@ -6599,6 +6609,19 @@ $("copySinkSavePayloadBtn").addEventListener("click", async () => {
   }
 });
 
+$("previewSinkLocalDiffBtn").addEventListener("click", () => {
+  const preview = state.selectedSinkPreview;
+  if (!preview || preview.status === "exported") {
+    log("请先选择可编辑的沉淀预览。");
+    return;
+  }
+  const original = typeof preview.content === "string" ? preview.content : JSON.stringify(preview.content || preview, null, 2);
+  const current = $("sinkPreviewContent").value || "";
+  state.selectedSinkDiff = localContentDiff(original, current);
+  renderObsidianDiffPanel();
+  log(state.selectedSinkDiff.identical ? "当前正文未改动。" : "已生成保存前改动对照。");
+});
+
 $("compactSinkContentBtn").addEventListener("click", () => {
   const preview = state.selectedSinkPreview;
   if (!preview || preview.status === "exported") {
@@ -6663,6 +6686,44 @@ function sinkSavePayload(preview, { status, note }) {
     content: $("sinkPreviewContent").value,
     note,
     updatedBy: "CoReadingSidecar",
+  };
+}
+
+function localContentDiff(original, current) {
+  const beforeLines = String(original || "").split(/\r?\n/);
+  const afterLines = String(current || "").split(/\r?\n/);
+  const beforeSet = new Map();
+  const afterSet = new Map();
+  for (const line of beforeLines) beforeSet.set(line, (beforeSet.get(line) || 0) + 1);
+  for (const line of afterLines) afterSet.set(line, (afterSet.get(line) || 0) + 1);
+  const added = [];
+  const removed = [];
+  const seenAdded = new Map();
+  const seenRemoved = new Map();
+  for (const line of afterLines) {
+    const used = seenAdded.get(line) || 0;
+    const baseline = beforeSet.get(line) || 0;
+    if (used >= baseline) added.push(line);
+    seenAdded.set(line, used + 1);
+  }
+  for (const line of beforeLines) {
+    const used = seenRemoved.get(line) || 0;
+    const baseline = afterSet.get(line) || 0;
+    if (used >= baseline) removed.push(line);
+    seenRemoved.set(line, used + 1);
+  }
+  const preview = [
+    ...added.slice(0, 40).map((line) => `+ ${line}`),
+    ...removed.slice(0, 40).map((line) => `- ${line}`),
+  ].join("\n");
+  return {
+    kind: "local-content-diff",
+    identical: String(original || "") === String(current || ""),
+    addedLineCount: added.length,
+    removedLineCount: removed.length,
+    addedPreview: added.slice(0, 40),
+    removedPreview: removed.slice(0, 40),
+    preview,
   };
 }
 
