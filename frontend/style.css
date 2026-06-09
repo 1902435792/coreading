@@ -1911,6 +1911,87 @@ body.immersive-reading .immersive-quick-note-actions button {
   font-size: 12px;
 }
 
+body.immersive-reading .immersive-nova-card {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 18px);
+  bottom: 148px;
+  z-index: 10;
+  display: grid;
+  gap: 10px;
+  width: min(620px, calc(100vw - var(--reader-assistant-width) - 70px));
+  max-height: min(520px, calc(100vh - 190px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 14px 36px rgba(15, 15, 15, 0.11);
+  backdrop-filter: blur(10px);
+}
+
+body.immersive-reading .immersive-nova-card[hidden] {
+  display: none;
+}
+
+body.immersive-reading.immersive-assistant-collapsed .immersive-nova-card {
+  right: 18px;
+  width: min(680px, calc(100vw - 36px));
+}
+
+body.immersive-reading .immersive-nova-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+body.immersive-reading .immersive-nova-card span,
+body.immersive-reading .immersive-nova-card small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+body.immersive-reading .immersive-nova-card strong {
+  display: block;
+  margin: 2px 0;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+body.immersive-reading .immersive-nova-card textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+}
+
+body.immersive-reading .immersive-nova-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+body.immersive-reading .immersive-nova-reply {
+  overflow: auto;
+  max-height: 220px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--surface-3) 70%, transparent);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.62;
+  white-space: pre-wrap;
+}
+
+body.immersive-reading .immersive-nova-reply.empty {
+  color: var(--muted);
+}
+
+body.immersive-reading .immersive-nova-reply.error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+  color: var(--danger);
+}
+
 body.immersive-reading.reader-selection-active .reader-settings {
   opacity: 0.08;
 }
@@ -2133,6 +2214,7 @@ body.immersive-reading.immersive-clean-reading .reader-bookmark-tools,
 body.immersive-reading.immersive-clean-reading .reader-action-tools,
 body.immersive-reading.immersive-clean-reading .reader-position-nav,
 body.immersive-reading.immersive-clean-reading .reader-backtrack-card,
+body.immersive-reading.immersive-clean-reading .immersive-nova-card,
 body.immersive-reading.immersive-clean-reading .reader-library-button,
 body.immersive-reading.immersive-clean-reading .reader-library-card,
 body.immersive-reading.immersive-clean-reading .reader-plan-button,
@@ -3798,6 +3880,24 @@ pre {
 
   body.immersive-reading .immersive-quick-note-actions {
     overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  body.immersive-reading .immersive-nova-card {
+    right: 12px;
+    bottom: 128px;
+    left: 12px;
+    width: auto;
+    max-height: min(520px, calc(100vh - 160px));
+  }
+
+  body.immersive-reading .immersive-nova-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.immersive-reading .immersive-nova-actions {
+    overflow-x: auto;
+    flex-wrap: nowrap;
     scrollbar-width: thin;
   }
 

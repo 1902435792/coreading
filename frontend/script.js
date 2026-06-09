@@ -28,6 +28,7 @@ const state = {
   novaAskPending: false,
   novaAskError: null,
   novaLastRequest: null,
+  immersiveNovaCardOpen: false,
   readerSelection: { text: "", offset: null, rect: null },
   selectionCaptureTimer: 0,
   quickNoteLastQuote: null,
@@ -308,6 +309,23 @@ function setupReaderModeControls() {
     '  <button id="immersiveOpenSinkBtn" type="button">看沉淀</button>',
     '  <span id="immersiveActionStatus">本段动作</span>',
     '</div>',
+    '<div id="immersiveNovaCard" class="immersive-nova-card" hidden>',
+    '  <div class="immersive-nova-head">',
+    '    <div>',
+    '      <span id="immersiveNovaLabel">Nova</span>',
+    '      <strong id="immersiveNovaTitle">选区共读</strong>',
+    '      <small id="immersiveNovaMeta">选中原文后可就地提问。</small>',
+    '    </div>',
+    '    <button id="immersiveNovaCloseBtn" class="secondary compact" type="button">关闭</button>',
+    '  </div>',
+    '  <textarea id="immersiveNovaPrompt" rows="3" placeholder="向 Nova 追问这段选区。"></textarea>',
+    '  <div class="immersive-nova-actions">',
+    '    <button id="immersiveNovaAskBtn" class="primary compact" type="button">发送</button>',
+    '    <button id="immersiveNovaSaveBtn" class="secondary compact" type="button" disabled>存笔记</button>',
+    '    <button id="immersiveNovaSinkBtn" class="secondary compact" type="button" disabled>沉淀</button>',
+    '  </div>',
+    '  <div id="immersiveNovaReply" class="immersive-nova-reply empty">Nova 的回应会在这里。</div>',
+    '</div>',
   ].join("");
   shell.insertAdjacentElement("afterend", chrome);
   $("immersivePrevPageBtn")?.addEventListener("click", () => void turnReaderPage(-1));
@@ -497,6 +515,10 @@ function setupReaderModeControls() {
       log(error.message || String(error));
     });
   });
+  $("immersiveNovaCloseBtn")?.addEventListener("click", closeImmersiveNovaCard);
+  $("immersiveNovaAskBtn")?.addEventListener("click", () => void askNovaFromImmersiveCard());
+  $("immersiveNovaSaveBtn")?.addEventListener("click", () => void saveNovaReplyFromImmersiveCard());
+  $("immersiveNovaSinkBtn")?.addEventListener("click", () => void sinkNovaReplyFromImmersiveCard());
 
   document.addEventListener("fullscreenchange", () => {
     if (!document.fullscreenElement && state.immersiveReading) {
@@ -3124,6 +3146,7 @@ function renderNovaReply() {
     copyButton.disabled = true;
     saveButton.disabled = true;
     sinkButton.disabled = true;
+    renderImmersiveNovaCard();
     return;
   }
   if (state.novaAskError) {
@@ -3133,6 +3156,7 @@ function renderNovaReply() {
     copyButton.disabled = true;
     saveButton.disabled = true;
     sinkButton.disabled = true;
+    renderImmersiveNovaCard();
     return;
   }
   if (!state.novaReply) {
@@ -3142,6 +3166,7 @@ function renderNovaReply() {
     copyButton.disabled = true;
     saveButton.disabled = true;
     sinkButton.disabled = true;
+    renderImmersiveNovaCard();
     return;
   }
   reply.className = "nova-reply";
@@ -3150,6 +3175,7 @@ function renderNovaReply() {
   copyButton.disabled = false;
   saveButton.disabled = !activeBook() || !state.selectedChunkId || !novaReplyBelongsToCurrentChunk();
   sinkButton.disabled = !activeBook() || !state.selectedChunkId || !novaReplyBelongsToCurrentChunk();
+  renderImmersiveNovaCard();
 }
 
 function novaErrorMessage(error, request) {
@@ -3162,6 +3188,62 @@ function novaErrorMessage(error, request) {
     `已保留你的问题和 ${target}，稍后直接再点“发送给 Nova”即可重试。`,
     "这通常是 VCP/Nova 上游超时或 502，不会影响你继续阅读、笔记和沉淀。"
   ].join("\n");
+}
+
+async function askNovaWithPrompt(prompt) {
+  const selected = activeBook();
+  if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
+  const chunk = state.currentChunk?.chunk || state.currentChunk || {};
+  const text = currentChunkText();
+  if (!text) throw new Error("请先读取当前 chunk。");
+  const quote = selectedQuote();
+  const request = {
+    prompt,
+    context: currentNovaContext(selected, chunk, text, quote)
+  };
+  state.novaLastRequest = {
+    bookId: selected.bookId,
+    chunkId: state.selectedChunkId,
+    prompt,
+    selection: quote.text || "",
+    selectionOffset: quote.offset ?? null,
+    requestedAt: new Date().toISOString(),
+  };
+  state.novaAskError = null;
+  state.novaAskPending = true;
+  renderNovaReply();
+  renderImmersiveNovaCard();
+  try {
+    const result = await askNova(request);
+    state.novaReply = result.content || "Nova 暂无文本回复。";
+    state.novaReplyContext = {
+      bookId: selected.bookId,
+      chunkId: state.selectedChunkId,
+      prompt,
+      selection: quote.text || "",
+      selectionOffset: quote.offset ?? null,
+      answeredAt: new Date().toISOString(),
+    };
+    state.novaAskPending = false;
+    state.novaAskError = null;
+    renderNovaReply();
+    renderReadingFootprints(readingFootprintRanges(currentChunkText()));
+    log("Nova 已回应当前段落。");
+    return state.novaReply;
+  } catch (error) {
+    state.novaAskPending = false;
+    state.novaAskError = {
+      message: novaErrorMessage(error, state.novaLastRequest),
+      statusText: error?.status === 502 || error?.status === 504 ? "上游超时" : "可重试",
+      at: new Date().toISOString(),
+    };
+    state.novaReply = "";
+    renderNovaReply();
+    log(error.message || String(error));
+    throw error;
+  } finally {
+    renderImmersiveNovaCard();
+  }
 }
 
 function planFormChunkValue(name) {
@@ -4109,6 +4191,113 @@ function prepareNovaPromptFromCurrentReading() {
   }
   revealNovaForReadingAction();
   focusPanel(".nova-reading-box", "#novaPrompt");
+}
+
+function openImmersiveNovaCard({ prompt = "" } = {}) {
+  if (!state.immersiveReading) {
+    prepareNovaPromptFromCurrentReading();
+    return;
+  }
+  if (!state.readerSelection?.text) captureReaderSelection();
+  const input = $("immersiveNovaPrompt");
+  if (input && prompt) input.value = prompt;
+  else if (input && !input.value.trim()) input.value = buildNovaPromptFromSelection();
+  state.immersiveNovaCardOpen = true;
+  renderImmersiveNovaCard();
+  window.setTimeout(() => $("immersiveNovaPrompt")?.focus(), 80);
+}
+
+function closeImmersiveNovaCard() {
+  state.immersiveNovaCardOpen = false;
+  renderImmersiveNovaCard();
+}
+
+function renderImmersiveNovaCard() {
+  const card = $("immersiveNovaCard");
+  if (!card) return;
+  card.hidden = !state.immersiveNovaCardOpen;
+  if (card.hidden) return;
+  const quote = state.readerSelection?.text || selectedQuote().text || "";
+  const meta = $("immersiveNovaMeta");
+  const reply = $("immersiveNovaReply");
+  const ask = $("immersiveNovaAskBtn");
+  const save = $("immersiveNovaSaveBtn");
+  const sink = $("immersiveNovaSinkBtn");
+  if (meta) meta.textContent = quote ? `${quote.length} 字选区 · ${state.selectedChunkId}` : `当前段 · ${state.selectedChunkId || "未选择"}`;
+  if (state.novaAskPending) {
+    if (reply) {
+      reply.className = "immersive-nova-reply empty";
+      reply.textContent = "Nova 正在读。你可以继续看原文。";
+    }
+    if (ask) ask.disabled = true;
+    if (save) save.disabled = true;
+    if (sink) sink.disabled = true;
+    return;
+  }
+  if (ask) ask.disabled = false;
+  if (state.novaAskError) {
+    if (reply) {
+      reply.className = "immersive-nova-reply error";
+      reply.textContent = state.novaAskError.message;
+    }
+    if (save) save.disabled = true;
+    if (sink) sink.disabled = true;
+    return;
+  }
+  if (reply) {
+    reply.className = state.novaReply ? "immersive-nova-reply" : "immersive-nova-reply empty";
+    reply.textContent = state.novaReply || "Nova 的回应会在这里。";
+  }
+  const canUseReply = Boolean(activeBook() && state.selectedChunkId && novaReplyBelongsToCurrentChunk());
+  if (save) save.disabled = !canUseReply;
+  if (sink) sink.disabled = !canUseReply;
+}
+
+async function askNovaFromImmersiveCard() {
+  const button = $("immersiveNovaAskBtn");
+  if (button) button.disabled = true;
+  try {
+    const input = $("immersiveNovaPrompt");
+    const prompt = String(input?.value || "").trim() || buildNovaPromptFromSelection();
+    $("novaPrompt").value = prompt;
+    await askNovaWithPrompt(prompt);
+  } catch {
+    // askNovaWithPrompt already logs and renders the user-facing error.
+  } finally {
+    renderImmersiveNovaCard();
+  }
+}
+
+async function saveNovaReplyFromImmersiveCard() {
+  const button = $("immersiveNovaSaveBtn");
+  if (button) button.disabled = true;
+  try {
+    const result = await command(novaReplyNotePayload());
+    await readSelectedChunk();
+    state.immersiveNovaCardOpen = true;
+    renderImmersiveNovaCard();
+    log(`已把 Nova 回复存成笔记: ${result.data?.noteId || state.selectedChunkId}`);
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderImmersiveNovaCard();
+  }
+}
+
+async function sinkNovaReplyFromImmersiveCard() {
+  const button = $("immersiveNovaSinkBtn");
+  if (button) button.disabled = true;
+  try {
+    const result = await createNovaReplySinkPreview();
+    state.immersiveNovaCardOpen = true;
+    renderImmersiveNovaCard();
+    log(`已生成 Nova 回复沉淀预览: ${result.reviewId}`);
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderImmersiveNovaCard();
+    renderChunkReview();
+  }
 }
 
 function prepareNoteFromCurrentReading() {
@@ -7995,7 +8184,12 @@ function askNovaFromSelection() {
     log("请先在原文里选中一段想问 Nova 的话。");
     return;
   }
-  $("novaPrompt").value = buildNovaPromptFromSelection();
+  const prompt = buildNovaPromptFromSelection();
+  $("novaPrompt").value = prompt;
+  if (state.immersiveReading) {
+    openImmersiveNovaCard({ prompt });
+    return;
+  }
   revealNovaForReadingAction();
   focusPanel(".nova-reading-box", "#novaPrompt");
   $("askNovaBtn").click();
@@ -10886,52 +11080,9 @@ $("askNovaBtn").addEventListener("click", async () => {
   button.disabled = true;
   status.textContent = "思考中";
   try {
-    const selected = activeBook();
-    if (!selected || !state.selectedChunkId) throw new Error("请先选择一本书和 chunk。");
-    const chunk = state.currentChunk?.chunk || state.currentChunk || {};
-    const text = currentChunkText();
-    if (!text) throw new Error("请先读取当前 chunk。");
     const prompt = String($("novaPrompt").value || "").trim() || "请陪我读这一段：解释重点，指出一句值得停留的话，再给一个下一步。";
-    const quote = selectedQuote();
-    const request = {
-      prompt,
-      context: currentNovaContext(selected, chunk, text, quote)
-    };
-    state.novaLastRequest = {
-      bookId: selected.bookId,
-      chunkId: state.selectedChunkId,
-      prompt,
-      selection: quote.text || "",
-      selectionOffset: quote.offset ?? null,
-      requestedAt: new Date().toISOString(),
-    };
-    state.novaAskError = null;
-    state.novaAskPending = true;
-    renderNovaReply();
-    const result = await askNova(request);
-    state.novaReply = result.content || "Nova 暂无文本回复。";
-    state.novaReplyContext = {
-      bookId: selected.bookId,
-      chunkId: state.selectedChunkId,
-      prompt,
-      selection: quote.text || "",
-      selectionOffset: quote.offset ?? null,
-      answeredAt: new Date().toISOString(),
-    };
-    state.novaAskPending = false;
-    state.novaAskError = null;
-    renderNovaReply();
-    renderReadingFootprints(readingFootprintRanges(currentChunkText()));
-    log("Nova 已回应当前段落。");
+    await askNovaWithPrompt(prompt);
   } catch (error) {
-    state.novaAskPending = false;
-    state.novaAskError = {
-      message: novaErrorMessage(error, state.novaLastRequest),
-      statusText: error?.status === 502 || error?.status === 504 ? "上游超时" : "可重试",
-      at: new Date().toISOString(),
-    };
-    state.novaReply = "";
-    renderNovaReply();
     log(error.message || String(error));
   } finally {
     button.disabled = false;
