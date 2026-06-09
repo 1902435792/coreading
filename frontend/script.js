@@ -210,6 +210,19 @@ function setupReaderModeControls() {
     '</div>',
     '<button id="immersiveCleanReadBtn" class="reader-clean-button" type="button" aria-pressed="false">净读</button>',
     '<button id="immersiveAssistantBtn" class="reader-assistant-toggle" type="button" aria-pressed="false">收起 Nova</button>',
+    '<button id="immersiveLibraryBtn" class="reader-library-button" type="button" aria-expanded="false" aria-controls="immersiveLibrary">书库</button>',
+    '<div id="immersiveLibrary" class="reader-library-card" hidden>',
+    '  <div class="reader-library-head">',
+    '    <div>',
+    '      <span id="immersiveLibraryStep">沉浸书库</span>',
+    '      <strong id="immersiveLibraryTitle">切换阅读现场</strong>',
+    '      <small id="immersiveLibraryMeta">搜索书名、作者或 bookId。</small>',
+    '    </div>',
+    '    <button id="immersiveLibraryCloseBtn" class="secondary compact" type="button">关闭</button>',
+    '  </div>',
+    '  <input id="immersiveLibrarySearch" type="search" placeholder="搜索书名、作者或 bookId">',
+    '  <div id="immersiveLibraryList" class="reader-library-list">暂无书籍</div>',
+    '</div>',
     '<button id="immersivePlanBtn" class="reader-plan-button" type="button" aria-expanded="false" aria-controls="immersivePlan">计划</button>',
     '<div id="immersivePlan" class="reader-plan-card" hidden>',
     '  <div>',
@@ -318,6 +331,19 @@ function setupReaderModeControls() {
   });
   $("immersiveCleanReadBtn")?.addEventListener("click", toggleImmersiveCleanRead);
   $("immersiveAssistantBtn")?.addEventListener("click", toggleImmersiveAssistant);
+  $("immersiveLibraryBtn")?.addEventListener("click", toggleImmersiveLibrary);
+  $("immersiveLibraryCloseBtn")?.addEventListener("click", closeImmersiveLibrary);
+  $("immersiveLibrarySearch")?.addEventListener("input", renderImmersiveLibrary);
+  $("immersiveLibraryList")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-library-action][data-book-id]");
+    if (!button) return;
+    button.disabled = true;
+    const bookId = button.dataset.bookId || "";
+    const action = button.dataset.libraryAction || "select";
+    void openImmersiveLibraryBook(bookId, { continueBook: action === "continue" }).catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderImmersiveLibrary);
+  });
   $("immersivePlanBtn")?.addEventListener("click", toggleImmersivePlan);
   $("immersivePlanCloseBtn")?.addEventListener("click", closeImmersivePlan);
   $("immersivePlanOpenRangeBtn")?.addEventListener("click", () => {
@@ -547,6 +573,9 @@ function handleReaderKeyboard(event) {
     } else if (document.body.classList.contains("immersive-plan-open")) {
       closeImmersivePlan();
       focusPanel(".reader-surface", "#chunkText");
+    } else if (document.body.classList.contains("immersive-library-open")) {
+      closeImmersiveLibrary();
+      focusPanel(".reader-surface", "#chunkText");
     } else if (document.body.classList.contains("immersive-backtrack-open")) {
       closeImmersiveBacktrack();
       focusPanel(".reader-surface", "#chunkText");
@@ -575,6 +604,9 @@ function handleReaderKeyboard(event) {
       focusPanel(".reader-surface", "#chunkText");
     } else if (document.body.classList.contains("immersive-plan-open")) {
       closeImmersivePlan();
+      focusPanel(".reader-surface", "#chunkText");
+    } else if (document.body.classList.contains("immersive-library-open")) {
+      closeImmersiveLibrary();
       focusPanel(".reader-surface", "#chunkText");
     } else if (document.body.classList.contains("immersive-backtrack-open")) {
       closeImmersiveBacktrack();
@@ -743,6 +775,7 @@ function openImmersivePlan() {
   if (!state.immersiveReading) return;
   closeImmersiveToc();
   closeImmersiveFootprints();
+  closeImmersiveLibrary();
   closeImmersiveBacktrack();
   renderImmersivePlan();
   document.body.classList.add("immersive-plan-open");
@@ -765,10 +798,96 @@ function toggleImmersivePlan() {
   else openImmersivePlan();
 }
 
+function openImmersiveLibrary() {
+  if (!state.immersiveReading) return;
+  closeImmersiveToc();
+  closeImmersiveFootprints();
+  closeImmersivePlan();
+  closeImmersiveBacktrack();
+  document.body.classList.add("immersive-library-open");
+  const card = $("immersiveLibrary");
+  const button = $("immersiveLibraryBtn");
+  if (card) card.hidden = false;
+  if (button) button.setAttribute("aria-expanded", "true");
+  renderImmersiveLibrary();
+  window.setTimeout(() => $("immersiveLibrarySearch")?.focus(), 60);
+}
+
+function closeImmersiveLibrary() {
+  document.body.classList.remove("immersive-library-open");
+  const card = $("immersiveLibrary");
+  const button = $("immersiveLibraryBtn");
+  if (card) card.hidden = true;
+  if (button) button.setAttribute("aria-expanded", "false");
+}
+
+function toggleImmersiveLibrary() {
+  if (document.body.classList.contains("immersive-library-open")) closeImmersiveLibrary();
+  else openImmersiveLibrary();
+}
+
+function immersiveLibraryQuery() {
+  return String($("immersiveLibrarySearch")?.value || "").trim().toLocaleLowerCase("zh-CN");
+}
+
+function bookSearchText(book) {
+  return [book?.title, book?.author, book?.bookId].filter(Boolean).join(" ").toLocaleLowerCase("zh-CN");
+}
+
+function renderImmersiveLibrary() {
+  const card = $("immersiveLibrary");
+  const list = $("immersiveLibraryList");
+  if (!card || !list) return;
+  const books = visibleBooks();
+  const selected = activeBook();
+  const queryText = immersiveLibraryQuery();
+  const filtered = books.filter((book) => !queryText || bookSearchText(book).includes(queryText)).slice(0, 24);
+  const meta = $("immersiveLibraryMeta");
+  if (meta) meta.textContent = `${filtered.length}/${books.length} 本 · 当前 ${selected?.title || selected?.bookId || "未选择"}`;
+  if (!filtered.length) {
+    list.className = "reader-library-list empty";
+    list.textContent = books.length ? "没有匹配的书。" : "暂无书籍。";
+    return;
+  }
+  list.className = "reader-library-list";
+  list.innerHTML = filtered.map((book) => {
+    const session = readSavedReadingSessionForBook(book.bookId);
+    const percent = progressPercent(book);
+    const active = selected?.bookId === book.bookId;
+    const metaLine = [
+      book.author,
+      book.bookId,
+      `${book.chunkCount || 0} chunks`,
+      session?.chunkId ? `继续 ${session.chunkId}${formatSavedAt(session.savedAt) ? ` · ${formatSavedAt(session.savedAt)}` : ""}` : "",
+    ].filter(Boolean).join(" · ");
+    return `
+      <article class="reader-library-row ${active ? "active" : ""}">
+        <button type="button" data-library-action="select" data-book-id="${escapeHtml(book.bookId)}">
+          <span>${escapeHtml(active ? "当前书" : "书籍")}</span>
+          <strong>${escapeHtml(book.title || book.bookId)}</strong>
+          <small>${escapeHtml(metaLine)}</small>
+        </button>
+        <button class="secondary compact" type="button" data-library-action="continue" data-book-id="${escapeHtml(book.bookId)}">${session?.chunkId ? "继续" : "打开"}</button>
+        <b>${escapeHtml(percent)}%</b>
+      </article>
+    `;
+  }).join("");
+}
+
+async function openImmersiveLibraryBook(bookId, { continueBook = false } = {}) {
+  if (!bookId) return;
+  await selectBook(bookId, { focusReader: false });
+  if (continueBook) await continueReading();
+  closeImmersiveLibrary();
+  focusPanel(".reader-surface", "#chunkText");
+  renderReaderProgress();
+}
+
 function openImmersiveBacktrack() {
   if (!state.immersiveReading) return;
   closeImmersiveToc();
   closeImmersiveFootprints();
+  closeImmersiveLibrary();
   closeImmersivePlan();
   state.immersiveBacktrackOpen = true;
   document.body.classList.add("immersive-backtrack-open");
@@ -865,6 +984,7 @@ async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
   if (!state.immersiveReading) {
     setImmersiveCleanRead(false);
     setImmersiveAssistantCollapsed(false);
+    closeImmersiveLibrary();
     closeImmersivePlan();
   }
   const button = $("immersiveReadingBtn");
@@ -898,6 +1018,7 @@ function setImmersiveCleanRead(enabled) {
   if (active) {
     closeImmersiveFootprints();
     closeImmersiveToc();
+    closeImmersiveLibrary();
     closeImmersivePlan();
   }
   document.body.classList.toggle("immersive-clean-reading", active);
@@ -2100,6 +2221,7 @@ function renderBooks() {
   const duplicates = duplicateBookIndex(books);
   const list = $("bookList");
   renderReaderBookSelect();
+  renderImmersiveLibrary();
   const showToggle = $("showTestBooksToggle");
   const hiddenCount = allBooks.length - books.length;
   if (showToggle) showToggle.checked = showTestBooks();

@@ -2118,6 +2118,8 @@ body.immersive-reading.immersive-clean-reading .reader-bookmark-tools,
 body.immersive-reading.immersive-clean-reading .reader-action-tools,
 body.immersive-reading.immersive-clean-reading .reader-position-nav,
 body.immersive-reading.immersive-clean-reading .reader-backtrack-card,
+body.immersive-reading.immersive-clean-reading .reader-library-button,
+body.immersive-reading.immersive-clean-reading .reader-library-card,
 body.immersive-reading.immersive-clean-reading .reader-plan-button,
 body.immersive-reading.immersive-clean-reading .reader-plan-card,
 body.immersive-reading.immersive-clean-reading .reader-toc-button,
@@ -2141,6 +2143,28 @@ body.immersive-reading .reader-toc-button {
   transition: opacity 180ms ease;
 }
 
+body.immersive-reading .reader-library-button {
+  position: fixed;
+  right: calc(var(--reader-assistant-width) + 166px);
+  top: 18px;
+  z-index: 8;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 12px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--muted);
+  opacity: 0.34;
+  transition: opacity 180ms ease;
+}
+
+body.immersive-reading .reader-library-button:hover,
+body.immersive-reading .reader-library-button:focus-visible,
+body.immersive-reading.immersive-library-open .reader-library-button {
+  opacity: 1;
+  color: var(--ink);
+}
+
 body.immersive-reading .reader-plan-button {
   position: fixed;
   right: calc(var(--reader-assistant-width) + 92px);
@@ -2161,6 +2185,99 @@ body.immersive-reading .reader-plan-button:focus-visible,
 body.immersive-reading.immersive-plan-open .reader-plan-button {
   opacity: 1;
   color: var(--ink);
+}
+
+body.immersive-reading .reader-library-card {
+  position: fixed;
+  top: 62px;
+  right: calc(var(--reader-assistant-width) + 18px);
+  bottom: 66px;
+  z-index: 12;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  width: min(560px, calc(100vw - var(--reader-assistant-width) - 70px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 13px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: 0 16px 44px rgba(15, 15, 15, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+body.immersive-reading .reader-library-card[hidden] {
+  display: none;
+}
+
+body.immersive-reading .reader-library-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+body.immersive-reading .reader-library-card span,
+body.immersive-reading .reader-library-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+body.immersive-reading .reader-library-card strong {
+  display: block;
+  margin: 3px 0;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+body.immersive-reading .reader-library-card input {
+  width: 100%;
+}
+
+body.immersive-reading .reader-library-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+body.immersive-reading .reader-library-list.empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+body.immersive-reading .reader-library-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 42px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+body.immersive-reading .reader-library-row > button:first-child {
+  display: block;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  text-align: left;
+}
+
+body.immersive-reading .reader-library-row.active > button:first-child {
+  border-color: color-mix(in srgb, var(--ink) 42%, var(--line));
+}
+
+body.immersive-reading .reader-library-row > button:first-child strong,
+body.immersive-reading .reader-library-row > button:first-child small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.immersive-reading .reader-library-row b {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
 }
 
 body.immersive-reading .reader-plan-card {
@@ -3572,6 +3689,24 @@ pre {
     right: 84px;
     top: 12px;
     bottom: auto;
+  }
+
+  body.immersive-reading .reader-library-button {
+    right: 156px;
+    top: 12px;
+    bottom: auto;
+  }
+
+  body.immersive-reading .reader-library-card {
+    top: 58px;
+    right: 12px;
+    bottom: 128px;
+    left: 12px;
+    width: auto;
+  }
+
+  body.immersive-reading .reader-library-row {
+    grid-template-columns: minmax(0, 1fr) 58px 36px;
   }
 
   body.immersive-reading .reader-plan-card {
