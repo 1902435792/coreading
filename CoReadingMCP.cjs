@@ -501,6 +501,7 @@ const LOCAL_SINK_TOOLS = [
         status: { type: "string", enum: ["pending", "approved", "rejected", "exported"] },
         content: {},
         note: { type: "string" },
+        criticalRemovals: { type: "array" },
         updatedBy: { type: "string" }
       },
       additionalProperties: true
@@ -5025,6 +5026,7 @@ function handleSinkPreviewUpdate(args, dataDir) {
     status: args.status,
     by: args.updatedBy || "nova",
     note: args.note || null,
+    criticalRemovals: normalizeObjectArray(args.criticalRemovals),
     contentChanged
   });
   saveSinkPreviewStore(dataDir, store);

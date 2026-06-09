@@ -6687,7 +6687,7 @@ async function updateSinkPreviewContent(preview, { status, note }) {
 }
 
 function sinkSavePayload(preview, { status, note }) {
-  return {
+  const payload = {
     command: "sink_preview_update",
     previewId: preview.previewId,
     status: status || preview.status || "pending",
@@ -6695,6 +6695,11 @@ function sinkSavePayload(preview, { status, note }) {
     note,
     updatedBy: "CoReadingSidecar",
   };
+  const criticalRemovals = state.selectedSinkDiff?.kind === "local-content-diff"
+    ? criticalRemovalAuditFields(state.selectedSinkDiff)
+    : [];
+  if (criticalRemovals.length) payload.criticalRemovals = criticalRemovals;
+  return payload;
 }
 
 function confirmSinkCriticalRemoval(preview, { status }) {
@@ -6712,11 +6717,20 @@ function confirmSinkCriticalRemoval(preview, { status }) {
 }
 
 function sinkNoteWithCriticalRemovalAudit(note, criticalRemoval) {
-  const fields = (criticalRemoval?.diff?.criticalRemovedFields || [])
-    .map((field) => `${field.label} -${field.removedLineCount}`)
+  const fields = criticalRemovalAuditFields(criticalRemoval?.diff)
+    .map((field) => `${field.field} -${field.removedLineCount}`)
     .join(", ");
   if (!fields) return note;
   return [note, `critical removal confirmed: ${fields}`].filter(Boolean).join("; ");
+}
+
+function criticalRemovalAuditFields(diff) {
+  return (diff?.criticalRemovedFields || []).map((field) => ({
+    field: field.label,
+    heading: field.heading,
+    removedLineCount: field.removedLineCount || 0,
+    addedLineCount: field.addedLineCount || 0,
+  }));
 }
 
 function localContentDiff(original, current) {
