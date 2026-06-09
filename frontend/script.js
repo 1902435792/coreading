@@ -405,6 +405,9 @@ function handleReaderKeyboard(event) {
     } else if (document.body.classList.contains("immersive-tools-open")) {
       closeImmersiveToolsPane();
       focusPanel(".reader-surface", "#chunkText");
+    } else if (document.body.classList.contains("immersive-footprints-open")) {
+      closeImmersiveFootprints();
+      focusPanel(".reader-surface", "#chunkText");
     } else {
       editable.blur?.();
     }
@@ -427,6 +430,9 @@ function handleReaderKeyboard(event) {
       focusPanel(".reader-surface", "#chunkText");
     } else if (document.body.classList.contains("immersive-toc-open")) {
       closeImmersiveToc();
+      focusPanel(".reader-surface", "#chunkText");
+    } else if (document.body.classList.contains("immersive-footprints-open")) {
+      closeImmersiveFootprints();
       focusPanel(".reader-surface", "#chunkText");
     } else if (state.readerSelection?.text) {
       clearReaderSelection();
@@ -550,6 +556,7 @@ function renderImmersiveToc() {
 
 function openImmersiveToc() {
   if (!state.immersiveReading) return;
+  closeImmersiveFootprints();
   renderImmersiveToc();
   document.body.classList.add("immersive-toc-open");
   const toc = $("immersiveToc");
@@ -1443,6 +1450,15 @@ function toggleImmersiveFootprints() {
     return;
   }
   document.body.classList.toggle("immersive-footprints-open");
+  syncImmersiveFootprintsButton();
+}
+
+function closeImmersiveFootprints() {
+  document.body.classList.remove("immersive-footprints-open");
+  syncImmersiveFootprintsButton();
+}
+
+function syncImmersiveFootprintsButton() {
   const button = $("immersiveFootprintsBtn");
   button?.setAttribute("aria-pressed", document.body.classList.contains("immersive-footprints-open") ? "true" : "false");
 }
@@ -5781,6 +5797,7 @@ function focusPanel(selector, focusSelector) {
 
 function openImmersiveNotesPane() {
   closeImmersiveToolsPane();
+  closeImmersiveFootprints();
   if (!state.immersiveReading) return;
   document.body.classList.add("immersive-notes-open");
 }
@@ -5791,6 +5808,7 @@ function closeImmersiveNotesPane() {
 
 function openImmersiveToolsPane() {
   closeImmersiveNotesPane();
+  closeImmersiveFootprints();
   if (!state.immersiveReading) return;
   document.body.classList.add("immersive-tools-open");
 }
