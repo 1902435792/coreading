@@ -796,6 +796,8 @@ function parseSseChatContent(text) {
   if (!raw.includes("data:")) return null;
   const parts = [];
   let eventCount = 0;
+  let choiceCount = 0;
+  let contentEventCount = 0;
   for (const line of raw.split(/\r?\n/u)) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("data:")) continue;
@@ -804,14 +806,26 @@ function parseSseChatContent(text) {
     const data = tryParseJson(payload);
     if (!data) continue;
     eventCount += 1;
+    if (Array.isArray(data.choices) && data.choices.length) choiceCount += data.choices.length;
     const choice = data.choices?.[0] || {};
     const delta = choice.delta || {};
     const message = choice.message || {};
     const content = delta.content ?? message.content ?? choice.text ?? data.output_text ?? data.text ?? "";
-    if (typeof content === "string") parts.push(content);
-    else if (Array.isArray(content)) parts.push(textFromContentArray(content));
+    if (typeof content === "string" && content) {
+      contentEventCount += 1;
+      parts.push(content);
+    } else if (Array.isArray(content)) {
+      const textContent = textFromContentArray(content);
+      if (textContent) contentEventCount += 1;
+      parts.push(textContent);
+    }
   }
-  return { content: parts.join("").trim(), eventCount };
+  return { content: parts.join("").trim(), eventCount, choiceCount, contentEventCount };
+}
+
+function looksLikeEmptySseChatStream(value) {
+  const parsed = parseSseChatContent(value);
+  return Boolean(parsed && parsed.eventCount > 0 && parsed.contentEventCount === 0);
 }
 
 function textFromMaybeSse(value) {
@@ -848,6 +862,13 @@ function embeddedNovaContentErrorKind(content) {
 
 function classifyNovaResponse(backend, result) {
   const content = cleanNovaVisibleContent(extractNovaContent(result));
+  const rawText = [
+    result?.raw,
+    result?.text,
+    result?.message,
+    result?.content,
+    result?.choices?.[0]?.message?.content
+  ].find((item) => typeof item === "string" && item.includes("data:"));
   const embedded = content && /^[\[{]/u.test(content.trim()) ? tryParseJson(content.trim()) : null;
   const embeddedError = embedded && typeof embedded === "object" ? embedded.error : null;
   if (result?.error || embeddedError) {
@@ -881,9 +902,11 @@ function classifyNovaResponse(backend, result) {
   if (!content) {
     return {
       ok: false,
-      kind: "empty_response",
+      kind: looksLikeEmptySseChatStream(rawText) ? "empty_sse_stream" : "empty_response",
       backend,
-      diagnostic: "Nova backend returned no assistant text."
+      diagnostic: looksLikeEmptySseChatStream(rawText)
+        ? "Nova backend returned SSE usage events without assistant text."
+        : "Nova backend returned no assistant text."
     };
   }
   return { ok: true, kind: "ok", backend, content };
@@ -2228,7 +2251,13 @@ async function runNovaPreReadAgent(payload) {
       }
     });
     throwIfNovaFailed(nova, "Nova 预读失败。");
-    const visibleContent = cleanNovaVisibleContent(nova.content || "Nova 暂无文本回复。");
+    const visibleContent = cleanNovaVisibleContent(nova.content || "");
+    if (!visibleContent) {
+      const error = new Error("Nova 预读没有返回可显示正文。");
+      error.statusCode = 502;
+      error.details = { backendAttempts: nova.backendAttempts || [], raw: nova.raw || null };
+      throw error;
+    }
     const chosenChunkId = chooseMentionedCandidateId(visibleContent, candidates, chunkId);
     const chosenMeta = chunks.find((chunk) => chunkIdOf(chunk) === chosenChunkId) || currentMeta;
     run.status = "success";

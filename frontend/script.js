@@ -1592,12 +1592,26 @@ function setNovaAutoReadEnabled(enabled) {
   renderNovaReply();
 }
 
+function looksLikeEmptySseNovaText(value) {
+  const text = String(value || "").trim();
+  if (!text.includes("data:") || !text.includes("[DONE]")) return false;
+  const naturalText = text
+    .replace(/^data:\s*.*$/gmu, "")
+    .replace(/\[DONE\]/gu, "")
+    .trim();
+  if (naturalText.length > 24) return false;
+  return /"object"\s*:\s*"chat\.completion\.chunk"/u.test(text)
+    && /"choices"\s*:\s*\[\s*\]/u.test(text);
+}
+
 function normalizeNovaPreReadHistoryItem(item = {}) {
   const result = item.result && typeof item.result === "object" ? item.result : {};
   const bookId = String(item.bookId || result.bookId || "");
   const chunkId = String(item.chunkId || result.chunkId || result.chosenChunkId || "");
-  const note = compactText(item.note || item.text || result.note || result.content || "", 520);
-  if (!bookId || !chunkId || !note) return null;
+  const rawNote = item.note || item.text || result.note || result.content || "";
+  if (looksLikeEmptySseNovaText(rawNote)) return null;
+  const note = compactText(rawNote, 520);
+  if (!bookId || !chunkId || !note || looksLikeEmptySseNovaText(note)) return null;
   const answeredAt = String(item.answeredAt || item.completedAt || item.updatedAt || new Date().toISOString());
   const answeredAtMs = Number(item.answeredAtMs || Date.parse(answeredAt) || Date.now());
   return {
@@ -1747,11 +1761,14 @@ function recordNovaPreReadReply(context, reply, run = null) {
   state.novaPreReadHistory = next;
 }
 
-function openNovaPreReadHistory(id) {
+async function openNovaPreReadHistory(id, { selectTarget = false } = {}) {
   const item = state.novaPreReadHistory.find((historyItem) => historyItem.id === id);
   if (!item) {
     log("这条 Nova 预读历史已经不存在。");
     return;
+  }
+  if (selectTarget && item.bookId === state.selectedBookId && item.chunkId && item.chunkId !== state.selectedChunkId && isKnownChunkId(item.chunkId)) {
+    await selectChunk(item.chunkId, true, { resetScroll: false });
   }
   state.novaAskPending = false;
   state.novaAskError = null;
@@ -1772,6 +1789,42 @@ function openNovaPreReadHistory(id) {
   renderNovaReply();
   renderReadingFootprints(readingFootprintRanges(currentChunkText()));
   log(`已回看 Nova 预读: ${item.chunkId}`);
+}
+
+function novaPreReadHistoryItemHtml(item) {
+  const active = item.chunkId === currentReadingChunkId() ? " active" : "";
+  const title = `${item.chunkId}${item.title && item.title !== item.chunkId ? ` · ${item.title}` : ""}`;
+  return `
+    <button class="nova-history-item${active}" type="button" data-nova-history-id="${escapeHtml(item.id)}">
+      <span>${escapeHtml(item.scope === "book" ? "巡读" : "先读")} · ${escapeHtml(formatSavedAt(item.answeredAt) || "刚刚")}</span>
+      <strong>${escapeHtml(title)}</strong>
+      <small>${escapeHtml(compactText(item.note, 120))}</small>
+    </button>
+  `;
+}
+
+function renderNovaPreReadHistory() {
+  const box = $("novaPreReadHistory");
+  if (!box) return;
+  const selected = activeBook();
+  const items = selected
+    ? novaPreReadHistoryForBook(selected.bookId)
+      .filter((item) => item.id && item.note && item.chunkId)
+      .slice(0, 5)
+    : [];
+  if (!items.length) {
+    box.className = "nova-history empty";
+    box.textContent = selected ? "Nova 自主先读后，会在这里留下可回看的痕迹。" : "选择一本书后显示 Nova 先读记录。";
+    return;
+  }
+  box.className = "nova-history";
+  box.innerHTML = `
+    <div class="nova-history-head">
+      <span>Nova 读过</span>
+      <small>${items.length} 条最近记录</small>
+    </div>
+    <div class="nova-history-list">${items.map(novaPreReadHistoryItemHtml).join("")}</div>
+  `;
 }
 
 function announce(text) {
@@ -3516,6 +3569,22 @@ function queueItemHtml(item) {
   `;
 }
 
+function novaHistoryQueueItems(selected) {
+  if (!selected) return [];
+  return novaPreReadHistoryForBook(selected.bookId)
+    .filter((item) => item.id && item.note && item.chunkId)
+    .slice(0, 3)
+    .map((item) => ({
+      kind: "queue-nova-history",
+      action: "queue-nova-history",
+      id: item.id,
+      kicker: item.scope === "book" ? "Nova 巡读" : "Nova 已读",
+      title: `${item.chunkId}${item.title && item.title !== item.chunkId ? ` · ${item.title}` : ""}`,
+      meta: `${formatSavedAt(item.answeredAt) || "刚刚"} · 可回看、存笔记或沉淀`,
+      secondary: item.chunkId !== currentReadingChunkId(),
+    }));
+}
+
 function novaAutonomousCandidateLabel(chunkId) {
   const title = chunkTitleById(chunkId);
   return `${chunkId}${title && title !== chunkId ? ` · ${title}` : ""}`;
@@ -3570,6 +3639,7 @@ function renderReadingQueue() {
   const pendingPreview = pendingSinkPreviewsForBook(selected)[0] || null;
   const card = firstCardForBook(selected);
   const novaItem = novaAutonomousQueueItem(selected);
+  const novaHistoryItems = novaHistoryQueueItems(selected);
   const items = [
     resumeId ? {
       kind: "queue-read",
@@ -3609,6 +3679,7 @@ function renderReadingQueue() {
       meta: card.subtitle || card.chunkId || card.createdAt || "",
       secondary: true,
     } : null,
+    ...novaHistoryItems,
   ].filter(Boolean);
   title.textContent = `${items.length} 个入口`;
   list.className = items.length ? "queue-list" : "queue-list empty";
@@ -4624,7 +4695,7 @@ async function openLooseFootprint(action, id) {
     return;
   }
   if (action === "nova-history" && id) {
-    openNovaPreReadHistory(id);
+    await openNovaPreReadHistory(id);
     return;
   }
   if (action === "card" && id) {
@@ -4650,6 +4721,7 @@ function renderNovaReply() {
   const hasChunk = hasBook && !!state.selectedChunkId;
   autoToggle.checked = state.novaAutoReadEnabled;
   autoToggle.disabled = state.novaAskPending;
+  renderNovaPreReadHistory();
   const display = currentNovaDisplay();
   if (state.novaAskPending) {
     reply.className = "nova-reply empty";
@@ -10170,6 +10242,11 @@ $("readingQueueList").addEventListener("click", async (event) => {
       focusPanel(".reader-surface", "#chunkText");
       return;
     }
+    if (action === "queue-nova-history") {
+      await openNovaPreReadHistory(id, { selectTarget: true });
+      focusPanel(".nova-reading-box", "#novaReply");
+      return;
+    }
     if (action === "queue-plan") {
       await openQueuePlan(id);
       return;
@@ -10187,6 +10264,21 @@ $("readingQueueList").addEventListener("click", async (event) => {
   } finally {
     target.disabled = false;
     renderReadingQueue();
+  }
+});
+
+$("novaPreReadHistory").addEventListener("click", async (event) => {
+  const target = event.target.closest("button[data-nova-history-id]");
+  if (!target) return;
+  target.disabled = true;
+  try {
+    await openNovaPreReadHistory(target.dataset.novaHistoryId, { selectTarget: true });
+    focusPanel(".nova-reading-box", "#novaReply");
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    target.disabled = false;
+    renderNovaPreReadHistory();
   }
 });
 
@@ -10668,7 +10760,7 @@ $("chunkReviewCard").addEventListener("click", async (event) => {
       return;
     }
     if (action === "nova-history") {
-      openNovaPreReadHistory(id);
+      await openNovaPreReadHistory(id);
       return;
     }
     if (action === "first-sink") {

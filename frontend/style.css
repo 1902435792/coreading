@@ -88,6 +88,78 @@
   color: var(--ink);
 }
 
+.nova-history {
+  flex: 0 0 auto;
+  max-height: 220px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.nova-history.empty {
+  max-height: none;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.nova-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nova-history-head span {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.nova-history-list {
+  display: grid;
+  gap: 6px;
+}
+
+.nova-history-item {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 9px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.nova-history-item:hover,
+.nova-history-item:focus-visible,
+.nova-history-item.active {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.nova-history-item span,
+.nova-history-item small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-history-item strong {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tool-drawer {
   margin-top: 14px;
   border-top: 1px solid var(--line);
