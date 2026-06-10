@@ -19,13 +19,17 @@ const state = {
   anchorIndex: 0,
   loadedTo: 0,            // chunks[anchorIndex .. loadedTo) 已渲染
   flowLoading: false,
+  flowLoadPromise: null,
   flowRequestId: 0,
   activeChunkId: "",
   preReadHistory: [],
   novaActiveHistoryId: "",
   novaPending: false,
-  novaReply: null,        // { meta, text }
+  novaReply: null,        // { meta, text, chunkId }
   selection: null,        // { text, chunkId }
+  sessionReplies: [],     // 本次会话 Nova 回复: { id, bookId, chunkId, text }
+  annotations: [],        // 评注模型: { id, speaker, role, text, quote, chunkId, source, sourceId }
+  chunkTextCache: new Map(),
   lastScrollY: 0,
   savePositionTimer: 0,
 };
@@ -311,6 +315,7 @@ function showShelf() {
   $("shelfView").hidden = false;
   closeNova();
   hideSelTool();
+  closeCommentCard();
   document.title = "共读";
   window.scrollTo(0, 0);
   loadShelf();
@@ -352,6 +357,7 @@ async function openBook(bookId, targetChunkId = "") {
     return;
   }
   const saved = readJson(POSITION_KEY(bookId));
+  rebuildAnnotations();
   const anchorId = targetChunkId
     || (saved?.chunkId && chunkOrder(saved.chunkId) !== null ? saved.chunkId : "")
     || (book.lastChunkId && chunkOrder(book.lastChunkId) !== null ? book.lastChunkId : "");
@@ -364,11 +370,17 @@ async function openBook(bookId, targetChunkId = "") {
 
 async function anchorFlowAt(index, { restoreOffset = 0 } = {}) {
   const requestId = ++state.flowRequestId;
+  closeCommentCard();
   state.anchorIndex = Math.max(0, Math.min(index, state.chunks.length - 1));
   state.loadedTo = state.anchorIndex;
   state.activeChunkId = getChunkId(state.chunks[state.anchorIndex]);
   $("flow").textContent = "";
   window.scrollTo(0, 0);
+  // 等上一批在飞请求结束再开载：旧批次占用加载锁时直接调用会被静默吞掉，首批永远到不了。
+  while (state.flowLoadPromise) {
+    await state.flowLoadPromise.catch(() => {});
+    if (requestId !== state.flowRequestId) return;
+  }
   await loadMoreChunks(requestId);
   if (requestId !== state.flowRequestId) return;
   if (restoreOffset > 0) {
@@ -385,36 +397,47 @@ async function loadMoreChunks(requestId = state.flowRequestId) {
   if (state.loadedTo >= state.chunks.length) return;
   state.flowLoading = true;
   $("flowStatus").textContent = "加载中…";
-  const bookId = state.bookId;
-  const batch = state.chunks.slice(state.loadedTo, state.loadedTo + FLOW_BATCH_SIZE);
-  let failedCount = 0;
+  const work = loadChunkBatch(requestId);
+  state.flowLoadPromise = work;
+  let outcome = { stale: true, failedCount: 0, batchSize: 0 };
   try {
-    const loaded = await Promise.all(batch.map(async (chunk) => {
-      const chunkId = getChunkId(chunk);
-      try {
-        const result = await query({ command: "read_chunk", bookId, chunkId });
-        return { chunk, text: String(result?.text || result?.chunk?.text || "") };
-      } catch {
-        return { chunk, text: "", failed: true };
-      }
-    }));
-    if (requestId !== state.flowRequestId || bookId !== state.bookId) return;
-    for (const item of loaded) appendFlowChunk(item.chunk, item.text);
-    state.loadedTo += batch.length;
-    failedCount = loaded.filter((item) => item.failed).length;
-    $("flowStatus").textContent = failedCount
-      ? `有 ${failedCount} 段加载失败，继续滚动会接着读后面的内容。`
-      : state.loadedTo >= state.chunks.length ? "· 全书完 ·" : "";
+    outcome = await work;
   } finally {
-    if (requestId === state.flowRequestId) state.flowLoading = false;
+    // 无条件释放：过期批次若不释放锁，后续所有加载都会被吞掉，正文流永久停在“加载中”。
+    state.flowLoading = false;
+    if (state.flowLoadPromise === work) state.flowLoadPromise = null;
   }
+  if (outcome.stale || requestId !== state.flowRequestId) return;
   // 首屏不足一屏时继续补载，否则滚动事件永远不会触发；整批失败时停下，避免连环空请求。
-  if (requestId === state.flowRequestId
-    && failedCount < batch.length
+  if (outcome.failedCount < outcome.batchSize
     && state.loadedTo < state.chunks.length
     && document.documentElement.scrollHeight < window.innerHeight + 400) {
     await loadMoreChunks(requestId);
   }
+}
+
+async function loadChunkBatch(requestId) {
+  const bookId = state.bookId;
+  const batch = state.chunks.slice(state.loadedTo, state.loadedTo + FLOW_BATCH_SIZE);
+  const loaded = await Promise.all(batch.map(async (chunk) => {
+    const chunkId = getChunkId(chunk);
+    try {
+      const result = await query({ command: "read_chunk", bookId, chunkId });
+      return { chunk, text: String(result?.text || result?.chunk?.text || "") };
+    } catch {
+      return { chunk, text: "", failed: true };
+    }
+  }));
+  if (requestId !== state.flowRequestId || bookId !== state.bookId) {
+    return { stale: true, failedCount: 0, batchSize: batch.length };
+  }
+  for (const item of loaded) appendFlowChunk(item.chunk, item.text);
+  state.loadedTo += batch.length;
+  const failedCount = loaded.filter((item) => item.failed).length;
+  $("flowStatus").textContent = failedCount
+    ? `有 ${failedCount} 段加载失败，继续滚动会接着读后面的内容。`
+    : state.loadedTo >= state.chunks.length ? "· 全书完 ·" : "";
+  return { stale: false, failedCount, batchSize: batch.length };
 }
 
 function appendFlowChunk(chunk, text) {
@@ -439,7 +462,7 @@ function appendFlowChunk(chunk, text) {
     section.append(paragraph);
   }
   $("flow").append(section);
-  decorateNovaDot(section);
+  decorateSection(section);
 }
 
 /* ---------- 滚动：顶栏隐藏 / 活动段落 / 懒加载 / 位置持久化 ---------- */
@@ -583,7 +606,8 @@ function normalizePreReadItem(item = {}) {
   const result = item.result && typeof item.result === "object" ? item.result : {};
   const bookId = String(item.bookId || result.bookId || "");
   const chunkId = String(item.chunkId || result.chunkId || result.chosenChunkId || "");
-  const rawNote = item.note || item.text || result.note || result.content || "";
+  const rawNote = String(item.note || item.text || result.note || result.content || "")
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, "");
   if (looksLikeEmptySseNovaText(rawNote)) return null;
   const note = compactText(rawNote, 520);
   if (!bookId || !chunkId || !note || looksLikeEmptySseNovaText(note)) return null;
@@ -608,10 +632,6 @@ function applyNovaAgentRuns(runs) {
 
 function preReadForBook() {
   return state.preReadHistory.filter((item) => item.bookId === state.bookId);
-}
-
-function preReadByChunk(chunkId) {
-  return preReadForBook().find((item) => item.chunkId === chunkId && item.scope !== "book") || null;
 }
 
 function renderNovaHistory() {
@@ -643,21 +663,279 @@ function showPreReadItem(item) {
   state.novaReply = {
     meta: `Nova 预读 · ${item.chunkId} · ${item.title}`,
     text: item.note,
+    chunkId: item.chunkId,
   };
   renderNovaReply();
   renderNovaHistory();
   openNova();
 }
 
-function decorateNovaDot(section) {
-  const item = preReadByChunk(section.dataset.chunkId);
-  if (!item || section.querySelector(".nova-dot")) return;
-  const dot = document.createElement("button");
-  dot.type = "button";
-  dot.className = "nova-dot";
-  dot.title = "Nova 已预读这一段";
-  dot.addEventListener("click", () => showPreReadItem(item));
-  section.prepend(dot);
+/* ---------- 评注层：引用提取与归一化匹配（纯函数） ---------- */
+/* Phase 3 复用点：annotationsFromComment() 接收 { sourceId, source, chunkId, text, speaker, role }，
+   personas 评论只需换 speaker/role/source 塞进同一模型。 */
+
+function extractQuoteMatches(text) {
+  // 支持中文引号 / 英文双引号 / 反引号 / 直角引号；返回 { quote, start, end }（end 含收尾引号）。
+  const pattern = /“([^“”]{2,200})”|"([^"\n]{2,200})"|`([^`\n]{2,200})`|「([^「」]{2,200})」/g;
+  const source = String(text || "");
+  const matches = [];
+  let match;
+  while ((match = pattern.exec(source))) {
+    const quote = (match[1] || match[2] || match[3] || match[4] || "").trim();
+    if (normalizeForMatch(quote).length >= 6) {
+      matches.push({ quote, start: match.index, end: match.index + match[0].length });
+    }
+  }
+  return matches;
+}
+
+function extractQuotes(text) {
+  return [...new Set(extractQuoteMatches(text).map((item) => item.quote))];
+}
+
+function buildNormIndex(text) {
+  // 只保留字母/数字/汉字并小写，map 记录每个归一化字符在原文里的下标。
+  const source = String(text || "");
+  let norm = "";
+  const map = [];
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (/[\p{L}\p{N}]/u.test(ch)) {
+      norm += ch.toLowerCase();
+      map.push(i);
+    }
+  }
+  return { norm, map };
+}
+
+function normalizeForMatch(text) {
+  return buildNormIndex(text).norm;
+}
+
+function findNormalizedRange(haystack, needle) {
+  // 在原文 haystack 中找归一化后的 needle，返回原文 [start, end)；找不到返回 null。
+  const needleNorm = normalizeForMatch(needle);
+  if (needleNorm.length < 6) return null;
+  const hay = buildNormIndex(haystack);
+  const index = hay.norm.indexOf(needleNorm);
+  if (index < 0) return null;
+  return { start: hay.map[index], end: hay.map[index + needleNorm.length - 1] + 1 };
+}
+
+/* ---------- 评注层：数据模型 ---------- */
+
+function annotationsFromComment({ sourceId, source, chunkId, text, speaker = "Nova", role = "AI 共读" }) {
+  const base = { speaker, role, text, chunkId, source, sourceId };
+  const quotes = extractQuotes(text);
+  if (!quotes.length) return [{ ...base, id: `${sourceId}#0`, quote: "" }];
+  return quotes.map((quote, index) => ({ ...base, id: `${sourceId}#${index}`, quote }));
+}
+
+function rebuildAnnotations() {
+  const items = [];
+  for (const item of preReadForBook()) {
+    if (item.scope === "book") continue;
+    items.push(...annotationsFromComment({
+      sourceId: item.id, source: "nova-preread", chunkId: item.chunkId, text: item.note,
+    }));
+  }
+  for (const reply of state.sessionReplies) {
+    if (reply.bookId !== state.bookId) continue;
+    items.push(...annotationsFromComment({
+      sourceId: reply.id, source: "nova-reply", chunkId: reply.chunkId, text: reply.text,
+    }));
+  }
+  state.annotations = items;
+}
+
+function annotationsForChunk(chunkId) {
+  return state.annotations.filter((ann) => ann.chunkId === chunkId);
+}
+
+function uniqueComments(annotations) {
+  const seen = new Set();
+  return annotations.filter((ann) => !seen.has(ann.sourceId) && seen.add(ann.sourceId));
+}
+
+/* ---------- 评注层：正文虚线 / 段落气泡 / 高亮 ---------- */
+
+function underlineRangesFor(paragraph) {
+  const chunkId = paragraph.closest(".flow-chunk")?.dataset.chunkId || "";
+  const text = paragraph.textContent;
+  const ranges = [];
+  for (const ann of annotationsForChunk(chunkId)) {
+    if (!ann.quote) continue;
+    const range = findNormalizedRange(text, ann.quote);
+    if (range) ranges.push({ ...range, annId: ann.id });
+  }
+  return ranges;
+}
+
+function renderParagraph(paragraph, ranges, flashRange = null) {
+  // 用边界点把纯文本切片重建，重叠区间天然合并；textContent 渲染，无 innerHTML。
+  const text = paragraph.textContent;
+  if (!ranges.length && !flashRange && !paragraph.querySelector(".annot-underline, .quote-flash")) return;
+  const points = new Set([0, text.length]);
+  for (const range of ranges) { points.add(range.start); points.add(range.end); }
+  if (flashRange) { points.add(flashRange.start); points.add(flashRange.end); }
+  const sorted = [...points].filter((p) => p >= 0 && p <= text.length).sort((a, b) => a - b);
+  const nodes = [];
+  for (let i = 0; i < sorted.length - 1; i += 1) {
+    const [a, b] = [sorted[i], sorted[i + 1]];
+    const piece = text.slice(a, b);
+    const covering = ranges.filter((range) => range.start <= a && b <= range.end);
+    const inFlash = Boolean(flashRange && flashRange.start <= a && b <= flashRange.end);
+    if (!covering.length && !inFlash) {
+      nodes.push(document.createTextNode(piece));
+      continue;
+    }
+    const el = document.createElement(inFlash ? "mark" : "span");
+    if (inFlash) el.className = "quote-flash";
+    if (covering.length) {
+      el.classList.add("annot-underline");
+      el.dataset.annotIds = covering.map((range) => range.annId).join(",");
+    }
+    el.textContent = piece;
+    nodes.push(el);
+  }
+  paragraph.replaceChildren(...nodes);
+}
+
+function decorateSection(section) {
+  const chunkId = section.dataset.chunkId;
+  for (const paragraph of section.querySelectorAll("p")) {
+    renderParagraph(paragraph, underlineRangesFor(paragraph));
+  }
+  section.querySelector(".annot-bubble")?.remove();
+  const annotations = annotationsForChunk(chunkId);
+  const comments = uniqueComments(annotations);
+  if (!comments.length) return;
+  const bubble = document.createElement("button");
+  bubble.type = "button";
+  bubble.className = "annot-bubble";
+  bubble.textContent = String(comments.length);
+  bubble.title = "本段评论";
+  bubble.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openCommentCard(annotations, bubble);
+  });
+  section.append(bubble);
+}
+
+function redecorateChunk(chunkId) {
+  const section = $("flow").querySelector(`.flow-chunk[data-chunk-id="${CSS.escape(chunkId)}"]`);
+  if (section) decorateSection(section);
+}
+
+function findQuoteInFlow(quote, preferChunkId = "") {
+  const sections = Array.from($("flow").querySelectorAll(".flow-chunk"));
+  const preferred = sections.find((section) => section.dataset.chunkId === preferChunkId);
+  const ordered = preferred ? [preferred, ...sections.filter((s) => s !== preferred)] : sections;
+  for (const section of ordered) {
+    for (const paragraph of section.querySelectorAll("p")) {
+      const range = findNormalizedRange(paragraph.textContent, quote);
+      if (range) return { paragraph, range };
+    }
+  }
+  return null;
+}
+
+function flashQuoteAt(paragraph, range) {
+  renderParagraph(paragraph, underlineRangesFor(paragraph), range);
+  const mark = paragraph.querySelector(".quote-flash");
+  if (mark) {
+    const top = mark.getBoundingClientRect().top + window.scrollY - window.innerHeight * 0.35;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }
+  window.setTimeout(() => renderParagraph(paragraph, underlineRangesFor(paragraph)), 2000);
+}
+
+async function jumpToQuote(quote, chunkId) {
+  const bookId = state.bookId;
+  let found = findQuoteInFlow(quote, chunkId);
+  if (!found && chunkId && chunkOrder(chunkId) !== null) {
+    // 引用在未加载的 chunk 里：重锚加载后再定位。
+    await anchorFlowAt(chunkOrder(chunkId));
+    // 重锚期间切书/回书架的话，放弃跳转，避免在错误内容上闪烁滚动。
+    if (state.bookId !== bookId || $("readView").hidden) return;
+    found = findQuoteInFlow(quote, chunkId);
+  }
+  if (found) flashQuoteAt(found.paragraph, found.range);
+}
+
+async function chunkRawText(chunkId) {
+  const key = `${state.bookId}:${chunkId}`;
+  if (state.chunkTextCache.has(key)) return state.chunkTextCache.get(key);
+  const result = await query({ command: "read_chunk", bookId: state.bookId, chunkId });
+  const text = String(result?.text || result?.chunk?.text || "");
+  state.chunkTextCache.set(key, text);
+  return text;
+}
+
+/* ---------- 评注层：统一评论卡片（Phase 3 书友评论复用同一卡片） ---------- */
+
+function closeCommentCard() {
+  $("commentCard").hidden = true;
+}
+
+function showAnnotationInNova(ann) {
+  if (ann.source === "nova-preread") {
+    const item = state.preReadHistory.find((entry) => entry.id === ann.sourceId);
+    if (item) return showPreReadItem(item);
+  }
+  state.novaReply = { meta: `${ann.speaker} · ${ann.chunkId}`, text: ann.text, chunkId: ann.chunkId };
+  state.novaActiveHistoryId = "";
+  renderNovaReply();
+  renderNovaHistory();
+  openNova();
+}
+
+function openCommentCard(annotations, anchorEl) {
+  const comments = uniqueComments(annotations);
+  if (!comments.length) return;
+  const card = $("commentCard");
+  card.textContent = "";
+  for (const ann of comments) {
+    const item = document.createElement("div");
+    item.className = "comment-item";
+    const head = document.createElement("p");
+    head.className = "comment-head";
+    const speaker = document.createElement("span");
+    speaker.className = "comment-speaker";
+    speaker.textContent = ann.speaker;
+    const role = document.createElement("span");
+    role.className = "comment-role";
+    role.textContent = ann.role;
+    head.append(speaker, role);
+    const body = document.createElement("p");
+    body.className = "comment-text";
+    body.textContent = ann.text;
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "text-btn comment-open";
+    action.textContent = "在 Nova 面板查看";
+    action.addEventListener("click", () => {
+      closeCommentCard();
+      showAnnotationInNova(ann);
+    });
+    item.append(head, body, action);
+    card.append(item);
+  }
+  card.hidden = false;
+  if (window.matchMedia("(max-width: 1099px)").matches) {
+    card.classList.add("sheet");
+    card.style.left = "";
+    card.style.top = "";
+    return;
+  }
+  card.classList.remove("sheet");
+  const rect = anchorEl.getBoundingClientRect();
+  const left = Math.max(8, Math.min(
+    rect.left + window.scrollX,
+    document.documentElement.clientWidth - card.offsetWidth - 8
+  ));
+  card.style.left = `${left}px`;
+  card.style.top = `${rect.bottom + window.scrollY + 8}px`;
 }
 
 /* ---------- Nova 提问 ---------- */
@@ -674,8 +952,52 @@ function closeNova() {
 
 function renderNovaReply() {
   $("novaReplyMeta").textContent = state.novaReply?.meta || "";
-  $("novaReply").textContent = state.novaReply?.text
-    || "选中正文文字点「问 Nova」，或直接在下面输入问题。";
+  const container = $("novaReply");
+  container.textContent = "";
+  if (!state.novaReply?.text) {
+    container.textContent = "选中正文文字点「问 Nova」，或直接在下面输入问题。";
+    return;
+  }
+  renderReplyContent(container, state.novaReply.text, state.novaReply.chunkId || "");
+}
+
+function renderReplyContent(container, text, chunkId) {
+  // 受控渲染：文本节点 + 每个可定位引用后跟一个 ↩ 跳转标（先隐藏，验证命中后显示）。
+  const matches = extractQuoteMatches(text);
+  let cursor = 0;
+  for (const match of matches) {
+    container.append(document.createTextNode(text.slice(cursor, match.end)));
+    cursor = match.end;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "quote-jump";
+    button.textContent = "↩";
+    button.title = "跳到原文";
+    button.hidden = true;
+    button.addEventListener("click", () => {
+      // 窄屏时 Nova 面板盖住正文，跳转前先收起。
+      if (window.matchMedia("(max-width: 1099px)").matches) closeNova();
+      jumpToQuote(match.quote, chunkId);
+    });
+    container.append(button);
+    resolveQuoteJump(button, match.quote, chunkId);
+  }
+  container.append(document.createTextNode(text.slice(cursor)));
+}
+
+async function resolveQuoteJump(button, quote, chunkId) {
+  if (findQuoteInFlow(quote, chunkId)) {
+    button.hidden = false;
+    return;
+  }
+  // 不在已加载正文里：用回复 context 的 chunk 原文验证，验证不过就不显示（绝不显示坏链接）。
+  if (!chunkId || chunkOrder(chunkId) === null) return;
+  try {
+    const raw = await chunkRawText(chunkId);
+    if (findNormalizedRange(raw, quote)) button.hidden = false;
+  } catch {
+    // 拿不到原文时保持隐藏。
+  }
 }
 
 function setNovaStatus(text, pending = false) {
@@ -723,10 +1045,22 @@ async function sendNovaPrompt() {
   setNovaStatus("Nova 正在读这一段…（单次请求，最长等 6 分钟）", true);
   try {
     const result = await askNovaApi({ prompt, context });
+    const replyText = result.content || "Nova 暂无文本回复。";
     state.novaReply = {
       meta: `Nova · ${context.chunkId} · 刚刚`,
-      text: result.content || "Nova 暂无文本回复。",
+      text: replyText,
+      chunkId: context.chunkId,
     };
+    if (result.content) {
+      state.sessionReplies.push({
+        id: `nova-reply-${Date.now()}`,
+        bookId: state.bookId,
+        chunkId: context.chunkId,
+        text: compactText(result.content, 520),
+      });
+      rebuildAnnotations();
+      redecorateChunk(context.chunkId);
+    }
     state.novaActiveHistoryId = "";
     $("novaPrompt").value = "";
     setNovaStatus("");
@@ -798,6 +1132,19 @@ function setupEvents() {
   $("novaCloseBtn").addEventListener("click", closeNova);
   $("novaSendBtn").addEventListener("click", sendNovaPrompt);
   $("selAskBtn").addEventListener("click", askNovaFromSelection);
+  $("flow").addEventListener("click", (event) => {
+    const span = event.target.closest(".annot-underline");
+    if (!span) return;
+    // 划选结束的 click 不弹评论卡，避免评论卡叠在选区工具条上。
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    const ids = String(span.dataset.annotIds || "").split(",");
+    const annotations = state.annotations.filter((ann) => ids.includes(ann.id));
+    if (annotations.length) openCommentCard(annotations, span);
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.("#commentCard, .annot-underline, .annot-bubble")) closeCommentCard();
+  });
   setupTypoPop();
   window.addEventListener("scroll", onScroll, { passive: true });
   document.addEventListener("mouseup", (event) => {
@@ -808,6 +1155,7 @@ function setupEvents() {
     if (event.key === "Escape") {
       closeToc();
       hideSelTool();
+      closeCommentCard();
       $("typoPop").hidden = true;
       return;
     }
