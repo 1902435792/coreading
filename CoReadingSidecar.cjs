@@ -2854,7 +2854,16 @@ async function handleApi(req, res, url) {
 }
 
 async function serveStatic(req, res, url) {
-  const requested = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
+  if (url.pathname === "/classic/") {
+    res.writeHead(301, { location: "/classic" });
+    res.end();
+    return;
+  }
+  const requested = url.pathname === "/"
+    ? "reader.html"
+    : url.pathname === "/classic"
+      ? "index.html"
+      : url.pathname.slice(1);
   const resolved = path.resolve(FRONTEND_DIR, requested);
   const relative = path.relative(FRONTEND_DIR, resolved);
   if (relative.startsWith("..") || path.isAbsolute(relative)) return sendError(res, 403, "Forbidden");

@@ -5,7 +5,7 @@
   "description": "VCP stdio wrapper for idleprocesscc/co-reading-mcp.",
   "main": "CoReadingMCP.cjs",
   "scripts": {
-    "check": "node --check CoReadingMCP.cjs && node --check CoReadingSidecar.cjs && node --check frontend/script.js",
+    "check": "node --check CoReadingMCP.cjs && node --check CoReadingSidecar.cjs && node --check frontend/script.js && node --check frontend/reader.js",
     "sidecar": "node CoReadingSidecar.cjs",
     "sidecar:pm2:start": "pm2 start ecosystem.config.cjs --only vcp-coreading-sidecar",
     "sidecar:pm2:restart": "pm2 restart vcp-coreading-sidecar --update-env",

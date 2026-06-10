@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>共读</title>
+  <link rel="stylesheet" href="./reader.css">
+</head>
+<body data-font="m" data-width="normal" data-line="loose">
+
+  <!-- 书架视图 -->
+  <main id="shelfView" class="shelf">
+    <header class="shelf-head">
+      <h1>书库</h1>
+      <nav class="shelf-actions">
+        <button id="scanLocalBtn" class="text-btn" type="button">扫描本地书库</button>
+        <a class="text-btn" href="/classic">完整模式</a>
+      </nav>
+    </header>
+    <p id="shelfStatus" class="muted"></p>
+    <ul id="bookList" class="book-list"></ul>
+    <section id="localSection" class="local-section" hidden>
+      <h2>本地书库</h2>
+      <p id="localStatus" class="muted"></p>
+      <ul id="localList" class="local-list"></ul>
+    </section>
+  </main>
+
+  <!-- 阅读视图 -->
+  <div id="readView" hidden>
+    <header id="topbar">
+      <button id="backBtn" class="text-btn" type="button">‹ 书架</button>
+      <div id="topbarTitle" class="topbar-title"></div>
+      <nav class="topbar-right">
+        <span id="topbarProgress" class="muted"></span>
+        <button id="tocBtn" class="text-btn" type="button">目录</button>
+        <button id="typoBtn" class="text-btn" type="button">Aa</button>
+      </nav>
+    </header>
+
+    <article id="flow" class="flow"></article>
+    <p id="flowStatus" class="muted flow-status"></p>
+
+    <!-- 目录抽屉 -->
+    <div id="tocBackdrop" class="backdrop" hidden></div>
+    <aside id="tocDrawer" class="toc-drawer" hidden>
+      <header class="toc-head">
+        <span>目录</span>
+        <button id="tocCloseBtn" class="text-btn" type="button">关闭</button>
+      </header>
+      <ul id="tocList" class="toc-list"></ul>
+    </aside>
+
+    <!-- 排版设置弹层 -->
+    <div id="typoPop" class="typo-pop" hidden>
+      <div class="typo-row" data-setting="font">
+        <span class="typo-label">字号</span>
+        <button class="text-btn" type="button" data-value="s">小</button>
+        <button class="text-btn" type="button" data-value="m">中</button>
+        <button class="text-btn" type="button" data-value="l">大</button>
+      </div>
+      <div class="typo-row" data-setting="width">
+        <span class="typo-label">页宽</span>
+        <button class="text-btn" type="button" data-value="narrow">窄</button>
+        <button class="text-btn" type="button" data-value="normal">适中</button>
+        <button class="text-btn" type="button" data-value="wide">宽</button>
+      </div>
+      <div class="typo-row" data-setting="line">
+        <span class="typo-label">行距</span>
+        <button class="text-btn" type="button" data-value="normal">紧凑</button>
+        <button class="text-btn" type="button" data-value="loose">舒朗</button>
+      </div>
+    </div>
+
+    <!-- 选区工具条 -->
+    <div id="selTool" class="sel-tool" hidden>
+      <button id="selAskBtn" class="text-btn" type="button">问 Nova</button>
+    </div>
+
+    <!-- Nova 侧栏 -->
+    <button id="novaStrip" class="nova-strip" type="button">Nova</button>
+    <aside id="novaPanel" class="nova-panel" hidden>
+      <header class="nova-head">
+        <span>Nova</span>
+        <button id="novaCloseBtn" class="text-btn" type="button">收起</button>
+      </header>
+      <section id="novaHistory" class="nova-history"></section>
+      <section class="nova-reply-wrap">
+        <p id="novaReplyMeta" class="muted nova-reply-meta"></p>
+        <div id="novaReply" class="nova-reply"></div>
+      </section>
+      <footer class="nova-ask">
+        <p id="novaStatus" class="muted nova-status"></p>
+        <textarea id="novaPrompt" rows="3" placeholder="想问 Nova 什么？"></textarea>
+        <button id="novaSendBtn" class="text-btn nova-send" type="button">发送</button>
+      </footer>
+    </aside>
+  </div>
+
+  <script src="./reader.js"></script>
+</body>
+</html>
