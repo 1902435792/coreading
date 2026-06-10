@@ -2251,6 +2251,30 @@ body.reader-toc-open #readerTocList.reader-toc-inline.empty {
   white-space: pre-wrap;
 }
 
+.reader-flow-nova-mark {
+  position: absolute;
+  right: 0;
+  bottom: 0.2em;
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: rgba(46, 170, 220, 0.1);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+  opacity: 0.55;
+}
+
+.reader-flow-nova-mark:hover,
+.reader-flow-nova-mark:focus-visible {
+  background: rgba(46, 170, 220, 0.2);
+  color: var(--ink);
+  opacity: 1;
+}
+
 .reading-mark {
   border-radius: 3px;
   padding: 1px 2px;
@@ -3186,6 +3210,7 @@ body.immersive-reading.immersive-clean-reading .reader-plan-card,
 body.immersive-reading.immersive-clean-reading .reader-plan-strip,
 body.immersive-reading.immersive-clean-reading .reader-toc-button,
 body.immersive-reading.immersive-clean-reading .reader-toc,
+body.immersive-reading.immersive-clean-reading .reader-flow-nova-mark,
 body.immersive-reading.immersive-clean-reading .reading-footprints {
   display: none;
 }

@@ -1812,6 +1812,7 @@ function renderNovaPreReadHistory() {
       .filter((item) => item.id && item.note && item.chunkId)
       .slice(0, 5)
     : [];
+  updateReaderFlowNovaMarks();
   if (!items.length) {
     box.className = "nova-history empty";
     box.textContent = selected ? "Nova 自主先读后，会在这里留下可回看的痕迹。" : "选择一本书后显示 Nova 先读记录。";
@@ -1825,6 +1826,45 @@ function renderNovaPreReadHistory() {
     </div>
     <div class="nova-history-list">${items.map(novaPreReadHistoryItemHtml).join("")}</div>
   `;
+}
+
+function novaPreReadMarkItemForChunk(chunkId) {
+  if (!chunkId) return null;
+  return state.novaPreReadHistory.find(
+    (item) => item.id && item.note && item.scope !== "book" && item.bookId === state.selectedBookId && item.chunkId === chunkId
+  ) || null;
+}
+
+function updateReaderFlowNovaMarks() {
+  const chunkText = $("chunkText");
+  if (!chunkText) return;
+  chunkText.querySelectorAll(".reader-flow-chunk").forEach((section) => {
+    const item = novaPreReadMarkItemForChunk(section.dataset.readerFlowChunkId);
+    let mark = section.querySelector(".reader-flow-nova-mark");
+    if (!item) {
+      if (mark) mark.remove();
+      return;
+    }
+    if (!mark) {
+      mark = document.createElement("button");
+      mark.type = "button";
+      mark.className = "reader-flow-nova-mark";
+      section.appendChild(mark);
+    }
+    mark.dataset.novaHistoryId = item.id;
+    mark.textContent = "Nova 已读";
+    mark.title = `回看 Nova 边注：${compactText(item.note, 80)}`;
+  });
+}
+
+function highlightNovaPreReadHistoryItem(id) {
+  const box = $("novaPreReadHistory");
+  if (!box || !id) return;
+  const target = box.querySelector(`button[data-nova-history-id="${CSS.escape(id)}"]`);
+  if (!target) return;
+  box.querySelectorAll(".nova-history-item.active").forEach((item) => item.classList.remove("active"));
+  target.classList.add("active");
+  target.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 function announce(text) {
@@ -4528,6 +4568,7 @@ function renderChunkTextWithFootprints(text) {
   window.requestAnimationFrame(() => {
     highlightActiveReaderFlowChunk();
     syncReaderActiveChunkFromScroll({ render: false });
+    updateReaderFlowNovaMarks();
   });
 }
 
@@ -10392,6 +10433,22 @@ $("planGuideReviewBtn").addEventListener("click", async () => {
     window.setTimeout(() => {
       captureReaderSelection();
   }, 0);
+});
+$("chunkText").addEventListener("click", async (event) => {
+  const target = event.target.closest("button[data-nova-history-id]");
+  if (!target) return;
+  event.preventDefault();
+  target.disabled = true;
+  try {
+    revealNovaForReadingAction();
+    await openNovaPreReadHistory(target.dataset.novaHistoryId, { selectTarget: false });
+    focusPanel(".nova-reading-box", "#novaReply");
+    highlightNovaPreReadHistoryItem(target.dataset.novaHistoryId);
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    target.disabled = false;
+  }
 });
 $("chunkText").addEventListener("dblclick", (event) => {
   if (!state.immersiveReading) return;
