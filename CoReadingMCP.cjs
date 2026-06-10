@@ -5622,6 +5622,7 @@ async function main() {
     const localResult = await callLocalCommand(command, args, dataDir, serverModule, vendorDir);
     emit({
       status: "success",
+      data: localResult,
       result: formatLocalResult(command, localResult, dataDir)
     });
     return;

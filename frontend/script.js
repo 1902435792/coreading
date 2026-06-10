@@ -57,6 +57,7 @@ const state = {
   restartUndo: null,
   restartUndoTimer: null,
   planNextCache: {},
+  readerPlanStripCollapsed: false,
   backgroundRunners: [],
   snapshotLoadId: 0,
   readerMode: "scroll",
@@ -80,6 +81,7 @@ const READER_SETTINGS_KEY = "vcp-coreading-sidecar.readerSettings";
 const READING_VISIT_KEY = "vcp-coreading-sidecar.readingVisit";
 const READING_VISIT_HISTORY_KEY = "vcp-coreading-sidecar.readingVisitHistory";
 const NOVA_AUTO_READ_KEY = "vcp-coreading-sidecar.novaAutoRead";
+const READER_PLAN_STRIP_COLLAPSED_KEY = "vcp-coreading-sidecar.readerPlanStripCollapsed";
 const NOVA_REQUEST_TIMEOUT_MS = 360000;
 const READER_FLOW_BATCH_SIZE = 24;
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
@@ -89,6 +91,7 @@ setupReaderModeControls();
 loadReaderMode();
 loadReaderSettings();
 loadReadingVisit();
+loadReaderPlanStripState();
 loadNovaAutoReadSetting();
 setNovaPaneWidth("medium");
 document.addEventListener("fullscreenchange", renderReaderFullscreenButtons);
@@ -354,6 +357,7 @@ function setupReaderModeControls() {
     '    <small id="immersivePlanMeta">创建计划后会在这里显示下一步。</small>',
     '  </div>',
     '  <div class="reader-plan-actions">',
+    '    <button id="immersivePlanCreateBtn" class="primary compact" type="button">建本章计划</button>',
     '    <button id="immersivePlanOpenRangeBtn" class="primary compact" type="button" disabled>打开范围</button>',
     '    <button id="immersivePlanExecuteBtn" class="secondary compact" type="button" disabled>执行一步</button>',
     '    <button id="immersivePlanReviewBtn" class="secondary compact" type="button" disabled>填评价</button>',
@@ -508,6 +512,12 @@ function setupReaderModeControls() {
   });
   $("immersivePlanBtn")?.addEventListener("click", toggleImmersivePlan);
   $("immersivePlanCloseBtn")?.addEventListener("click", closeImmersivePlan);
+  $("immersivePlanCreateBtn")?.addEventListener("click", () => {
+    $("immersivePlanCreateBtn").disabled = true;
+    void createPlanForCurrentSection().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+  });
   $("immersivePlanOpenRangeBtn")?.addEventListener("click", () => {
     $("immersivePlanOpenRangeBtn").disabled = true;
     void openPlanGuideRange().catch((error) => {
@@ -1059,8 +1069,18 @@ function closeImmersivePlan() {
 }
 
 function toggleImmersivePlan() {
-  if (document.body.classList.contains("immersive-plan-open")) closeImmersivePlan();
-  else openImmersivePlan();
+  if (document.body.classList.contains("immersive-plan-open")) {
+    closeImmersivePlan();
+    return;
+  }
+  const status = planGuideStatus();
+  if (!status.plan && status.canCreate) {
+    void createPlanForCurrentSection().catch((error) => {
+      log(error.message || String(error));
+    }).finally(renderReaderProgress);
+    return;
+  }
+  openImmersivePlan();
 }
 
 function openImmersiveLibrary() {
@@ -1479,6 +1499,16 @@ function setNovaPaneCollapsed(collapsed) {
 function setNovaPaneWidth(width) {
   state.novaPaneWidth = width === "wide" ? "wide" : "medium";
   document.body.dataset.novaPaneWidth = state.novaPaneWidth;
+}
+
+function loadReaderPlanStripState() {
+  state.readerPlanStripCollapsed = localStorage.getItem(READER_PLAN_STRIP_COLLAPSED_KEY) === "true";
+}
+
+function setReaderPlanStripCollapsed(collapsed) {
+  state.readerPlanStripCollapsed = Boolean(collapsed);
+  localStorage.setItem(READER_PLAN_STRIP_COLLAPSED_KEY, String(state.readerPlanStripCollapsed));
+  renderReaderPlanStrip();
 }
 
 function loadNovaAutoReadSetting() {
@@ -2543,12 +2573,38 @@ async function command(payload) {
   return result;
 }
 
+function parseJsonishText(text) {
+  if (Array.isArray(text) || (text && typeof text === "object")) return text;
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced) return JSON.parse(fenced[1]);
+  if (raw.startsWith("{") || raw.startsWith("[")) return JSON.parse(raw);
+  const objectStart = raw.indexOf("{");
+  const objectEnd = raw.lastIndexOf("}");
+  if (objectStart >= 0 && objectEnd > objectStart) return JSON.parse(raw.slice(objectStart, objectEnd + 1));
+  const arrayStart = raw.indexOf("[");
+  const arrayEnd = raw.lastIndexOf("]");
+  if (arrayStart >= 0 && arrayEnd > arrayStart) return JSON.parse(raw.slice(arrayStart, arrayEnd + 1));
+  return null;
+}
+
+function commandData(result) {
+  if (result?.data !== null && result?.data !== undefined) return result.data;
+  if (typeof result?.raw !== "string") return result?.data;
+  try {
+    return parseJsonishText(result.raw) ?? result.data;
+  } catch {
+    return result.data;
+  }
+}
+
 async function query(payload) {
   const result = await api("/api/command", {
     method: "POST",
     body: JSON.stringify(payload),
   });
-  return result.data;
+  return commandData(result);
 }
 
 async function withNovaRequest(task, { timeoutMs = NOVA_REQUEST_TIMEOUT_MS } = {}) {
@@ -2808,7 +2864,8 @@ function renderReadingNowBar({ scrollPercent = currentChunkScrollPercent() } = {
   $("readingNowFocusBtn").disabled = !hasChunk;
   $("readingNowContinueBtn").disabled = !selected;
   $("readingNowContinueBtn").textContent = bookSession?.chunkId ? `继续 ${bookSession.chunkId}` : "继续读";
-  $("readingNowPlanBtn").disabled = !plan || !nextStep;
+  $("readingNowPlanBtn").disabled = !selected || (!plan && !currentSectionRange()) || (plan && !nextStep);
+  $("readingNowPlanBtn").textContent = plan ? "计划下一步" : "建本章计划";
   $("readingNowAskBtn").disabled = !hasChunk;
   $("readingNowNoteBtn").disabled = !hasChunk;
 }
@@ -3301,13 +3358,19 @@ function firstCardForBook(book = activeBook()) {
 
 function activePlanForBook(book = activeBook()) {
   const plans = activePlansForBook(book).slice().sort((a, b) => planUpdatedAt(b) - planUpdatedAt(a));
-  return plans.find((item) => item.status === "active") || plans[0] || null;
+  return plans.find((item) => item.status === "active") || null;
 }
 
 function planGuideSelection() {
   const plan = activePlanForBook(activeBook());
   if (!plan) return { plan: null, nextStep: null };
   return { plan, nextStep: state.planNextCache[plan.planId]?.nextStep || null };
+}
+
+function ensurePlanNextHydrated(plan) {
+  if (!plan?.planId || state.planNextCache[plan.planId]) return;
+  state.planNextCache[plan.planId] = { nextStep: null, loading: true, updatedAt: new Date().toISOString() };
+  void hydratePlanNext(plan.planId);
 }
 
 function planStepChunkLabel(step) {
@@ -3317,6 +3380,66 @@ function planStepChunkLabel(step) {
   const range = step.range || {};
   if (range.startChunkId && range.endChunkId) return `${range.startChunkId} -> ${range.endChunkId}`;
   return range.startChunkId || step.startChunkId || "";
+}
+
+function planGuideStatus() {
+  const selected = activeBook();
+  const { plan, nextStep } = planGuideSelection();
+  const section = currentSectionRange();
+  const hasRange = !!(nextStep?.chunkIds?.length || nextStep?.range?.startChunkId || nextStep?.startChunkId);
+  const total = plan?.stepCount || plan?.steps?.length || 0;
+  const current = plan?.currentStepIndex || 0;
+  const chunkLabel = planStepChunkLabel(nextStep);
+  if (!selected) {
+    return {
+      selected,
+      plan,
+      nextStep,
+      section,
+      hasRange,
+      canCreate: false,
+      canOpen: false,
+      canExecute: false,
+      canReview: false,
+      kicker: "共读计划",
+      title: "还没有选书",
+      meta: "选择一本书后可为当前章节创建计划。",
+    };
+  }
+  if (!plan) {
+    return {
+      selected,
+      plan,
+      nextStep,
+      section,
+      hasRange,
+      canCreate: !!section,
+      canOpen: false,
+      canExecute: false,
+      canReview: false,
+      kicker: "共读计划",
+      title: section ? "当前书暂无活跃计划" : "当前章节暂不能建计划",
+      meta: section
+        ? `${section.title || "当前章节"} · ${section.startChunkId} -> ${section.endChunkId} · 点击可创建本章计划。`
+        : "先定位到正文段落，再创建计划。",
+    };
+  }
+  return {
+    selected,
+    plan,
+    nextStep,
+    section,
+    hasRange,
+    canCreate: false,
+    canOpen: !!nextStep && hasRange,
+    canExecute: !!nextStep && plan.status !== "completed" && plan.status !== "paused",
+    canReview: !!nextStep,
+    kicker: `${current}/${total || "?"} · ${nextStep?.status || plan.status || "计划"}`,
+    title: nextStep?.title || plan.title || plan.planId,
+    meta: nextStep
+      ? `${nextStep.type || "step"} · ${chunkLabel || "未给出范围"} · ${nextStep.intent || "按计划继续阅读。"}`
+      : `${plan.title || plan.planId} · 正在读取下一步。`,
+  };
 }
 
 function queueItemHtml(item) {
@@ -3429,9 +3552,7 @@ function renderReadingQueue() {
   title.textContent = `${items.length} 个入口`;
   list.className = items.length ? "queue-list" : "queue-list empty";
   list.innerHTML = items.length ? items.map(queueItemHtml).join("") : "当前书没有待处理队列。";
-  if (plan && !state.planNextCache[plan.planId]) {
-    void hydratePlanNext(plan.planId);
-  }
+  ensurePlanNextHydrated(plan);
   renderPlanGuide();
 }
 
@@ -3442,10 +3563,12 @@ async function hydratePlanNext(planId) {
     renderReadingQueue();
     renderReadingNowBar();
     renderPlanGuide();
+    renderReaderPlanStrip();
   } catch {
     state.planNextCache[planId] = { nextStep: null, updatedAt: new Date().toISOString(), error: true };
     renderReadingNowBar();
     renderPlanGuide();
+    renderReaderPlanStrip();
   }
 }
 
@@ -3459,70 +3582,95 @@ function renderPlanGuide() {
   const reviewBtn = $("planGuideReviewBtn");
   const fullBtn = $("planGuideFullBtn");
   if (!guide || !stepEl || !titleEl || !metaEl || !openBtn || !executeBtn || !reviewBtn || !fullBtn) return;
-  const { plan, nextStep } = planGuideSelection();
-  if (!plan) {
+  const status = planGuideStatus();
+  ensurePlanNextHydrated(status.plan);
+  if (!status.plan) {
     guide.className = "plan-guide empty";
-    stepEl.textContent = "当前计划";
-    titleEl.textContent = "暂无活跃计划";
-    metaEl.textContent = "创建计划后会在这里显示下一步阅读范围。";
+    stepEl.textContent = status.kicker;
+    titleEl.textContent = status.title;
+    metaEl.textContent = status.meta;
     openBtn.disabled = true;
     executeBtn.disabled = true;
     reviewBtn.disabled = true;
     fullBtn.disabled = true;
+    renderReaderPlanStrip(status);
     renderImmersivePlan();
     return;
   }
-  const total = plan.stepCount || plan.steps?.length || 0;
-  const current = plan.currentStepIndex || 0;
-  const status = nextStep?.status || plan.status || "";
-  const chunkLabel = planStepChunkLabel(nextStep);
   guide.className = "plan-guide";
-  stepEl.textContent = `${current}/${total} · ${status || "计划"}`;
-  titleEl.textContent = nextStep?.title || plan.title || plan.planId;
-  metaEl.textContent = nextStep
-    ? `${nextStep.type || "step"} · ${chunkLabel || "未给出范围"} · ${nextStep.intent || "按计划继续阅读。"}`
-    : `${plan.status || ""} · 正在读取下一步。`;
-  openBtn.disabled = !nextStep || !(nextStep.chunkIds?.length || nextStep.range?.startChunkId || nextStep.startChunkId);
-  executeBtn.disabled = !nextStep || plan.status === "completed" || plan.status === "paused";
-  reviewBtn.disabled = !nextStep;
+  stepEl.textContent = status.kicker;
+  titleEl.textContent = status.title;
+  metaEl.textContent = status.meta;
+  openBtn.disabled = !status.canOpen;
+  executeBtn.disabled = !status.canExecute;
+  reviewBtn.disabled = !status.canReview;
   fullBtn.disabled = false;
+  renderReaderPlanStrip(status);
   renderImmersivePlan();
+}
+
+function renderReaderPlanStrip(status = planGuideStatus()) {
+  const strip = $("readerPlanStrip");
+  if (!strip) return;
+  const createBtn = $("readerPlanStripCreateBtn");
+  const openBtn = $("readerPlanStripOpenRangeBtn");
+  const executeBtn = $("readerPlanStripExecuteBtn");
+  const reviewBtn = $("readerPlanStripReviewBtn");
+  const toggleBtn = $("readerPlanStripToggleBtn");
+  ensurePlanNextHydrated(status.plan);
+  strip.classList.toggle("empty", !status.plan);
+  strip.classList.toggle("collapsed", state.readerPlanStripCollapsed);
+  $("readerPlanStripKicker").textContent = status.kicker;
+  $("readerPlanStripTitle").textContent = state.readerPlanStripCollapsed
+    ? (status.plan ? `计划: ${status.title}` : status.title)
+    : status.title;
+  $("readerPlanStripMeta").textContent = status.meta;
+  if (createBtn) {
+    createBtn.hidden = !!status.plan;
+    createBtn.disabled = !status.canCreate;
+  }
+  if (openBtn) openBtn.disabled = !status.canOpen;
+  if (executeBtn) executeBtn.disabled = !status.canExecute;
+  if (reviewBtn) reviewBtn.disabled = !status.canReview;
+  if (toggleBtn) {
+    toggleBtn.textContent = state.readerPlanStripCollapsed ? "展开" : "收起";
+    toggleBtn.setAttribute("aria-expanded", state.readerPlanStripCollapsed ? "false" : "true");
+  }
 }
 
 function renderImmersivePlan() {
   const button = $("immersivePlanBtn");
   const card = $("immersivePlan");
   if (!button || !card) return;
-  const { plan, nextStep } = planGuideSelection();
+  const status = planGuideStatus();
   const stepEl = $("immersivePlanStep");
   const titleEl = $("immersivePlanTitle");
   const metaEl = $("immersivePlanMeta");
+  const createBtn = $("immersivePlanCreateBtn");
   const openBtn = $("immersivePlanOpenRangeBtn");
   const executeBtn = $("immersivePlanExecuteBtn");
   const reviewBtn = $("immersivePlanReviewBtn");
-  const hasRange = !!(nextStep?.chunkIds?.length || nextStep?.range?.startChunkId || nextStep?.startChunkId);
-  button.disabled = !plan;
-  button.textContent = plan ? "计划" : "无计划";
-  if (!plan) {
-    if (stepEl) stepEl.textContent = "当前计划";
-    if (titleEl) titleEl.textContent = "暂无活跃计划";
-    if (metaEl) metaEl.textContent = "创建计划后会在这里显示下一步。";
+  button.disabled = !status.plan && !status.canCreate;
+  button.textContent = status.plan ? "计划" : "建计划";
+  if (createBtn) {
+    createBtn.hidden = !!status.plan;
+    createBtn.disabled = !status.canCreate;
+  }
+  if (!status.plan) {
+    if (stepEl) stepEl.textContent = status.kicker;
+    if (titleEl) titleEl.textContent = status.title;
+    if (metaEl) metaEl.textContent = status.meta;
     if (openBtn) openBtn.disabled = true;
     if (executeBtn) executeBtn.disabled = true;
     if (reviewBtn) reviewBtn.disabled = true;
     return;
   }
-  const total = plan.stepCount || plan.steps?.length || 0;
-  const current = plan.currentStepIndex || 0;
-  const chunkLabel = planStepChunkLabel(nextStep);
-  if (stepEl) stepEl.textContent = `${current}/${total} · ${nextStep?.status || plan.status || "计划"}`;
-  if (titleEl) titleEl.textContent = nextStep?.title || plan.title || plan.planId;
-  if (metaEl) metaEl.textContent = nextStep
-    ? `${nextStep.type || "step"} · ${chunkLabel || "未给出范围"} · ${nextStep.intent || "按计划继续阅读。"}`
-    : `${plan.status || ""} · 正在读取下一步。`;
-  if (openBtn) openBtn.disabled = !nextStep || !hasRange;
-  if (executeBtn) executeBtn.disabled = !nextStep || plan.status === "completed" || plan.status === "paused";
-  if (reviewBtn) reviewBtn.disabled = !nextStep;
+  if (stepEl) stepEl.textContent = status.kicker;
+  if (titleEl) titleEl.textContent = status.title;
+  if (metaEl) metaEl.textContent = status.meta;
+  if (openBtn) openBtn.disabled = !status.canOpen;
+  if (executeBtn) executeBtn.disabled = !status.canExecute;
+  if (reviewBtn) reviewBtn.disabled = !status.canReview;
 }
 
 function renderBooks() {
@@ -8419,6 +8567,7 @@ function renderAll() {
   renderWaypoints();
   renderReadingQueue();
   renderPlanGuide();
+  renderReaderPlanStrip();
   renderSelectionDock();
   renderEntityPeek();
   renderSelfCheck();
@@ -10023,20 +10172,71 @@ $("planGuideReviewBtn").addEventListener("click", async () => {
   }
 });
 
-$("planGuideFullBtn").addEventListener("click", async () => {
-  $("planGuideFullBtn").disabled = true;
-  try {
-    await openPlanGuideFull();
-  } catch (error) {
+  $("planGuideFullBtn").addEventListener("click", async () => {
+    $("planGuideFullBtn").disabled = true;
+    try {
+      await openPlanGuideFull();
+    } catch (error) {
     log(error.message || String(error));
   } finally {
-    renderPlanGuide();
-  }
-});
+      renderPlanGuide();
+    }
+  });
 
-$("chunkText").addEventListener("mouseup", () => {
-  window.setTimeout(() => {
-    captureReaderSelection();
+  $("readerPlanStripCreateBtn").addEventListener("click", async () => {
+    $("readerPlanStripCreateBtn").disabled = true;
+    try {
+      await createPlanForCurrentSection();
+    } catch (error) {
+      log(error.message || String(error));
+    } finally {
+      renderReaderProgress();
+      renderPlanGuide();
+    }
+  });
+
+  $("readerPlanStripOpenRangeBtn").addEventListener("click", async () => {
+    $("readerPlanStripOpenRangeBtn").disabled = true;
+    try {
+      await openPlanGuideRange();
+    } catch (error) {
+      log(error.message || String(error));
+    } finally {
+      renderReaderProgress();
+      renderPlanGuide();
+    }
+  });
+
+  $("readerPlanStripExecuteBtn").addEventListener("click", async () => {
+    $("readerPlanStripExecuteBtn").disabled = true;
+    try {
+      await executePlanGuideStep();
+    } catch (error) {
+      log(error.message || String(error));
+    } finally {
+      renderReaderProgress();
+      renderPlanGuide();
+    }
+  });
+
+  $("readerPlanStripReviewBtn").addEventListener("click", async () => {
+    $("readerPlanStripReviewBtn").disabled = true;
+    try {
+      await reviewPlanGuideStep();
+    } catch (error) {
+      log(error.message || String(error));
+    } finally {
+      renderPlanGuide();
+    }
+  });
+
+  $("readerPlanStripToggleBtn").addEventListener("click", () => {
+    setReaderPlanStripCollapsed(!state.readerPlanStripCollapsed);
+  });
+
+  $("chunkText").addEventListener("mouseup", () => {
+    window.setTimeout(() => {
+      captureReaderSelection();
   }, 0);
 });
 $("chunkText").addEventListener("dblclick", (event) => {
@@ -12911,7 +13111,8 @@ $("readingNowContinueBtn").addEventListener("click", () => {
 $("readingNowPlanBtn").addEventListener("click", async () => {
   $("readingNowPlanBtn").disabled = true;
   try {
-    await openPlanGuideRange();
+    if (activePlanForBook(activeBook())) await openPlanGuideRange();
+    else await createPlanForCurrentSection();
   } catch (error) {
     log(error.message || String(error));
   } finally {

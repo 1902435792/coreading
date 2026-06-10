@@ -467,11 +467,13 @@ function runWrapper(payload) {
         reject(error);
         return;
       }
-      let data = null;
-      try {
-        data = parseJsonBlock(outer.result);
-      } catch {
-        data = null;
+      let data = outer.data ?? null;
+      if (data === null) {
+        try {
+          data = parseJsonBlock(outer.result);
+        } catch {
+          data = null;
+        }
       }
       resolve({
         status: "success",
@@ -734,7 +736,7 @@ function buildAgentAssistantBody({ prompt, context }) {
 
 function extractChoiceContent(data) {
   const content = data?.choices?.[0]?.message?.content;
-  if (typeof content === "string") return content;
+  if (typeof content === "string") return textFromMaybeSse(content);
   if (Array.isArray(content)) return textFromContentArray(content);
   return "";
 }
@@ -742,13 +744,43 @@ function extractChoiceContent(data) {
 function textFromContentArray(content) {
   return content
     .map((item) => {
-      if (typeof item === "string") return item;
+      if (typeof item === "string") return textFromMaybeSse(item);
       if (item && typeof item.text === "string") return item.text;
-      if (item && typeof item.content === "string") return item.content;
+      if (item && typeof item.content === "string") return textFromMaybeSse(item.content);
       return "";
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function parseSseChatContent(text) {
+  const raw = String(text || "");
+  if (!raw.includes("data:")) return null;
+  const parts = [];
+  let eventCount = 0;
+  for (const line of raw.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) continue;
+    const payload = trimmed.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+    const data = tryParseJson(payload);
+    if (!data) continue;
+    eventCount += 1;
+    const choice = data.choices?.[0] || {};
+    const delta = choice.delta || {};
+    const message = choice.message || {};
+    const content = delta.content ?? message.content ?? choice.text ?? data.output_text ?? data.text ?? "";
+    if (typeof content === "string") parts.push(content);
+    else if (Array.isArray(content)) parts.push(textFromContentArray(content));
+  }
+  return { content: parts.join("").trim(), eventCount };
+}
+
+function textFromMaybeSse(value) {
+  const text = String(value || "");
+  const parsed = parseSseChatContent(text);
+  if (parsed) return parsed.content;
+  return text;
 }
 
 function extractNovaContent(data) {
@@ -756,9 +788,10 @@ function extractNovaContent(data) {
     extractChoiceContent(data)
     || (Array.isArray(data?.content) ? textFromContentArray(data.content) : "")
     || data?.output_text
-    || data?.content
-    || data?.text
-    || data?.message
+    || textFromMaybeSse(data?.content)
+    || textFromMaybeSse(data?.text)
+    || textFromMaybeSse(data?.message)
+    || textFromMaybeSse(data?.raw)
     || ""
   ).trim();
 }

@@ -1968,6 +1968,69 @@ body.reader-toc-open #readerTocList.reader-toc-inline.empty {
   padding: 4px 8px;
 }
 
+.reader-plan-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 34px;
+  border-bottom: 1px solid var(--line);
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--surface-3));
+}
+
+.reader-plan-strip.empty {
+  background: color-mix(in srgb, var(--surface) 94%, var(--surface-3));
+}
+
+.reader-plan-main {
+  min-width: 0;
+}
+
+.reader-plan-strip span,
+.reader-plan-strip small {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-plan-strip strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-plan-strip-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.reader-plan-strip-actions button {
+  min-height: 26px;
+  padding: 3px 7px;
+}
+
+.reader-plan-strip.collapsed {
+  grid-template-columns: minmax(0, 1fr) auto;
+  opacity: 0.72;
+}
+
+.reader-plan-strip.collapsed span,
+.reader-plan-strip.collapsed small,
+.reader-plan-strip.collapsed .reader-plan-strip-actions button:not(#readerPlanStripToggleBtn) {
+  display: none;
+}
+
 .reader-text-shell {
   position: relative;
   z-index: 1;
@@ -2428,6 +2491,10 @@ body.immersive-reading .reader-surface header small {
 }
 
 body.immersive-reading .reader-nova-aside {
+  display: none;
+}
+
+body.immersive-reading .reader-plan-strip {
   display: none;
 }
 
@@ -2971,6 +3038,7 @@ body.immersive-reading.immersive-clean-reading .reader-library-button,
 body.immersive-reading.immersive-clean-reading .reader-library-card,
 body.immersive-reading.immersive-clean-reading .reader-plan-button,
 body.immersive-reading.immersive-clean-reading .reader-plan-card,
+body.immersive-reading.immersive-clean-reading .reader-plan-strip,
 body.immersive-reading.immersive-clean-reading .reader-toc-button,
 body.immersive-reading.immersive-clean-reading .reader-toc,
 body.immersive-reading.immersive-clean-reading .reading-footprints {
