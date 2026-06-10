@@ -526,7 +526,7 @@ D:\VCP\VCPToolBox\Plugin\CoReadingMCP\prompts\skills\coreading-vcp-tools.txt
 
 `nova-co-reading-reader.txt` 面向普通 OpenAI 兼容前端和 MCP 工具前端，不要求 `始/末` 工具语法。
 
-`CoReadingNovaGuide.txt` 是读书 Nova 的行为提示词，主要规定陪读口吻、自主预读边界、选区问答、笔记/边注、计划阅读、兴趣回溯和沉淀边界。Sidecar 的 `/api/nova/ask` 会默认读取它，并自动追加 `prompts\skills\*.txt|*.md`。
+`CoReadingNovaGuide.txt` 是读书 Nova 的行为提示词，主要规定陪读口吻、自主预读边界、选区问答、笔记/边注、计划阅读、兴趣回溯和沉淀边界。Sidecar 的 `/api/nova/ask` 直连 6005/3100 时只读取这个基础提示词；只有显式启用 `agent-assistant` 后端时，才会合并 `prompts\skills\*.txt|*.md` 的工具技能页。
 
 `prompts\skills\coreading-vcp-tools.txt` 是读书 Nova 的工具技能页，专门说明 VCP/VCB 的 `<<<[TOOL_REQUEST]>>>` 固定调用块、CoReadingMCP 命令、AnySearch/JinaReader、FileOperator 只读子集，以及 DailyNote 必须经沉淀预览链路落地。
 

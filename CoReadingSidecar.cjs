@@ -520,7 +520,7 @@ function postJson(url, payload, headers = {}, { timeoutMs = 30000, label = "requ
             json = { raw: text };
           }
           if (res.statusCode >= 400) {
-            const error = new Error(json.error?.message || json.error || `${label} HTTP ${res.statusCode}`);
+            const error = new Error(novaErrorMessageFromBody(json, `${label} HTTP ${res.statusCode}`));
             error.statusCode = 502;
             error.details = { httpStatus: res.statusCode, label, body: json };
             finish(reject, error);
@@ -575,7 +575,7 @@ function postText(url, body, headers = {}, { timeoutMs = 30000, label = "request
             json = { raw: text };
           }
           if (res.statusCode >= 400) {
-            const error = new Error(json.error?.message || json.error || `Nova AgentAssistant HTTP ${res.statusCode}`);
+            const error = new Error(novaErrorMessageFromBody(json, `Nova AgentAssistant HTTP ${res.statusCode}`));
             error.statusCode = 502;
             error.details = { agentStatus: res.statusCode, body: json };
             finish(reject, error);
@@ -604,6 +604,44 @@ function tryParseJson(value) {
   } catch {
     return null;
   }
+}
+
+function flattenNovaErrorParts(value, depth = 0, seen = new Set()) {
+  if (value === null || value === undefined || depth > 4) return [];
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return [String(value)];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => flattenNovaErrorParts(item, depth + 1, seen));
+  }
+  if (typeof value !== "object") return [];
+  if (seen.has(value)) return [];
+  seen.add(value);
+  const preferred = ["message", "code", "type", "status", "statusCode", "error", "details", "body", "raw"];
+  const parts = [];
+  for (const key of preferred) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      parts.push(...flattenNovaErrorParts(value[key], depth + 1, seen));
+    }
+  }
+  if (!parts.length) {
+    for (const item of Object.values(value).slice(0, 8)) {
+      parts.push(...flattenNovaErrorParts(item, depth + 1, seen));
+    }
+  }
+  return parts;
+}
+
+function novaErrorPayloadText(value) {
+  return [...new Set(flattenNovaErrorParts(value))]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+function novaErrorMessageFromBody(body, fallback) {
+  return compactText(novaErrorPayloadText(body?.error || body) || fallback, 1000);
 }
 
 function compactText(value, maxChars = 7000) {
@@ -796,6 +834,18 @@ function extractNovaContent(data) {
   ).trim();
 }
 
+function embeddedNovaContentErrorKind(content) {
+  const text = String(content || "");
+  const strongMarker = /^\s*\[UPSTREAM_ERROR\]/iu.test(text)
+    || /上游API返回状态码\s*\d+/iu.test(text)
+    || /"code"\s*:\s*"[^"]+"/iu.test(text)
+    || /new_api_error|bad_response_status_code|insufficient_user_quota/iu.test(text);
+  if (!strongMarker) return "";
+  const statusMatch = text.match(/状态码\s*(\d{3})/u) || text.match(/\bHTTP\s*(\d{3})\b/iu);
+  const status = statusMatch ? Number(statusMatch[1]) : null;
+  return classifyNovaErrorKind(status, text, "upstream_error");
+}
+
 function classifyNovaResponse(backend, result) {
   const content = cleanNovaVisibleContent(extractNovaContent(result));
   const embedded = content && /^[\[{]/u.test(content.trim()) ? tryParseJson(content.trim()) : null;
@@ -803,9 +853,19 @@ function classifyNovaResponse(backend, result) {
   if (result?.error || embeddedError) {
     return {
       ok: false,
-      kind: "upstream_error",
+      kind: classifyNovaErrorKind(null, result?.error || embeddedError, "upstream_error"),
       backend,
       error: result.error || embeddedError,
+      content: content.slice(0, 1200)
+    };
+  }
+  const contentErrorKind = embeddedNovaContentErrorKind(content);
+  if (contentErrorKind) {
+    return {
+      ok: false,
+      kind: contentErrorKind,
+      backend,
+      error: content.slice(0, 1200),
       content: content.slice(0, 1200)
     };
   }
@@ -829,21 +889,42 @@ function classifyNovaResponse(backend, result) {
   return { ok: true, kind: "ok", backend, content };
 }
 
+function novaAttemptErrorText(error) {
+  return [
+    error?.message || "",
+    novaErrorPayloadText(error?.details || "")
+  ].filter(Boolean).join(" ");
+}
+
+function classifyNovaErrorKind(upstreamStatus, payload, fallback = "transport_error") {
+  const text = novaErrorPayloadText(payload).toLowerCase();
+  if (/insufficient[_\s-]*user[_\s-]*quota|quota|余额|额度|credits?/iu.test(text)) return "quota_unavailable";
+  if (/rate[_\s-]*limit|too many requests|cooldown|限流|频率/iu.test(text)) return "rate_limited";
+  if (/bad[_\s-]*response[_\s-]*status[_\s-]*code|bad response status code/iu.test(text)) return "upstream_http_error";
+  if (upstreamStatus === 401) return "unauthorized";
+  if (
+    upstreamStatus === 403
+    && /(unauthori[sz]ed|forbidden|invalid[_\s-]*(api[_\s-]*)?key|api[_\s-]*key|bearer|token|鉴权|认证|密钥)/iu.test(text)
+  ) {
+    return "unauthorized";
+  }
+  if (upstreamStatus === 403) return "forbidden";
+  if (upstreamStatus) return "upstream_http_error";
+  if (/(unauthori[sz]ed|invalid[_\s-]*(api[_\s-]*)?key|api[_\s-]*key|鉴权|认证|密钥)/iu.test(text)) return "unauthorized";
+  return fallback;
+}
+
 function novaAttemptError(backend, error) {
   const upstreamStatus = error.details?.httpStatus || error.details?.agentStatus || error.details?.bridgeStatus || null;
   const timeout = error.code === "ETIMEDOUT" || error.statusCode === 504;
-  const unauthorized = upstreamStatus === 401 || upstreamStatus === 403;
+  const payloadText = novaAttemptErrorText(error);
   return {
     backend,
     kind: error.code === "ECONNREFUSED"
       ? "connection_refused"
       : timeout
         ? "timeout"
-        : unauthorized
-          ? "unauthorized"
-          : upstreamStatus
-            ? "upstream_http_error"
-            : "transport_error",
+        : classifyNovaErrorKind(upstreamStatus, [payloadText, error.details], upstreamStatus ? "upstream_http_error" : "transport_error"),
     message: error.message || String(error),
     statusCode: error.statusCode || null,
     upstreamStatus,
@@ -861,16 +942,27 @@ function novaFailureResult(body, attempts, timeoutMs = NOVA_TIMEOUT_MS) {
     agentFailure ? "AgentAssistant /v1/human/tool" : ""
   ].filter(Boolean);
   const authFailed = attempts.some((attempt) => attempt.kind === "unauthorized");
+  const quotaFailed = attempts.some((attempt) => attempt.kind === "quota_unavailable");
+  const rateLimited = attempts.some((attempt) => attempt.kind === "rate_limited");
+  const timedOut = attempts.some((attempt) => attempt.kind === "timeout");
   const statusHint = failed.length ? `${failed.join("、")}没有返回可用文本。` : "Nova 后端没有返回可用文本。";
+  let error = `Nova 当前不可用：${statusHint}阅读和本地笔记仍可继续。`;
+  if (authFailed) {
+    error = "Nova 当前不可用：VCP 鉴权未通过。请确认 VCP_Key、VCP_API_KEY 或 CO_READING_NOVA_API_KEY。阅读和本地笔记仍可继续。";
+  } else if (quotaFailed) {
+    error = "Nova 当前不可用：VCP 上游返回额度不足或 quota 不可用。阅读和本地笔记仍可继续。";
+  } else if (rateLimited) {
+    error = "Nova 当前不可用：VCP 上游正在限流或冷却。稍后可重试，阅读和本地笔记仍可继续。";
+  } else if (timedOut) {
+    error = `Nova 当前不可用：请求等待 ${Math.round(timeoutMs / 1000)} 秒后仍未返回。阅读和本地笔记仍可继续。`;
+  }
   return {
     status: "error",
     model: body.model || NOVA_MODEL,
     timeoutMs,
     fallbackTimeoutMs: NOVA_FALLBACK_TIMEOUT_MS,
     backendAttempts: attempts,
-    error: authFailed
-      ? "Nova 当前不可用：VCP 鉴权未通过。请确认 VCP_Key、VCP_API_KEY 或 CO_READING_NOVA_API_KEY。阅读和本地笔记仍可继续。"
-      : `Nova 当前不可用：${statusHint}阅读和本地笔记仍可继续。`
+    error
   };
 }
 
@@ -914,13 +1006,22 @@ function readNovaSkillGuides() {
 }
 
 function readNovaGuide() {
-  const baseGuide = readTextFileIfExists(NOVA_GUIDE_PATH);
+  return readTextFileIfExists(NOVA_GUIDE_PATH);
+}
+
+function readNovaAgentGuide() {
+  const baseGuide = readNovaGuide();
   const skillGuides = readNovaSkillGuides();
   return [baseGuide, skillGuides.content].filter(Boolean).join("\n\n");
 }
 
-function buildNovaMessages(body, novaGuide) {
+function buildNovaMessages(body, novaGuide, { compact = false } = {}) {
   const context = body.context || {};
+  const textBudget = compact ? 2400 : 6000;
+  const selectionBudget = compact ? 700 : 1200;
+  const tocBudget = compact ? 600 : 1800;
+  const candidateBudget = compact ? 1200 : 5000;
+  const promptBudget = compact ? 900 : 1800;
   return [
     {
       role: "system",
@@ -945,19 +1046,19 @@ function buildNovaMessages(body, novaGuide) {
         `协议: ${context.coReadingContextVersion || "inline"}`,
         "",
         "当前原文:",
-        compactText(context.text || "", 6000),
+        compactText(context.text || "", textBudget),
         "",
         "选区:",
-        compactText(context.selection || "", 1200),
+        compactText(context.selection || "", selectionBudget),
         "",
         "目录预览:",
-        compactText(JSON.stringify(context.tocPreview || [], null, 2), 1800),
+        compactText(JSON.stringify(context.tocPreview || [], null, 2), tocBudget),
         "",
         "Nova 可自主选择的候选段:",
-        compactText(JSON.stringify(context.autonomousCandidates || [], null, 2), 5000),
+        compactText(JSON.stringify(context.autonomousCandidates || [], null, 2), candidateBudget),
         "",
         "用户问题/笔记:",
-        compactText(body.prompt || "", 1800),
+        compactText(body.prompt || "", promptBudget),
         "",
         "边界:",
         context.instructionBoundary || "只基于当前传入文本回应。"
@@ -981,21 +1082,23 @@ function buildNovaAgentPrompt(body, novaGuide) {
 }
 
 async function askNovaViaChatBackend(backend, url, body, messages, apiKey, timeoutMs) {
+  const stream = body.stream === undefined ? backend === "vcp" : Boolean(body.stream);
+  const requestBody = {
+    model: body.model || NOVA_MODEL,
+    messages,
+    stream,
+    maxAttempts: 1,
+    metadata: {
+      source: "CoReadingMCP",
+      interaction: "single-short-reading-ask",
+      backend,
+      timeoutMs
+    }
+  };
+  if (body.temperature !== undefined) requestBody.temperature = body.temperature;
   const raw = await postJson(
     url,
-    {
-      model: body.model || NOVA_MODEL,
-      messages,
-      temperature: body.temperature ?? 0.4,
-      stream: false,
-      maxAttempts: 1,
-      metadata: {
-        source: "CoReadingMCP",
-        interaction: "single-short-reading-ask",
-        backend,
-        timeoutMs
-      }
-    },
+    requestBody,
     apiKey ? { authorization: `Bearer ${apiKey}` } : {},
     { timeoutMs, label: backend === "vcp" ? "Nova VCP model request" : "Nova 3100 bridge request" }
   );
@@ -1017,8 +1120,8 @@ async function askNova(body) {
   const apiKey = novaApiKey();
   const timeoutMs = novaRequestTimeoutMs(body);
   const novaGuide = readNovaGuide();
-  const messages = buildNovaMessages(body, novaGuide);
-  const agentPrompt = buildNovaAgentPrompt(body, novaGuide);
+  const messages = buildNovaMessages(body, novaGuide, { compact: true });
+  const agentPrompt = buildNovaAgentPrompt(body, readNovaAgentGuide());
   const attempts = [];
 
   for (const [index, backend] of NOVA_BACKENDS.entries()) {
