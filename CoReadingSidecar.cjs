@@ -609,6 +609,19 @@ function compactText(value, maxChars = 7000) {
   return text.length > maxChars ? `${text.slice(0, maxChars)}\n\n[已截断 ${text.length - maxChars} 字]` : text;
 }
 
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function cleanNovaVisibleContent(value) {
+  return String(value || "")
+    .replace(/<!--\s*persona_(delta|expression)\s*:[\s\S]*?-->/giu, "")
+    .replace(/<!--\s*persona_[\s\S]*?-->/giu, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function safeSlug(value, fallback = "default") {
   const safe = String(value || "").trim().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
   return safe || fallback;
@@ -751,7 +764,7 @@ function extractNovaContent(data) {
 }
 
 function classifyNovaResponse(backend, result) {
-  const content = extractNovaContent(result);
+  const content = cleanNovaVisibleContent(extractNovaContent(result));
   const embedded = content && /^[\[{]/u.test(content.trim()) ? tryParseJson(content.trim()) : null;
   const embeddedError = embedded && typeof embedded === "object" ? embedded.error : null;
   if (result?.error || embeddedError) {
@@ -826,6 +839,18 @@ function novaFailureResult(body, attempts, timeoutMs = NOVA_TIMEOUT_MS) {
       ? "Nova 当前不可用：VCP 鉴权未通过。请确认 VCP_Key、VCP_API_KEY 或 CO_READING_NOVA_API_KEY。阅读和本地笔记仍可继续。"
       : `Nova 当前不可用：${statusHint}阅读和本地笔记仍可继续。`
   };
+}
+
+function throwIfNovaFailed(nova, message = "Nova 当前不可用。") {
+  if (nova?.status !== "error") return;
+  const error = new Error(nova.error || message);
+  error.statusCode = 502;
+  error.details = {
+    backendAttempts: Array.isArray(nova.backendAttempts) ? nova.backendAttempts : [],
+    timeoutMs: nova.timeoutMs,
+    fallbackTimeoutMs: nova.fallbackTimeoutMs
+  };
+  throw error;
 }
 
 function readTextFileIfExists(filePath) {
@@ -1742,6 +1767,7 @@ function normalizeNovaAgentRun(run = {}) {
     chunkId: String(run.chunkId || ""),
     chunkTitle: String(run.chunkTitle || ""),
     contextMode: String(run.contextMode || result.contextMode || "agent"),
+    scope: String(run.scope || result.scope || ""),
     prompt: compactText(run.prompt || result.prompt || "", 1200),
     selection: run.selection && typeof run.selection === "object" ? {
       text: compactText(run.selection.text || "", 1200),
@@ -1759,6 +1785,7 @@ function normalizeNovaAgentRun(run = {}) {
       model: String(result.model || ""),
       backendAttempts: Array.isArray(result.backendAttempts) ? result.backendAttempts.slice(0, 8) : [],
       contextMode: String(result.contextMode || run.contextMode || "agent"),
+      scope: String(result.scope || run.scope || ""),
       prompt: compactText(result.prompt || run.prompt || "", 1200),
       backtrack: compactStructuredValue(result.backtrack, 26000),
       tool: compactStructuredValue(result.tool, 8000),
@@ -1820,6 +1847,24 @@ function chunkTitleOf(chunk, fallback = "") {
   return String(chunk?.title || chunk?.sectionTitle || fallback || chunkIdOf(chunk));
 }
 
+const AGENT_FRONT_MATTER_CHUNK_RE = /^(cover|封面|封底|扉页|版权|题献|目录|插图目录|更新记录)$/i;
+
+function agentChunkReadableSize(chunk) {
+  return Math.max(Number(chunk?.charCount || 0), Number(chunk?.wordCount || 0));
+}
+
+function isAgentReadableChunk(chunk) {
+  const title = chunkTitleOf(chunk).replace(/\s+Part\s+\d+\/\d+$/i, "").trim();
+  return Boolean(chunkIdOf(chunk)) && !AGENT_FRONT_MATTER_CHUNK_RE.test(title) && agentChunkReadableSize(chunk) >= 600;
+}
+
+function chooseAgentAnchorChunkId(chunks, requestedChunkId = "") {
+  if (requestedChunkId && chunks.some((chunk) => chunkIdOf(chunk) === requestedChunkId)) return requestedChunkId;
+  const unread = chunks.find((chunk) => !chunk.read && isAgentReadableChunk(chunk));
+  const readable = unread || chunks.find(isAgentReadableChunk) || chunks.find((chunk) => chunkIdOf(chunk));
+  return chunkIdOf(readable);
+}
+
 function textFromReadChunkResult(result) {
   const chunk = result?.chunk || result || {};
   return String(result?.text || chunk.text || "");
@@ -1836,9 +1881,10 @@ function buildAgentTocPreview(chunks, limit = 24) {
 
 function chooseAgentCandidateIds(chunks, anchorChunkId, maxCandidates = 3) {
   const limit = normalizeListLimit(maxCandidates, 3, 1, 6);
-  const index = chunks.findIndex((chunk) => chunkIdOf(chunk) === anchorChunkId);
-  if (index < 0) return anchorChunkId ? [anchorChunkId] : [];
-  const offsets = [0, 1, -1, 2, -2, 3, -3];
+  const anchorId = chooseAgentAnchorChunkId(chunks, anchorChunkId);
+  const index = chunks.findIndex((chunk) => chunkIdOf(chunk) === anchorId);
+  if (index < 0) return anchorId ? [anchorId] : [];
+  const offsets = [0, 1, -1, 2, 3, -2, 4, -3];
   const ids = [];
   for (const offset of offsets) {
     const chunk = chunks[index + offset];
@@ -1877,6 +1923,17 @@ async function readAgentCandidate(bookId, chunkId, run) {
   };
 }
 
+function chooseMentionedCandidateId(content, candidates, fallbackChunkId) {
+  const text = String(content || "");
+  let best = { index: Infinity, id: "" };
+  for (const candidate of candidates || []) {
+    const id = String(candidate?.chunkId || "");
+    const match = id ? new RegExp(`(^|[^\\w-])${escapeRegExp(id)}([^\\w-]|$)`, "iu").exec(text) : null;
+    if (match && match.index < best.index) best = { index: match.index, id };
+  }
+  return best.id || fallbackChunkId;
+}
+
 function buildNovaPreReadAgentPrompt(payload) {
   return compactText(payload.prompt || [
     "请作为共读伙伴先替我读这一小段。",
@@ -1888,9 +1945,9 @@ function buildNovaPreReadAgentPrompt(payload) {
 
 async function runNovaPreReadAgent(payload) {
   const bookId = String(payload.bookId || "").trim();
-  const chunkId = String(payload.chunkId || "").trim();
-  if (!bookId || !chunkId) {
-    const error = new Error("bookId 和 chunkId 是必需参数。");
+  const requestedChunkId = String(payload.chunkId || "").trim();
+  if (!bookId) {
+    const error = new Error("bookId 是必需参数。");
     error.statusCode = 400;
     throw error;
   }
@@ -1900,9 +1957,10 @@ async function runNovaPreReadAgent(payload) {
     status: "running",
     bookId,
     bookTitle: payload.bookTitle || "",
-    chunkId,
+    chunkId: requestedChunkId,
     chunkTitle: payload.chunkTitle || "",
     contextMode: "autonomous-reading",
+    scope: requestedChunkId ? "chunk" : "book",
     prompt: buildNovaPreReadAgentPrompt(payload),
     selection: payload.selection || payload.context?.selection || null,
     startedAt: new Date(startedAtMs).toISOString(),
@@ -1913,7 +1971,16 @@ async function runNovaPreReadAgent(payload) {
   try {
     const chunksResult = await agentRunWrapper("list_chunks", { bookId }, run);
     const chunks = Array.isArray(chunksResult.data) ? chunksResult.data : chunksResult.data?.chunks || [];
+    const chunkId = chooseAgentAnchorChunkId(chunks, requestedChunkId);
+    if (!chunkId) {
+      const error = new Error("当前书没有可供 Nova 预读的段落。");
+      error.statusCode = 400;
+      throw error;
+    }
     const currentMeta = chunks.find((chunk) => chunkIdOf(chunk) === chunkId) || {};
+    run.chunkId = chunkId;
+    run.chunkTitle = chunkTitleOf(currentMeta, payload.chunkTitle || chunkId);
+    upsertNovaAgentRun(run);
     const candidateIds = chooseAgentCandidateIds(chunks, chunkId, payload.maxCandidates || 3);
     const candidates = [];
     for (const candidateId of candidateIds) {
@@ -1936,23 +2003,31 @@ async function runNovaPreReadAgent(payload) {
         coReadingContextVersion: "backend-agent-v1",
         tocPreview: buildAgentTocPreview(chunks),
         autonomousCandidates: candidates,
-        instructionBoundary: "Nova 可以在 autonomousCandidates 中自行选择先读哪里；只能评论传入候选段和当前段，不要假装读完整本书。"
+        instructionBoundary: requestedChunkId
+          ? "Nova 可以在 autonomousCandidates 中自行选择先读哪里；只能评论传入候选段和当前段，不要假装读完整本书。"
+          : "这是书级自主巡读。Nova 可以从 autonomousCandidates 中自行选择一个起点先看；只能评论传入候选段，不要假装读完整本书。"
       }
     });
+    throwIfNovaFailed(nova, "Nova 预读失败。");
+    const visibleContent = cleanNovaVisibleContent(nova.content || "Nova 暂无文本回复。");
+    const chosenChunkId = chooseMentionedCandidateId(visibleContent, candidates, chunkId);
+    const chosenMeta = chunks.find((chunk) => chunkIdOf(chunk) === chosenChunkId) || currentMeta;
     run.status = "success";
     run.completedAt = new Date().toISOString();
     run.durationMs = Date.now() - startedAtMs;
     run.bookTitle = payload.bookTitle || run.bookTitle || "";
-    run.chunkTitle = chunkTitleOf(currentMeta, payload.chunkTitle || chunkId);
+    run.chunkId = chosenChunkId;
+    run.chunkTitle = chunkTitleOf(chosenMeta, payload.chunkTitle || chosenChunkId);
     run.result = {
-      content: nova.content || "Nova 暂无文本回复。",
-      note: nova.content || "Nova 暂无文本回复。",
-      chosenChunkId: chunkId,
+      content: visibleContent,
+      note: visibleContent,
+      chosenChunkId,
       candidates,
       backend: nova.backend || "",
       model: nova.model || "",
       backendAttempts: Array.isArray(nova.backendAttempts) ? nova.backendAttempts : [],
       contextMode: "autonomous-reading",
+      scope: requestedChunkId ? "chunk" : "book",
       prompt
     };
     run.events.push({ type: "agent_end", status: "success", at: run.completedAt });

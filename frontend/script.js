@@ -1506,6 +1506,7 @@ function normalizeNovaPreReadHistoryItem(item = {}) {
     backend: String(item.backend || result.backend || ""),
     model: String(item.model || result.model || ""),
     contextMode: "autonomous-reading",
+    scope: String(item.scope || result.scope || ""),
     answeredAt,
     answeredAtMs,
   };
@@ -1541,6 +1542,18 @@ function currentNovaPreReadPreview() {
   return novaPreReadHistoryForCurrentChunk()[0] || null;
 }
 
+function currentNovaBookScoutPreview() {
+  return novaPreReadHistoryForBook().find((item) => item.scope === "book") || null;
+}
+
+function novaReplyBelongsToSelectedBook() {
+  return Boolean(
+    state.novaReply
+    && state.novaReplyContext?.bookId === state.selectedBookId
+    && state.novaReplyContext?.contextMode === "autonomous-reading"
+  );
+}
+
 function novaPreReadDisplayContext(item = {}) {
   return {
     bookId: item.bookId || state.selectedBookId,
@@ -1551,6 +1564,7 @@ function novaPreReadDisplayContext(item = {}) {
     backend: item.backend || "",
     model: item.model || "",
     contextMode: "autonomous-reading",
+    scope: item.scope || "",
     answeredAt: item.answeredAt || "",
   };
 }
@@ -1566,6 +1580,15 @@ function currentNovaDisplay() {
       canUseReply: !isPreRead,
     };
   }
+  if (novaReplyBelongsToSelectedBook()) {
+    return {
+      kind: "pre-read",
+      text: state.novaReply,
+      context: state.novaReplyContext,
+      statusText: state.novaReplyContext?.scope === "book" ? "Nova 已先看本书" : "Nova 已先读",
+      canUseReply: false,
+    };
+  }
   const preRead = currentNovaPreReadPreview();
   if (preRead) {
     return {
@@ -1575,6 +1598,17 @@ function currentNovaDisplay() {
       statusText: "Nova 已先读",
       canUseReply: false,
       historyId: preRead.id,
+    };
+  }
+  const bookScout = currentNovaBookScoutPreview();
+  if (bookScout) {
+    return {
+      kind: "pre-read",
+      text: bookScout.note,
+      context: novaPreReadDisplayContext(bookScout),
+      statusText: "Nova 已先看本书",
+      canUseReply: false,
+      historyId: bookScout.id,
     };
   }
   return null;
@@ -1592,6 +1626,7 @@ function recordNovaPreReadReply(context, reply, run = null) {
     title: chunkTitleById(context.chunkId),
     prompt: context.prompt,
     note: reply,
+    scope: context.scope || "",
     answeredAt: context.answeredAt,
   });
   if (!item) return;
@@ -1618,6 +1653,7 @@ function openNovaPreReadHistory(id) {
     selection: "",
     selectionOffset: null,
     contextMode: "autonomous-reading",
+    scope: item.scope || "",
     backend: item.backend || "",
     model: item.model || "",
     answeredAt: item.answeredAt,
@@ -2701,6 +2737,7 @@ function renderReadingSession() {
   $("sessionContinueBtn").textContent = bookSession?.chunkId ? `继续 ${bookSession.chunkId}` : "继续读";
   $("sessionRestartBtn").disabled = !hasBook;
   $("sessionRestartBtn").textContent = canUndoRestart ? "撤销从头读" : "从头读";
+  $("sessionScoutNovaBtn").disabled = !hasBook || state.novaAskPending;
   $("sessionAskNovaBtn").disabled = !hasBook || !state.selectedChunkId;
   $("sessionNoteBtn").disabled = !hasBook || !state.selectedChunkId;
   $("sessionCopySummaryBtn").disabled = !hasBook;
@@ -2919,10 +2956,11 @@ function readerNovaAsideModeLabel(context = state.novaReplyContext || state.nova
 }
 
 function readerNovaAsideMeta(context = state.novaReplyContext || state.novaLastRequest || {}) {
-  const chunkId = context.chunkId || state.selectedChunkId || "";
+  const chunkId = context.chunkId || (context.scope === "book" ? "" : state.selectedChunkId) || "";
   const title = chunkTitleById(chunkId);
   const parts = [
-    chunkId || "当前段",
+    context.scope === "book" ? "本书巡读" : chunkId || "当前段",
+    context.scope === "book" && chunkId ? chunkId : "",
     title && title !== chunkId ? title : "",
     context.selection ? `选区 ${String(context.selection).length} 字` : "",
     context.backend ? String(context.model ? `${context.backend} · ${context.model}` : context.backend) : "",
@@ -2931,6 +2969,13 @@ function readerNovaAsideMeta(context = state.novaReplyContext || state.novaLastR
 }
 
 function novaRequestBelongsToCurrentChunk() {
+  if (
+    state.novaLastRequest
+    && state.novaLastRequest.bookId === state.selectedBookId
+    && (state.novaLastRequest.scope === "book" || !state.novaLastRequest.chunkId)
+  ) {
+    return true;
+  }
   return Boolean(
     state.novaLastRequest
     && state.novaLastRequest.bookId === state.selectedBookId
@@ -2996,7 +3041,7 @@ function renderReaderNovaAside() {
   const pendingForCurrent = Boolean(state.novaAskPending && novaRequestBelongsToCurrentChunk());
   const errorForCurrent = Boolean(state.novaAskError && novaRequestBelongsToCurrentChunk());
   const display = currentNovaDisplay();
-  const shouldShow = Boolean(selected && state.selectedChunkId && (pendingForCurrent || errorForCurrent || display));
+  const shouldShow = Boolean(selected && (pendingForCurrent || errorForCurrent || display));
 
   panel.hidden = !shouldShow;
   if (!shouldShow) return;
@@ -4322,8 +4367,11 @@ function renderNovaReply() {
   const saveButton = $("saveNovaReplyNoteBtn");
   const sinkButton = $("sinkNovaReplyBtn");
   const autoButton = $("novaAutoReadBtn");
+  const bookScoutButton = $("novaBookScoutBtn");
   const autoToggle = $("novaAutoReadToggle");
-  if (!reply || !status || !copyButton || !saveButton || !sinkButton || !autoButton || !autoToggle) return;
+  if (!reply || !status || !copyButton || !saveButton || !sinkButton || !autoButton || !bookScoutButton || !autoToggle) return;
+  const hasBook = !!activeBook();
+  const hasChunk = hasBook && !!state.selectedChunkId;
   autoToggle.checked = state.novaAutoReadEnabled;
   autoToggle.disabled = state.novaAskPending;
   const display = currentNovaDisplay();
@@ -4335,6 +4383,7 @@ function renderNovaReply() {
     saveButton.disabled = true;
     sinkButton.disabled = true;
     autoButton.disabled = true;
+    bookScoutButton.disabled = true;
     renderImmersiveNovaCard();
     renderReaderNovaAside();
     renderReadingQueue();
@@ -4347,7 +4396,8 @@ function renderNovaReply() {
     copyButton.disabled = true;
     saveButton.disabled = true;
     sinkButton.disabled = true;
-    autoButton.disabled = !activeBook() || !state.selectedChunkId;
+    autoButton.disabled = !hasChunk;
+    bookScoutButton.disabled = !hasBook;
     renderImmersiveNovaCard();
     renderReaderNovaAside();
     renderReadingQueue();
@@ -4360,7 +4410,8 @@ function renderNovaReply() {
     copyButton.disabled = true;
     saveButton.disabled = true;
     sinkButton.disabled = true;
-    autoButton.disabled = !activeBook() || !state.selectedChunkId;
+    autoButton.disabled = !hasChunk;
+    bookScoutButton.disabled = !hasBook;
     renderImmersiveNovaCard();
     renderReaderNovaAside();
     renderReadingQueue();
@@ -4370,9 +4421,10 @@ function renderNovaReply() {
   reply.textContent = display.text;
   status.textContent = display.statusText;
   copyButton.disabled = false;
-  saveButton.disabled = !activeBook() || !state.selectedChunkId || !display.canUseReply;
-  sinkButton.disabled = !activeBook() || !state.selectedChunkId || !display.canUseReply;
-  autoButton.disabled = !activeBook() || !state.selectedChunkId;
+  saveButton.disabled = !hasChunk || !display.canUseReply;
+  sinkButton.disabled = !hasChunk || !display.canUseReply;
+  autoButton.disabled = !hasChunk;
+  bookScoutButton.disabled = !hasBook;
   renderImmersiveNovaCard();
   renderReaderNovaAside();
   renderReadingQueue();
@@ -4381,7 +4433,7 @@ function renderNovaReply() {
 function novaErrorMessage(error, request) {
   const status = error?.status ? `HTTP ${error.status}` : "请求失败";
   const detail = String(error?.message || error || "Nova 暂时没有返回。").trim();
-  const target = request?.chunkId ? `当前段落: ${request.chunkId}` : "当前段落";
+  const target = request?.scope === "book" ? "当前书" : request?.chunkId ? `当前段落: ${request.chunkId}` : "当前段落";
   const timeout = Number(error?.timeoutMs || 0);
   const timeoutText = timeout ? `${Math.round(timeout / 1000)} 秒` : "短时间";
   return [
@@ -4457,12 +4509,14 @@ async function askNovaWithPrompt(prompt, { extraContext = {} } = {}) {
   }
 }
 
-async function runNovaAutonomousReading({ manual = false } = {}) {
+async function runNovaAutonomousReading({ manual = false, bookScout = false } = {}) {
   const selected = activeBook();
-  const requestChunkId = currentReadingChunkId();
-  const requestText = readerDisplayChunkText(requestChunkId);
-  if (!selected || !requestChunkId || !requestText) return;
-  const key = `${selected.bookId}:${requestChunkId}`;
+  if (!selected) return;
+  const requestBookId = selected.bookId;
+  const requestChunkId = bookScout ? "" : currentReadingChunkId();
+  const requestText = bookScout ? "" : readerDisplayChunkText(requestChunkId);
+  if (!bookScout && (!requestChunkId || !requestText)) return;
+  const key = `${requestBookId}:${bookScout ? "book-scout" : requestChunkId}`;
   if (manual) {
     window.clearTimeout(state.novaAutoReadTimer);
   }
@@ -4476,10 +4530,9 @@ async function runNovaAutonomousReading({ manual = false } = {}) {
     state.novaAutoReadSeen.add(key);
   }
   state.novaAutoReadInFlight.add(key);
-  const prompt = buildNovaAutonomousReadingPrompt();
+  const prompt = bookScout ? buildNovaBookScoutPrompt() : buildNovaAutonomousReadingPrompt();
   $("novaPrompt").value = prompt;
-  const requestBookId = selected.bookId;
-  const quote = selectedQuote();
+  const quote = bookScout ? { text: "", offset: null } : selectedQuote();
   state.novaLastRequest = {
     bookId: requestBookId,
     chunkId: requestChunkId,
@@ -4487,33 +4540,39 @@ async function runNovaAutonomousReading({ manual = false } = {}) {
     selection: quote.text || "",
     selectionOffset: quote.offset ?? null,
     contextMode: "autonomous-reading",
+    scope: bookScout ? "book" : "chunk",
     requestedAt: new Date().toISOString(),
   };
   state.novaAskError = null;
   state.novaAskPending = true;
   renderNovaReply();
   try {
-    const response = await runNovaAgent({
+    const payload = {
       action: "pre_read",
       bookId: requestBookId,
       bookTitle: selected.title || selected.bookId,
-      chunkId: requestChunkId,
-      chunkTitle: chunkTitleById(requestChunkId),
       prompt,
-      selection: { text: quote.text || "", offset: quote.offset ?? null },
-      maxCandidates: 3,
+      maxCandidates: bookScout ? 4 : 3,
       force: manual,
-    });
+    };
+    if (!bookScout) {
+      payload.chunkId = requestChunkId;
+      payload.chunkTitle = chunkTitleById(requestChunkId);
+      payload.selection = { text: quote.text || "", offset: quote.offset ?? null };
+    }
+    const response = await runNovaAgent(payload);
     const run = response.run || {};
     const result = response.result || run.result || {};
+    const replyChunkId = run.chunkId || result.chosenChunkId || requestChunkId;
     state.novaReply = result.content || result.note || "Nova 暂无文本回复。";
     state.novaReplyContext = {
       bookId: run.bookId || requestBookId,
-      chunkId: run.chunkId || requestChunkId,
+      chunkId: replyChunkId,
       prompt: run.prompt || prompt,
       selection: run.selection?.text || quote.text || "",
       selectionOffset: run.selection?.offset ?? quote.offset ?? null,
       contextMode: "autonomous-reading",
+      scope: bookScout ? "book" : "chunk",
       backend: result.backend || run.result?.backend || "",
       model: result.model || run.result?.model || "",
       answeredAt: run.completedAt || new Date().toISOString(),
@@ -4523,10 +4582,10 @@ async function runNovaAutonomousReading({ manual = false } = {}) {
     state.novaAskPending = false;
     state.novaAskError = null;
     renderNovaReply();
-    if (requestBookId === state.selectedBookId && requestChunkId === currentReadingChunkId()) {
+    if (requestBookId === state.selectedBookId && replyChunkId === currentReadingChunkId()) {
       renderReadingFootprints(readingFootprintRanges(currentReadingChunkText()));
     }
-    log(`Nova Agent 已预读 ${requestChunkId}。`);
+    log(bookScout ? `Nova Agent 已先看本书: ${replyChunkId || requestBookId}。` : `Nova Agent 已预读 ${replyChunkId || requestChunkId}。`);
     return state.novaReply;
   } catch (error) {
     state.novaAskPending = false;
@@ -5745,6 +5804,21 @@ function buildNovaAutonomousReadingPrompt() {
     "3. 选一句值得摘下来的话；",
     "4. 给我一个下一步阅读动作。",
     "不要泛泛总结，不要假装读了未传入的后文。"
+  ].join("\n");
+}
+
+function buildNovaBookScoutPrompt() {
+  const selected = activeBook();
+  const title = selected?.title || selected?.bookId || "这本书";
+  return [
+    `请你作为 Nova 在我继续读《${title}》之前，先自主巡读一次。`,
+    "你可以从系统传入的目录和候选正文里自己挑一个最值得停留的位置。",
+    "输出保持短而有用：",
+    "1. 你先看了哪里，为什么选这里；",
+    "2. 对这个段落做一条具体评论，必须锚定原文；",
+    "3. 选一句值得我稍后留意的话；",
+    "4. 给我一个下一步阅读动作。",
+    "只能评论已传入的候选正文，不要假装读完整本书。"
   ].join("\n");
 }
 
@@ -8175,9 +8249,9 @@ async function useAgentSkill(action) {
   const selected = activeBook();
   const hasChunk = !!selected && !!state.selectedChunkId;
   if (action === "pre-read") {
-    if (!hasChunk) throw new Error("请先选择一本书和段落。");
+    if (!selected) throw new Error("请先选择一本书。");
     closeSkillsPane();
-    await runNovaAutonomousReading({ manual: true });
+    await runNovaAutonomousReading({ manual: true, bookScout: !hasChunk });
     focusPanel(".reader-surface", "#chunkText");
     return;
   }
@@ -12607,6 +12681,19 @@ $("sessionContinueBtn").addEventListener("click", () => {
     $("sessionContinueBtn").disabled = !activeBook();
   });
 });
+$("sessionScoutNovaBtn").addEventListener("click", async () => {
+  const button = $("sessionScoutNovaBtn");
+  button.disabled = true;
+  try {
+    await runNovaAutonomousReading({ manual: true, bookScout: true });
+    revealNovaForReadingAction();
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    renderReadingSession();
+    renderNovaReply();
+  }
+});
 $("sessionRestartBtn").addEventListener("click", async () => {
   const selected = activeBook();
   if (!selected) return;
@@ -12874,6 +12961,18 @@ $("novaAutoReadBtn").addEventListener("click", async () => {
   button.disabled = true;
   try {
     await runNovaAutonomousReading({ manual: true });
+  } catch (error) {
+    log(error.message || String(error));
+  } finally {
+    button.disabled = false;
+    renderNovaReply();
+  }
+});
+$("novaBookScoutBtn").addEventListener("click", async () => {
+  const button = $("novaBookScoutBtn");
+  button.disabled = true;
+  try {
+    await runNovaAutonomousReading({ manual: true, bookScout: true });
   } catch (error) {
     log(error.message || String(error));
   } finally {

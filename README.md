@@ -28,7 +28,7 @@ Invoke-RestMethod http://127.0.0.1:8791/api/snapshot
 
 ## Nova 接入
 
-Sidecar 默认优先调用 VCP `6005` 的 OpenAI 兼容模型接口，失败后再短探测 `3100` bridge：
+Sidecar 默认优先调用 VCP `6005` 的 OpenAI 兼容模型接口，失败后再短探测 `3100` bridge。`6005` 和 `3100` 都按 chat completions 模型接口使用；AgentAssistant 只在显式把 `agent-assistant` 加入 `CO_READING_NOVA_BACKENDS` 时作为 `/v1/human/tool` 后备：
 
 ```text
 http://127.0.0.1:6005/v1/chat/completions
@@ -222,8 +222,9 @@ Sidecar 页面支持：
 
 - 查看书库、计划、评价、沉淀预览。
 - 从浏览器选择 TXT/Markdown/EPUB 文件导入书库；超过单次请求体上限的大书会自动走分片导入。
-- 打开或切换段落后默认触发一次 Nova 自动预读；可关闭“自动预读”，也可点“Nova 自主读”手动重读。
-- Nova 自主预读由 sidecar 后端 Agent 层执行，不由前端拼流程；运行记录写入数据目录的 `nova_agent_runs.json`。
+- 打开或切换段落后默认触发一次 Nova 自动预读；可关闭“自动预读”，也可点“Nova 自主读”手动重读当前段。
+- 未开始读之前也可以点“Nova 先看本书”或“先看本书”，sidecar 会从目录和未读正文里挑候选段，让 Nova 自己先看一处并留下短评。
+- Nova 自主预读由 sidecar 后端 Agent 层执行，不由前端拼流程；运行记录写入数据目录的 `nova_agent_runs.json`，并用 `scope=chunk/book` 区分当前段预读和本书巡读。
 - Nova 面板可收起、恢复、切换窄/宽；沉浸模式默认净读并收起 Nova，阅读中可按需打开。
 - 创建范围/全书/兴趣线索/自由共读计划。
 - 读取 chunk 原文、搜索兴趣点、按选区/偏移写入和查看 Nova/AI 边注。
@@ -294,11 +295,11 @@ Sidecar 提供轻量 Agent API，用现有 VCP/Nova 接口执行读书任务：
 
 - `GET /api/agent/tools`：读取 Pi-style 工具清单，按 `reading`、`search`、`file`、`diary` 分类。
 - `POST /api/agent/tool`：执行单个工具调用，适合把 Nova/VCP 工具调用统一成一个后端入口。
-- `POST /api/agent/run`：执行单次 Agent action。当前支持 `{"action":"pre_read","bookId":"...","chunkId":"..."}`、`{"action":"interest_backtrack",...}` 和 `{"action":"tool_call",...}`。
+- `POST /api/agent/run`：执行单次 Agent action。当前支持 `{"action":"pre_read","bookId":"...","chunkId":"..."}`、`{"action":"pre_read","bookId":"..."}`、`{"action":"interest_backtrack",...}` 和 `{"action":"tool_call",...}`。
 - `GET /api/agent/runs?bookId=...&chunkId=...&action=pre_read`：读取 Agent 运行历史。
 - `/api/snapshot` 会带出最近 `agentRuns`，前端据此显示“Nova 已先读”、本段回看和阅读足迹。
 
-`pre_read` 会由后端读取 `list_chunks/read_chunk`，挑选当前段附近候选段，再调用 `/api/nova/ask` 所用的 Nova 后端链路。相同 `action/bookId/chunkId` 正在执行时，sidecar 复用同一个运行 promise，不会并发重复请求 Nova；需要强制重跑时可传 `force:true`。
+`pre_read` 会由后端读取 `list_chunks/read_chunk`，挑选当前段附近候选段，再调用 `/api/nova/ask` 所用的 Nova 后端链路。`chunkId` 可选：传入时是当前段预读；不传时是本书自主巡读，后端会避开封面、版权、目录等前置块，优先选择未读正文作为锚点。相同 `action/bookId/chunkId` 正在执行时，sidecar 复用同一个运行 promise，不会并发重复请求 Nova；需要强制重跑时可传 `force:true`。
 
 `interest_backtrack` 会把搜索/回溯/沉淀都记成一条 Agent trace，默认通过 `interest_backtrack` 工具返回 bounded evidence，再由 `backtrack_sink_preview_create` 或 `sink_preview_create` 进入沉淀链路。`tool_call` 则把 `AnySearch`、`JinaReader`、`FileOperator` 的只读子集，以及 `sink_preview_*`、`obsidian_note_*` 这类共读动作统一成一层 Pi 风格工具背包。直接 spawn VCP 插件时，sidecar 会合并 VCP 根 `config.env` 和插件自己的 `config.env`，模拟 VCP 主程序加载配置的方式。
 
