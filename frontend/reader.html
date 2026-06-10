@@ -6,7 +6,7 @@
   <title>共读</title>
   <link rel="stylesheet" href="./reader.css">
 </head>
-<body data-font="m" data-width="normal" data-line="loose">
+<body data-theme="white" data-font="m" data-width="normal" data-line="loose" data-face="serif" data-para="indent">
 
   <!-- 书架视图 -->
   <main id="shelfView" class="shelf">
@@ -36,6 +36,7 @@
         <button id="tocBtn" class="text-btn" type="button">目录</button>
         <button id="typoBtn" class="text-btn" type="button">Aa</button>
       </nav>
+      <div class="topbar-progress-track"><div id="topbarProgressLine"></div></div>
     </header>
 
     <article id="flow" class="flow"></article>
@@ -53,6 +54,17 @@
 
     <!-- 排版设置弹层 -->
     <div id="typoPop" class="typo-pop" hidden>
+      <div class="typo-row" data-setting="theme">
+        <span class="typo-label">主题</span>
+        <button class="theme-swatch" type="button" data-value="white" title="白" aria-label="白色主题"></button>
+        <button class="theme-swatch" type="button" data-value="paper" title="纸" aria-label="纸色主题"></button>
+        <button class="theme-swatch" type="button" data-value="dark" title="暗" aria-label="暗色主题"></button>
+      </div>
+      <div class="typo-row" data-setting="face">
+        <span class="typo-label">字体</span>
+        <button class="text-btn" type="button" data-value="serif">衬线</button>
+        <button class="text-btn" type="button" data-value="sans">无衬线</button>
+      </div>
       <div class="typo-row" data-setting="font">
         <span class="typo-label">字号</span>
         <button class="text-btn" type="button" data-value="s">小</button>
@@ -69,6 +81,11 @@
         <span class="typo-label">行距</span>
         <button class="text-btn" type="button" data-value="normal">紧凑</button>
         <button class="text-btn" type="button" data-value="loose">舒朗</button>
+      </div>
+      <div class="typo-row" data-setting="para">
+        <span class="typo-label">段落</span>
+        <button class="text-btn" type="button" data-value="indent">缩进式</button>
+        <button class="text-btn" type="button" data-value="space">段距式</button>
       </div>
     </div>
 
@@ -96,13 +113,17 @@
     <button id="novaStrip" class="nova-strip" type="button">Nova</button>
     <aside id="novaPanel" class="nova-panel" hidden>
       <header class="nova-head">
-        <span>Nova</span>
+        <span class="nova-head-name">Nova<i class="nova-online" aria-hidden="true"></i></span>
         <button id="novaCloseBtn" class="text-btn" type="button">收起</button>
       </header>
       <section id="novaHistory" class="nova-history"></section>
       <section class="nova-reply-wrap">
         <p id="novaReplyMeta" class="muted nova-reply-meta"></p>
-        <div id="novaReply" class="nova-reply"></div>
+        <div id="novaUserBubble" class="nova-user-bubble" hidden></div>
+        <div class="nova-msg">
+          <span class="nova-avatar" aria-hidden="true">N</span>
+          <div id="novaReply" class="nova-reply"></div>
+        </div>
       </section>
       <footer class="nova-ask">
         <p id="novaStatus" class="muted nova-status"></p>

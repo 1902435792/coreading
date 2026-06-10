@@ -143,7 +143,7 @@ function writeJson(key, value) {
 
 /* ---------- 排版设置 ---------- */
 
-const SETTING_FIELDS = ["font", "width", "line"];
+const SETTING_FIELDS = ["theme", "face", "font", "width", "line", "para"];
 
 function applySettings() {
   const saved = readJson(SETTINGS_KEY) || {};
@@ -199,6 +199,33 @@ function bookProgressPercent(book) {
   return Math.round((Number(book.chunksRead || 0) / Number(book.chunkCount)) * 100);
 }
 
+function hashCode(text) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function coverBackground(bookId) {
+  // 由 bookId hash 出两个相近色相的柔和渐变（饱和 25-40%、亮度 55-75%）。
+  const hash = hashCode(String(bookId));
+  const hue1 = hash % 360;
+  const hue2 = (hue1 + 22 + (hash % 20)) % 360;
+  const sat = 26 + (hash % 14);
+  const light1 = 66 + (hash % 9);
+  const light2 = 55 + (hash % 8);
+  return `linear-gradient(160deg, hsl(${hue1}, ${sat}%, ${light1}%), hsl(${hue2}, ${sat}%, ${light2}%))`;
+}
+
+function coverGlyph(title) {
+  const text = String(title || "").trim();
+  if (!text) return "书";
+  if (/[一-鿿]/.test(text[0])) return text.slice(0, 2);
+  const words = text.split(/[\s_-]+/).filter(Boolean);
+  return words.slice(0, 2).map((word) => word[0].toUpperCase()).join("");
+}
+
 function renderShelf() {
   const list = $("bookList");
   list.textContent = "";
@@ -208,23 +235,27 @@ function renderShelf() {
   $("shelfStatus").textContent = books.length ? "" : "书库还是空的，先扫描本地书库导入一本。";
   for (const book of books) {
     const item = document.createElement("li");
-    item.className = "book-item";
-    const main = document.createElement("div");
-    main.className = "book-main";
+    item.className = "book-card";
+    const cover = document.createElement("div");
+    cover.className = "book-cover";
+    cover.style.background = coverBackground(book.bookId);
+    const glyph = document.createElement("span");
+    glyph.className = "cover-glyph";
+    glyph.textContent = coverGlyph(book.title || book.bookId);
+    const percent = bookProgressPercent(book);
+    const track = document.createElement("span");
+    track.className = "cover-progress";
+    const fill = document.createElement("span");
+    fill.style.width = `${percent}%`;
+    track.append(fill);
+    cover.append(glyph, track);
     const title = document.createElement("p");
     title.className = "book-title";
     title.textContent = book.title || book.bookId;
     const meta = document.createElement("p");
     meta.className = "book-meta";
-    const percent = bookProgressPercent(book);
-    meta.textContent = [book.author, `${book.chunkCount || 0} 段`, percent ? `已读 ${percent}%` : ""]
-      .filter(Boolean).join(" · ");
-    main.append(title, meta);
-    const saved = readJson(POSITION_KEY(book.bookId));
-    const open = document.createElement("span");
-    open.className = "book-open text-btn";
-    open.textContent = saved?.chunkId || book.lastChunkId ? "继续阅读" : "开始阅读";
-    item.append(main, open);
+    meta.textContent = [book.author, `${book.chunkCount || 0} 段`].filter(Boolean).join(" · ");
+    item.append(cover, title, meta);
     item.addEventListener("click", () => openBook(book.bookId));
     list.append(item);
   }
@@ -353,6 +384,7 @@ async function openBook(bookId, targetChunkId = "") {
   document.title = state.bookTitle;
   $("topbarTitle").textContent = state.bookTitle;
   $("topbarProgress").textContent = "";
+  renderProgressLine(0);
   $("flow").textContent = "";
   $("flowStatus").textContent = "加载中…";
   try {
@@ -446,19 +478,45 @@ async function loadChunkBatch(requestId) {
   return { stale: false, failedCount, batchSize: batch.length };
 }
 
+function sectionNoLabel(chunk) {
+  const index = Number(chunk?.sectionIndex);
+  if (Number.isFinite(index) && index > 0) return `第 ${index} 节`;
+  const order = chunkOrder(getChunkId(chunk));
+  if (order === null) return "";
+  // 没有 sectionIndex 时数到当前 chunk 为止出现过的不同章节标题数；
+  // 直接用 chunk 序号会在“一章多段”的书里产生第 1、4、7 节这样的跳号。
+  let count = 0;
+  let last = "";
+  for (let i = 0; i <= order; i += 1) {
+    const label = sectionLabel(state.chunks[i]);
+    if (label !== last) {
+      count += 1;
+      last = label;
+    }
+  }
+  return `第 ${count} 节`;
+}
+
 function appendFlowChunk(chunk, text) {
   if (!text.trim()) return;
   const chunkId = getChunkId(chunk);
   const section = document.createElement("section");
-  section.className = "flow-chunk";
+  section.className = "flow-chunk flow-enter";
+  section.addEventListener("animationend", () => section.classList.remove("flow-enter"), { once: true });
   section.dataset.chunkId = chunkId;
   const previous = $("flow").querySelector(".flow-chunk:last-of-type");
   const previousLabel = previous ? sectionLabel(chunkById(previous.dataset.chunkId) || {}) : "";
   const label = sectionLabel(chunk);
   if (label && label !== previousLabel) {
+    const head = document.createElement("header");
+    head.className = "chunk-head";
+    const no = document.createElement("p");
+    no.className = "chunk-no";
+    no.textContent = sectionNoLabel(chunk);
     const heading = document.createElement("h2");
     heading.textContent = label;
-    section.append(heading);
+    head.append(no, heading);
+    section.append(head);
   }
   for (const block of text.split(/\r?\n\s*\r?\n/)) {
     const trimmed = block.replace(/^#{1,6}\s+/, "").trim();
@@ -493,6 +551,10 @@ function activeSection() {
   return active;
 }
 
+function renderProgressLine(percent) {
+  $("topbarProgressLine").style.width = `${Math.max(0, Math.min(100, percent))}%`;
+}
+
 function updateActiveChunk() {
   const section = activeSection();
   if (!section) return;
@@ -502,6 +564,7 @@ function updateActiveChunk() {
     ? 0
     : Math.round(((order + 1) / state.chunks.length) * 100);
   $("topbarProgress").textContent = `${percent}%`;
+  renderProgressLine(percent);
   schedulePositionSave(section, percent);
 }
 
@@ -640,6 +703,12 @@ function preReadForBook() {
   return state.preReadHistory.filter((item) => item.bookId === state.bookId);
 }
 
+function formatHistoryTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function renderNovaHistory() {
   const container = $("novaHistory");
   container.textContent = "";
@@ -658,7 +727,14 @@ function renderNovaHistory() {
     button.type = "button";
     button.className = "nova-history-item";
     if (item.id === state.novaActiveHistoryId) button.classList.add("active");
-    button.textContent = `${item.chunkId} · ${item.title}`;
+    button.append(document.createTextNode(`${item.chunkId} · ${item.title}`));
+    const time = formatHistoryTime(item.answeredAt);
+    if (time) {
+      const span = document.createElement("span");
+      span.className = "nova-history-time";
+      span.textContent = time;
+      button.append(span);
+    }
     button.addEventListener("click", () => showPreReadItem(item));
     container.append(button);
   }
@@ -815,7 +891,7 @@ function renderParagraph(paragraph, ranges, flashRange = null) {
 function decorateSection(section) {
   const chunkId = section.dataset.chunkId;
   ensureChunkNotes(chunkId);
-  for (const paragraph of section.querySelectorAll("p")) {
+  for (const paragraph of section.querySelectorAll(":scope > p")) {
     renderParagraph(paragraph, underlineRangesFor(paragraph));
   }
   section.querySelector(".annot-bubble")?.remove();
@@ -844,7 +920,7 @@ function findQuoteInFlow(quote, preferChunkId = "") {
   const preferred = sections.find((section) => section.dataset.chunkId === preferChunkId);
   const ordered = preferred ? [preferred, ...sections.filter((s) => s !== preferred)] : sections;
   for (const section of ordered) {
-    for (const paragraph of section.querySelectorAll("p")) {
+    for (const paragraph of section.querySelectorAll(":scope > p")) {
       const range = findNormalizedRange(paragraph.textContent, quote);
       if (range) return { paragraph, range };
     }
@@ -1139,6 +1215,10 @@ function closeNova() {
 
 function renderNovaReply() {
   $("novaReplyMeta").textContent = state.novaReply?.meta || "";
+  // 我的 prompt 显示为右对齐细边气泡，留在回复上方作上下文（纯展示）。
+  const userBubble = $("novaUserBubble");
+  userBubble.textContent = state.novaReply?.prompt || "";
+  userBubble.hidden = !state.novaReply?.prompt;
   const container = $("novaReply");
   container.textContent = "";
   if (!state.novaReply?.text) {
@@ -1237,6 +1317,7 @@ async function sendNovaPrompt() {
       meta: `Nova · ${context.chunkId} · 刚刚`,
       text: replyText,
       chunkId: context.chunkId,
+      prompt,
     };
     if (result.content) {
       state.sessionReplies.push({
