@@ -82,6 +82,7 @@ const READING_VISIT_KEY = "vcp-coreading-sidecar.readingVisit";
 const READING_VISIT_HISTORY_KEY = "vcp-coreading-sidecar.readingVisitHistory";
 const NOVA_AUTO_READ_KEY = "vcp-coreading-sidecar.novaAutoRead";
 const READER_PLAN_STRIP_COLLAPSED_KEY = "vcp-coreading-sidecar.readerPlanStripCollapsed";
+const NOVA_PANE_WIDTH_KEY = "vcp-coreading-sidecar.novaPaneWidth";
 const NOVA_REQUEST_TIMEOUT_MS = 360000;
 const READER_FLOW_BATCH_SIZE = 24;
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
@@ -93,7 +94,7 @@ loadReaderSettings();
 loadReadingVisit();
 loadReaderPlanStripState();
 loadNovaAutoReadSetting();
-setNovaPaneWidth("medium");
+loadNovaPaneLayout();
 document.addEventListener("fullscreenchange", renderReaderFullscreenButtons);
 
 function setupAppLayout() {
@@ -108,6 +109,13 @@ function setupAppLayout() {
   const assistantPane = document.createElement("aside");
   assistantPane.className = "assistant-pane";
   assistantPane.setAttribute("aria-label", "Nova 与共读工具");
+  const assistantResize = document.createElement("button");
+  assistantResize.id = "novaPaneResizeHandle";
+  assistantResize.className = "nova-pane-resize-handle";
+  assistantResize.type = "button";
+  assistantResize.setAttribute("aria-label", "拖动调整 Nova 侧栏宽度");
+  assistantResize.tabIndex = -1;
+  assistantPane.appendChild(assistantResize);
 
   workspace.prepend(readerPane);
   workspace.appendChild(assistantPane);
@@ -120,6 +128,7 @@ function setupAppLayout() {
     ".nova-reading-box",
   ]);
   assistantPane.appendChild(novaPane);
+  setupNovaPaneResizer(assistantResize);
 
   const skillsPane = createSkillPagePanel();
   const skillsBody = skillsPane.querySelector(".skill-page-body");
@@ -1188,8 +1197,8 @@ function renderImmersiveLibrary() {
     const metaLine = [
       book.author,
       book.bookId,
-      `${book.chunkCount || 0} chunks`,
-      session?.chunkId ? `继续 ${session.chunkId}${formatSavedAt(session.savedAt) ? ` · ${formatSavedAt(session.savedAt)}` : ""}` : "",
+      `${book.chunkCount || 0} 段`,
+      session?.chunkId ? `有断点${formatSavedAt(session.savedAt) ? ` · ${formatSavedAt(session.savedAt)}` : ""}` : "",
     ].filter(Boolean).join(" · ");
     return `
       <article class="reader-library-row ${active ? "active" : ""}">
@@ -1493,16 +1502,68 @@ function setNovaPaneCollapsed(collapsed) {
   state.novaPaneCollapsed = Boolean(collapsed);
   document.body.classList.toggle("nova-pane-collapsed", state.novaPaneCollapsed);
   const button = $("toggleNovaPaneBtn");
-  if (button) button.textContent = state.novaPaneCollapsed ? "打开 Nova" : "收起 Nova";
+  if (button) {
+    button.textContent = state.novaPaneCollapsed ? "打开 Nova" : "收起 Nova";
+    button.setAttribute("aria-expanded", state.novaPaneCollapsed ? "false" : "true");
+  }
+  window.setTimeout(updateReaderPageStatus, 60);
 }
 
 function setNovaPaneWidth(width) {
+  if (typeof width === "number") {
+    const value = Math.max(320, Math.min(Math.round(window.innerWidth * 0.54), Math.round(width)));
+    state.novaPaneWidth = "custom";
+    document.body.dataset.novaPaneWidth = "custom";
+    document.body.style.setProperty("--nova-pane-width", `${value}px`);
+    localStorage.setItem(NOVA_PANE_WIDTH_KEY, String(value));
+    window.setTimeout(updateReaderPageStatus, 60);
+    return;
+  }
   state.novaPaneWidth = width === "wide" ? "wide" : "medium";
   document.body.dataset.novaPaneWidth = state.novaPaneWidth;
+  document.body.style.removeProperty("--nova-pane-width");
+  localStorage.setItem(NOVA_PANE_WIDTH_KEY, state.novaPaneWidth);
+  window.setTimeout(updateReaderPageStatus, 60);
+}
+
+function loadNovaPaneLayout() {
+  const saved = localStorage.getItem(NOVA_PANE_WIDTH_KEY);
+  const numeric = Number(saved);
+  if (Number.isFinite(numeric) && numeric >= 280) {
+    setNovaPaneWidth(numeric);
+    return;
+  }
+  setNovaPaneWidth(saved === "wide" ? "wide" : "medium");
+}
+
+function setupNovaPaneResizer(handle) {
+  if (!handle) return;
+  const startResize = (event) => {
+    if (state.novaPaneCollapsed || state.immersiveReading) return;
+    event.preventDefault();
+    document.body.classList.add("resizing-nova-pane");
+    const onMove = (moveEvent) => {
+      const workspace = $("mainContent");
+      const rect = workspace?.getBoundingClientRect();
+      const right = rect?.right || window.innerWidth;
+      setNovaPaneWidth(right - moveEvent.clientX);
+    };
+    const onEnd = () => {
+      document.body.classList.remove("resizing-nova-pane");
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd, { once: true });
+    window.addEventListener("pointercancel", onEnd, { once: true });
+  };
+  handle.addEventListener("pointerdown", startResize);
 }
 
 function loadReaderPlanStripState() {
-  state.readerPlanStripCollapsed = localStorage.getItem(READER_PLAN_STRIP_COLLAPSED_KEY) === "true";
+  const saved = localStorage.getItem(READER_PLAN_STRIP_COLLAPSED_KEY);
+  state.readerPlanStripCollapsed = saved === null ? true : saved === "true";
 }
 
 function setReaderPlanStripCollapsed(collapsed) {
@@ -1993,12 +2054,12 @@ function readingVisitCopySummary(book = activeBook()) {
   return [
     `阅读会话: ${book.title || book.bookId}`,
     `bookId: ${book.bookId}`,
-    `currentChunk: ${state.selectedChunkId || ""}${chunkTitle ? ` · ${chunkTitle}` : ""}`,
+    `currentPosition: ${state.selectedChunkId || ""}${chunkTitle ? ` · ${chunkTitle}` : ""}`,
     `startedAt: ${visit.startedAt ? new Date(visit.startedAt).toISOString() : ""}`,
     `endedAt: ${visit.endedAt ? new Date(visit.endedAt).toISOString() : ""}`,
     `elapsed: ${formatReadingVisitElapsed(visit.startedAt)}`,
     `progressThisVisit: ${visit.completedChunks}/${visit.targetChunks}`,
-    `bookProgress: ${progressPercent(book)}% · ${book.chunksRead || 0}/${book.chunkCount || state.chunks.length || 0} chunks`,
+    `bookProgress: ${progressPercent(book)}% · ${book.chunksRead || 0}/${book.chunkCount || state.chunks.length || 0} 段`,
     `summary: ${readingVisitSummary(book)}`,
   ].join("\n");
 }
@@ -2807,9 +2868,9 @@ function renderReadingSession() {
   const bookSession = validSavedReadingSessionForBook(selected?.bookId);
   const canUndoRestart = !!state.restartUndo && state.restartUndo.bookId === selected?.bookId;
   $("sessionResumeBtn").disabled = !bookSession;
-  $("sessionResumeBtn").textContent = bookSession?.chunkId ? `回 ${bookSession.chunkId}` : "回现场";
+  $("sessionResumeBtn").textContent = bookSession?.chunkId ? "回现场" : "回现场";
   $("sessionContinueBtn").disabled = !hasBook;
-  $("sessionContinueBtn").textContent = bookSession?.chunkId ? `继续 ${bookSession.chunkId}` : "继续读";
+  $("sessionContinueBtn").textContent = bookSession?.chunkId ? "继续读" : "继续读";
   $("sessionRestartBtn").disabled = !hasBook;
   $("sessionRestartBtn").textContent = canUndoRestart ? "撤销从头读" : "从头读";
   $("sessionScoutNovaBtn").disabled = !hasBook || state.novaAskPending;
@@ -2831,11 +2892,11 @@ function renderReadingSession() {
   const nextId = nextUnreadChunkId(selected);
   const nextTitle = chunkTitleById(nextId);
   const visitSummary = readingVisitSummary(selected);
-  kicker.textContent = `${percent}% · ${selected.chunksRead || 0}/${selected.chunkCount || 0} chunks`;
+  kicker.textContent = `${percent}% · ${selected.chunksRead || 0}/${selected.chunkCount || 0} 段`;
   title.textContent = selected.title || selected.bookId;
   meta.textContent = bookSession
-    ? `继续阅读 ${bookSession.chunkId}${formatSavedAt(bookSession.savedAt) ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""} · ${visitSummary}`
-    : (nextId ? `下一段 ${nextId}${nextTitle ? ` · ${nextTitle}` : ""} · ${visitSummary}` : `这本书暂时没有可继续的段落。 · ${visitSummary}`);
+    ? `继续阅读上次位置${formatSavedAt(bookSession.savedAt) ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""} · ${visitSummary}`
+    : (nextId ? `下一段${nextTitle ? ` · ${nextTitle}` : ""} · ${visitSummary}` : `这本书暂时没有可继续的段落。 · ${visitSummary}`);
   renderReadingVisitHistory();
 }
 
@@ -2853,17 +2914,17 @@ function renderReadingNowBar({ scrollPercent = currentChunkScrollPercent() } = {
   const visitSummary = selected ? readingVisitSummary(selected) : "";
   bar.classList.toggle("empty", !selected);
   $("readingNowKicker").textContent = selected
-    ? `${progressPercent(selected)}% · ${selected.chunksRead || 0}/${selected.chunkCount || state.chunks.length || 0} chunks`
+    ? `${progressPercent(selected)}% · ${selected.chunksRead || 0}/${selected.chunkCount || state.chunks.length || 0} 段`
     : "阅读现场";
   $("readingNowTitle").textContent = selected
-    ? `${selected.title || selected.bookId}${hasChunk ? ` · ${activeChunkId}` : ""}`
+    ? `${selected.title || selected.bookId}`
     : "还没有选书";
   $("readingNowMeta").textContent = hasChunk
-    ? `${index + 1}/${state.chunks.length} · ${currentTitle || activeChunkId} · 书内 ${clampPercent(scrollPercent)}%${bookSession?.chunkId ? ` · 本书断点 ${bookSession.chunkId}` : ""}${planLabel ? ` · 下一步 ${planLabel}` : ""}${visitSummary ? ` · ${visitSummary}` : ""}`
+    ? `${index + 1}/${state.chunks.length} · ${currentTitle || "当前位置"} · 书内 ${clampPercent(scrollPercent)}%${bookSession?.chunkId ? " · 有断点" : ""}${planLabel ? ` · 下一步 ${planLabel}` : ""}${visitSummary ? ` · ${visitSummary}` : ""}`
     : "选择书籍后可以随时回到正文。";
   $("readingNowFocusBtn").disabled = !hasChunk;
   $("readingNowContinueBtn").disabled = !selected;
-  $("readingNowContinueBtn").textContent = bookSession?.chunkId ? `继续 ${bookSession.chunkId}` : "继续读";
+  $("readingNowContinueBtn").textContent = bookSession?.chunkId ? "继续读" : "继续读";
   $("readingNowPlanBtn").disabled = !selected || (!plan && !currentSectionRange()) || (plan && !nextStep);
   $("readingNowPlanBtn").textContent = plan ? "计划下一步" : "建本章计划";
   $("readingNowAskBtn").disabled = !hasChunk;
@@ -2917,17 +2978,17 @@ function renderReaderProgress() {
   const scrollPercent = currentChunkScrollPercent();
 
   $("readerProgressValue").textContent = selected
-    ? `${percent}% · ${selected.chunksRead || 0}/${selected.chunkCount || state.chunks.length || 0} chunks`
+    ? `${percent}% · ${selected.chunksRead || 0}/${selected.chunkCount || state.chunks.length || 0} 段`
     : "未开始";
   $("readerProgressFill").style.width = `${clampPercent(percent)}%`;
   $("readerResumeHint").textContent = selected
-    ? `${hasChunk ? `当前 ${index + 1}/${state.chunks.length} · ${activeChunkId}` : "未选择段落"}${bookSession ? ` · 本书现场 ${bookSession.chunkId}${formatSavedAt(bookSession.savedAt) ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""}` : ""}${saved?.bookId && saved.bookId !== selected.bookId ? ` · 最近读过 ${saved.bookTitle || saved.bookId}` : ""}`
+    ? `${hasChunk ? `当前 ${index + 1}/${state.chunks.length}` : "未选择段落"}${bookSession ? ` · 有断点${formatSavedAt(bookSession.savedAt) ? ` · ${formatSavedAt(bookSession.savedAt)}` : ""}` : ""}${saved?.bookId && saved.bookId !== selected.bookId ? ` · 最近读过 ${saved.bookTitle || saved.bookId}` : ""}`
     : "选择书籍后显示当前断点。";
   $("readerChunkMeta").textContent = hasChunk
-    ? `${selected.title || selected.bookId} · ${index + 1}/${state.chunks.length} · ${activeChunkId}${currentTitle && currentTitle !== activeChunkId ? ` · ${currentTitle}` : ""}${scrollPercent ? ` · 书内 ${scrollPercent}%` : ""}`
+    ? `${selected.title || selected.bookId} · ${index + 1}/${state.chunks.length}${currentTitle ? ` · ${currentTitle}` : ""}${scrollPercent ? ` · 书内 ${scrollPercent}%` : ""}`
     : "还没有阅读现场。";
   $("readerNextTitle").textContent = selected
-    ? (nextId ? `下一段 ${nextId}${nextTitle ? ` · ${nextTitle}` : ""}` : "已经到最后一段。")
+    ? (nextId ? `下一段${nextTitle ? ` · ${nextTitle}` : ""}` : "已经到最后一段。")
     : "选择书籍后继续。";
   $("readerNextBtn").textContent = nextId ? "读完并下一段" : "标记读完";
   $("readerNextBtn").disabled = !selected || !state.selectedChunkId;
@@ -2935,9 +2996,9 @@ function renderReaderProgress() {
   const canReviewLast = !!lastCompleted?.chunkId && lastCompleted.bookId === selected?.bookId;
   const canResumeNext = canReviewLast && state.selectedChunkId === lastCompleted.chunkId && !!lastCompleted.nextChunkId;
   $("readerReviewLastBtn").disabled = !canReviewLast || state.selectedChunkId === lastCompleted.chunkId;
-  $("readerReviewLastBtn").textContent = canReviewLast ? `回看 ${lastCompleted.chunkId}` : "回看刚读";
+  $("readerReviewLastBtn").textContent = canReviewLast ? "回看刚读" : "回看刚读";
   $("readerResumeNextBtn").disabled = !canResumeNext;
-  $("readerResumeNextBtn").textContent = canResumeNext ? `回到 ${lastCompleted.nextChunkId}` : "回到继续读";
+  $("readerResumeNextBtn").textContent = canResumeNext ? "继续读" : "回到继续读";
   $("readerAskNovaBtn").disabled = !selected || !state.selectedChunkId;
   $("readerOpenSinkBtn").disabled = !selected;
   $("readerOpenSinkBtn").textContent = pendingCount ? `看沉淀 ${pendingCount}` : "看沉淀";
@@ -3376,10 +3437,10 @@ function ensurePlanNextHydrated(plan) {
 function planStepChunkLabel(step) {
   if (!step) return "";
   const ids = (step.chunkIds || []).filter(Boolean);
-  if (ids.length) return ids.length === 1 ? ids[0] : `${ids[0]} -> ${ids.at(-1)} · ${ids.length} chunks`;
+  if (ids.length) return ids.length === 1 ? "1 段" : `${ids.length} 段`;
   const range = step.range || {};
-  if (range.startChunkId && range.endChunkId) return `${range.startChunkId} -> ${range.endChunkId}`;
-  return range.startChunkId || step.startChunkId || "";
+  if (range.startChunkId && range.endChunkId) return "选定范围";
+  return range.startChunkId || step.startChunkId ? "1 段" : "";
 }
 
 function planGuideStatus() {
@@ -3420,7 +3481,7 @@ function planGuideStatus() {
       kicker: "共读计划",
       title: section ? "当前书暂无活跃计划" : "当前章节暂不能建计划",
       meta: section
-        ? `${section.title || "当前章节"} · ${section.startChunkId} -> ${section.endChunkId} · 点击可创建本章计划。`
+        ? `${section.title || "当前章节"} · ${section.chunkCount || 1} 段 · 点击可创建本章计划。`
         : "先定位到正文段落，再创建计划。",
     };
   }
@@ -3803,9 +3864,10 @@ function renderChunks() {
   $("copyChunkIndexBtn").disabled = false;
   for (const chunk of state.chunks) {
     const chunkId = getChunkId(chunk);
+    const order = chunkOrder(chunkId);
     const option = document.createElement("option");
     option.value = chunkId;
-    option.textContent = `${chunkId} · ${chunk.title || chunk.sectionTitle || "未命名"}`;
+    option.textContent = `${order === null ? "" : `${order + 1}. `}${chunk.title || chunk.sectionTitle || chunkId || "未命名"}`;
     select.appendChild(option);
   }
   if (!state.selectedChunkId || !state.chunks.some((chunk) => getChunkId(chunk) === state.selectedChunkId)) {
@@ -3822,12 +3884,12 @@ function renderChunkNavigation() {
   const hasChunk = index !== null;
   const bookSession = validSavedReadingSessionForBook(state.selectedBookId);
   $("chunkPosition").textContent = hasChunk
-    ? `当前位置 ${index + 1}/${state.chunks.length} · ${state.selectedChunkId}`
+    ? `当前位置 ${index + 1}/${state.chunks.length}`
     : "未选择位置";
   $("continueReadingBtn").disabled = !activeBook();
   const sessionPercent = Math.round(Number(bookSession?.scrollPercent || 0));
   $("continueReadingBtn").textContent = bookSession?.chunkId
-    ? `继续 ${bookSession.chunkId}${sessionPercent ? ` · ${sessionPercent}%` : ""}`
+    ? `继续${sessionPercent ? ` · ${sessionPercent}%` : ""}`
     : "继续读";
   $("prevChunkBtn").disabled = !hasChunk || index <= 0;
   $("nextChunkBtn").disabled = !hasChunk || index >= state.chunks.length - 1;

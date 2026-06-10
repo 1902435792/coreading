@@ -41,11 +41,15 @@
 }
 
 .nova-reading-box {
-  margin: 16px 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 14px;
-  background: var(--surface-3);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 14px 14px 16px;
+  background: transparent;
 }
 
 .nova-reading-box textarea {
@@ -66,10 +70,12 @@
 }
 
 .nova-reply {
-  max-height: 320px;
+  flex: 1 1 auto;
+  min-height: 180px;
+  max-height: none;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 14px;
   background: #fff;
   white-space: pre-wrap;
@@ -228,9 +234,9 @@ button:disabled {
 }
 
 .shell {
-  width: min(1440px, calc(100vw - 32px));
+  width: min(1560px, calc(100vw - 24px));
   margin: 0 auto;
-  padding: 12px 0;
+  padding: 10px 0;
 }
 
 .topbar,
@@ -247,7 +253,10 @@ button:disabled {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  padding: 12px 18px;
+  min-height: 48px;
+  border-color: transparent;
+  padding: 6px 4px 8px;
+  background: transparent;
 }
 
 .eyebrow {
@@ -267,7 +276,7 @@ p {
 
 h1 {
   margin-bottom: 0;
-  font-size: 25px;
+  font-size: 21px;
   letter-spacing: 0;
 }
 
@@ -308,7 +317,7 @@ h3 {
 }
 
 .metrics {
-  display: grid;
+  display: none;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   margin: 8px 0 10px;
@@ -336,15 +345,15 @@ legend {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--nova-pane-width, minmax(360px, 38vw));
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) var(--nova-pane-width, minmax(340px, 34vw));
+  gap: 10px;
   align-items: stretch;
-  height: calc(100vh - 136px);
-  min-height: calc(100vh - 136px);
+  height: calc(100vh - 74px);
+  min-height: calc(100vh - 74px);
 }
 
 body[data-nova-pane-width="wide"] {
-  --nova-pane-width: minmax(480px, 44vw);
+  --nova-pane-width: minmax(460px, 40vw);
 }
 
 body.nova-pane-collapsed {
@@ -384,7 +393,7 @@ body.nova-pane-collapsed .nova-reading-box {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .nova-auto-toggle {
@@ -407,14 +416,61 @@ body.nova-pane-collapsed .nova-reading-box {
   min-height: 0;
 }
 
+.reader-pane > .plan-panel {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .assistant-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
   height: 100%;
   max-height: none;
-  overflow: auto;
-  padding-right: 4px;
+  overflow: hidden;
+  padding-right: 0;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.nova-pane-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -8px;
+  z-index: 12;
+  width: 12px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.nova-pane-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 5px;
+  width: 1px;
+  background: transparent;
+}
+
+.nova-pane-resize-handle:hover::after,
+.nova-pane-resize-handle:focus-visible::after,
+body.resizing-nova-pane .nova-pane-resize-handle::after {
+  background: var(--line-strong);
+}
+
+body.resizing-nova-pane {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .assistant-pane > .panel,
@@ -1839,7 +1895,7 @@ body.reader-toc-open #readerTocList.reader-toc-inline.empty {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: none;
 }
 
 .reader-surface header {
@@ -1849,8 +1905,8 @@ body.reader-toc-open #readerTocList.reader-toc-inline.empty {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  min-height: 38px;
-  padding: 6px 10px;
+  min-height: 36px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
@@ -1973,9 +2029,9 @@ body.reader-toc-open #readerTocList.reader-toc-inline.empty {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-  min-height: 34px;
+  min-height: 30px;
   border-bottom: 1px solid var(--line);
-  padding: 5px 8px;
+  padding: 3px 8px;
   background: color-mix(in srgb, var(--surface) 88%, var(--surface-3));
 }
 
@@ -2021,14 +2077,31 @@ body.reader-toc-open #readerTocList.reader-toc-inline.empty {
 }
 
 .reader-plan-strip.collapsed {
-  grid-template-columns: minmax(0, 1fr) auto;
-  opacity: 0.72;
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 10;
+  display: flex;
+  width: auto;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  opacity: 0.45;
+  pointer-events: auto;
 }
 
 .reader-plan-strip.collapsed span,
 .reader-plan-strip.collapsed small,
+.reader-plan-strip.collapsed strong,
 .reader-plan-strip.collapsed .reader-plan-strip-actions button:not(#readerPlanStripToggleBtn) {
   display: none;
+}
+
+.reader-plan-strip.collapsed:hover,
+.reader-plan-strip.collapsed:focus-within {
+  opacity: 1;
 }
 
 .reader-text-shell {
@@ -4484,14 +4557,46 @@ pre {
   .shell {
     display: flex;
     flex-direction: column;
-    width: calc(100vw - 20px);
-    padding: 10px 0;
+    width: calc(100vw - 16px);
+    padding: 8px 0;
   }
 
-  .topbar,
+  .topbar {
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    padding: 2px 4px 6px;
+  }
+
+  .eyebrow {
+    display: none;
+  }
+
+  h1 {
+    font-size: 19px;
+    line-height: 1.2;
+  }
+
   .top-actions {
-    align-items: stretch;
-    flex-direction: column;
+    flex: 0 0 auto;
+    align-items: center;
+    flex-direction: row;
+    gap: 4px;
+    overflow-x: auto;
+    max-width: 58vw;
+    scrollbar-width: none;
+  }
+
+  .top-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .top-actions button,
+  .status-pill {
+    min-height: 28px;
+    padding: 4px 8px;
+    font-size: 12px;
+    white-space: nowrap;
   }
 
   .metrics {
@@ -4512,6 +4617,8 @@ pre {
   .workspace {
     order: 2;
     gap: 10px;
+    min-height: auto;
+    height: auto;
   }
 
   .panel {
@@ -4533,10 +4640,108 @@ pre {
     min-width: 0;
     box-sizing: border-box;
     overflow-x: auto;
-    overflow-y: visible;
+    overflow-y: hidden;
     gap: 6px;
     padding-bottom: 4px;
     scrollbar-width: thin;
+  }
+
+  .reader-nav-tools select {
+    flex: 0 0 128px;
+    max-width: 42vw;
+    min-height: 30px;
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  .reader-nav-tools #readerBookSelect {
+    flex-basis: 150px;
+  }
+
+  .reader-nav-tools button {
+    flex: 0 0 auto;
+    min-height: 30px;
+    min-width: 0;
+    padding: 4px 8px;
+    white-space: nowrap;
+  }
+
+  .reader-surface {
+    min-height: calc(100vh - 214px);
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+  }
+
+  .reader-surface header {
+    display: block;
+    min-height: 0;
+    padding: 8px 10px 0;
+    border-bottom: 0;
+  }
+
+  .reader-surface header strong {
+    font-size: 12px;
+  }
+
+  .reader-header-actions {
+    display: flex;
+    justify-content: flex-start;
+    gap: 4px;
+    margin-top: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .reader-header-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .reader-header-actions button,
+  .reader-mode-toggle button {
+    width: auto;
+    min-height: 28px;
+    min-width: 0;
+    padding: 3px 7px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .reader-mode-toggle {
+    flex: 0 0 auto;
+  }
+
+  .reader-header-actions #focusReadingBtn,
+  .reader-header-actions #readerFootprintsBtn,
+  .reader-header-actions #markReadBtn {
+    display: none;
+  }
+
+  .reader-nova-aside:not([hidden]),
+  .reader-plan-strip.collapsed {
+    display: none;
+  }
+
+  .reader-progress {
+    display: block;
+    margin-top: 6px;
+    border: 0;
+    border-radius: 0;
+    padding: 0 10px 8px;
+    background: transparent;
+  }
+
+  .reader-progress span,
+  .reader-progress strong,
+  .reader-progress small {
+    display: none;
+  }
+
+  .reader-progress-bar {
+    height: 3px;
+    border: 0;
+    background: var(--line);
   }
 
   body.immersive-reading {
@@ -4835,21 +5040,6 @@ pre {
     border-left: 0;
   }
 
-  .reader-nav-tools select {
-    flex: 0 0 180px;
-    width: auto;
-  }
-
-  .reader-nav-tools #readerBookSelect {
-    flex-basis: 240px;
-  }
-
-  .reader-nav-tools button {
-    flex: 0 0 auto;
-    width: auto;
-    white-space: nowrap;
-  }
-
   .reading-map-head {
     grid-template-columns: 1fr;
   }
@@ -4979,7 +5169,6 @@ pre {
     grid-template-columns: 1fr;
   }
 
-  .reader-header-actions,
   .reader-next-actions,
   .sink-guide-actions,
   .plan-guide-actions,
@@ -4995,7 +5184,6 @@ pre {
     flex-wrap: nowrap;
   }
 
-  .reader-header-actions button,
   .reader-next-actions button,
   .sink-guide-actions button,
   .plan-guide-actions button,
@@ -5022,10 +5210,11 @@ pre {
   }
 
   .chunk-text {
-    min-height: 48vh;
-    padding: 16px;
-    font-size: 15px;
-    line-height: 1.8;
+    min-height: calc(100vh - 278px);
+    max-height: none;
+    padding: 18px 16px 64px;
+    font-size: 16px;
+    line-height: 1.9;
   }
 }
 
