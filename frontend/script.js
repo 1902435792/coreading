@@ -1584,7 +1584,7 @@ function currentNovaDisplay() {
       text: state.novaReply,
       context: state.novaReplyContext,
       statusText: isPreRead ? "Nova 已先读" : "已回应",
-      canUseReply: !isPreRead,
+      canUseReply: true,
     };
   }
   if (novaReplyBelongsToSelectedBook()) {
@@ -1593,7 +1593,7 @@ function currentNovaDisplay() {
       text: state.novaReply,
       context: state.novaReplyContext,
       statusText: state.novaReplyContext?.scope === "book" ? "Nova 已先看本书" : "Nova 已先读",
-      canUseReply: false,
+      canUseReply: true,
     };
   }
   const preRead = currentNovaPreReadPreview();
@@ -1603,7 +1603,7 @@ function currentNovaDisplay() {
       text: preRead.note,
       context: novaPreReadDisplayContext(preRead),
       statusText: "Nova 已先读",
-      canUseReply: false,
+      canUseReply: true,
       historyId: preRead.id,
     };
   }
@@ -1614,7 +1614,7 @@ function currentNovaDisplay() {
       text: bookScout.note,
       context: novaPreReadDisplayContext(bookScout),
       statusText: "Nova 已先看本书",
-      canUseReply: false,
+      canUseReply: true,
       historyId: bookScout.id,
     };
   }
@@ -3780,18 +3780,22 @@ function currentChunkSinkTargets() {
   return targets.length ? targets : ["obsidian"];
 }
 
-function currentChunkNotesReviewPayload({ quote = null } = {}) {
+function currentChunkNotesReviewPayload({ quote = null, chunkId: inputChunkId = "", summaryPrefix = "", sourceText = "", sourceTitle = "" } = {}) {
   const selected = activeBook();
-  const chunkId = quote?.chunkId || currentReadingChunkId();
+  const chunkId = inputChunkId || quote?.chunkId || currentReadingChunkId();
   const chunk = currentReadingChunkObject(chunkId);
-  const text = readerDisplayChunkText(chunkId);
+  const text = String(sourceText || readerDisplayChunkText(chunkId) || "");
   const targets = currentChunkSinkTargets();
   if (!selected || !chunkId || !text) throw new Error("请先读取一个段落。");
   const selectedText = String(quote?.text || "").trim();
   const sourceQuote = selectedText || text.slice(0, 900);
-  const sourceTitle = selectedText ? `选区 @ ${chunkId}` : (chunk.title || chunk.sectionTitle || chunkId);
-  const novaReplyForChunk = optionsNovaReplyObservation({ quote });
-  const noteLines = (state.userNotes || []).slice(0, 8).map((item) => ({
+  const sourceTitleText = selectedText ? `选区 @ ${chunkId}` : (sourceTitle || chunk.title || chunk.sectionTitle || chunkId);
+  const novaReplyForChunk = optionsNovaReplyObservation({ quote, chunkId });
+  const isCurrentScreenChunk = chunkId === state.selectedChunkId || chunkId === currentReadingChunkId();
+  const userNotes = (state.userNotes || []).filter((item) => isCurrentScreenChunk ? (item.chunkId || chunkId) === chunkId : item.chunkId === chunkId);
+  const annotations = (state.annotations || []).filter((item) => isCurrentScreenChunk ? (item.chunkId || chunkId) === chunkId : item.chunkId === chunkId);
+  const cards = isCurrentScreenChunk ? cardsForCurrentChunk() : cardsForCurrentChunk().filter((card) => card.chunkId === chunkId);
+  const noteLines = userNotes.slice(0, 8).map((item) => ({
     section: item.kind === "nova-reply" ? "nova_reply" : "user_note",
     source: "user-note",
     kind: item.kind || "note",
@@ -3800,7 +3804,7 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
     note: item.note || item.text || "",
     text: item.note || item.text || "",
   }));
-  const annotationLines = (state.annotations || []).slice(0, 8).map((item) => ({
+  const annotationLines = annotations.slice(0, 8).map((item) => ({
     section: "annotation",
     source: "annotation",
     kind: item.kind || "annotation",
@@ -3810,7 +3814,7 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
     note: item.note || "",
     text: item.note || "",
   }));
-  const cardLines = cardsForCurrentChunk().slice(0, 6).map((card) => ({
+  const cardLines = cards.slice(0, 6).map((card) => ({
     section: "reading_card",
     source: "reading-card",
     cardId: card.id || "",
@@ -3825,7 +3829,7 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
       section: "source_quote",
       source: selectedText ? "reader-selection" : "current-chunk",
       chunkId,
-      title: sourceTitle,
+      title: sourceTitleText,
       quote: sourceQuote,
       text: sourceQuote,
       quoteOffset: quote?.offset ?? null,
@@ -3837,13 +3841,13 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
   ].filter(Boolean).filter((item) => item.text || item.quote || item.note || item.title);
   const title = chunk.title || chunk.sectionTitle || chunkId;
   const summaryParts = [
-    `${selectedText ? "选区" : "本段"}沉淀预览：${selected.title || selected.bookId} · ${chunkId}`,
+    summaryPrefix || `${selectedText ? "选区" : "本段"}沉淀预览：${selected.title || selected.bookId} · ${chunkId}`,
     title ? `标题：${title}` : "",
     selectedText ? `选区：${selectedText.slice(0, 160)}` : "",
     novaReplyForChunk ? "包含当前 Nova 回复。" : "",
-    state.userNotes.length ? `已有用户笔记 ${state.userNotes.length} 条。` : "",
-    state.annotations.length ? `已有边注 ${state.annotations.length} 条。` : "",
-    cardsForCurrentChunk().length ? `已有卡片 ${cardsForCurrentChunk().length} 张。` : "",
+    userNotes.length ? `已有用户笔记 ${userNotes.length} 条。` : "",
+    annotations.length ? `已有边注 ${annotations.length} 条。` : "",
+    cards.length ? `已有卡片 ${cards.length} 张。` : "",
   ].filter(Boolean);
   return {
     command: "review_create",
@@ -3864,21 +3868,28 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
   };
 }
 
-function optionsNovaReplyObservation({ quote = null } = {}) {
-  if (!novaReplyBelongsToCurrentChunk()) return null;
-  const context = state.novaReplyContext || {};
+function visibleNovaDisplayForAction() {
+  const display = currentNovaDisplay();
+  return display?.text && display?.context?.bookId && display?.context?.chunkId ? display : null;
+}
+
+function optionsNovaReplyObservation({ quote = null, chunkId: inputChunkId = "" } = {}) {
+  const display = visibleNovaDisplayForAction();
+  const context = display?.context || {};
   const replyQuote = quote?.text ? quote : novaReplyContextQuote();
-  const chunkId = context.chunkId || quote?.chunkId || currentReadingChunkId();
+  const chunkId = inputChunkId || context.chunkId || quote?.chunkId || currentReadingChunkId();
+  if (!display || context.bookId !== state.selectedBookId || context.chunkId !== chunkId) return null;
+  const source = context.contextMode === "autonomous-reading" ? "nova-pre-read" : "nova-reply-current";
   return {
-    section: "nova_reply",
-    source: "nova-reply-current",
-    kind: "nova-reply",
+    section: context.contextMode === "autonomous-reading" ? "nova_pre_read" : "nova_reply",
+    source,
+    kind: source,
     chunkId,
     quote: replyQuote?.text || context.prompt || chunkId,
     quoteOffset: replyQuote?.offset ?? null,
     prompt: context.prompt || String($("novaPrompt")?.value || "").trim(),
-    note: state.novaReply,
-    text: state.novaReply,
+    note: display.text,
+    text: display.text,
   };
 }
 
@@ -3890,11 +3901,34 @@ function novaReplyContextQuote() {
 }
 
 async function createNovaReplySinkPreview() {
-  if (!novaReplyBelongsToCurrentChunk()) throw new Error("请先在当前段向 Nova 提问。");
-  const quote = novaReplyContextQuote() || selectedQuote();
-  const result = await createCurrentChunkSinkPreview({ quote });
+  const display = visibleNovaDisplayForAction();
+  if (!display || display.context.bookId !== state.selectedBookId) throw new Error("请先让 Nova 读当前书或当前段。");
+  const selected = activeBook();
+  const context = display.context || {};
+  const quote = context.contextMode === "autonomous-reading" ? null : (novaReplyContextQuote() || selectedQuote());
+  const chunkId = context.chunkId && isKnownChunkId(context.chunkId) ? context.chunkId : currentReadingChunkId();
+  const source = await reviewSourceForChunk(selected.bookId, chunkId);
+  const result = await createCurrentChunkSinkPreview({
+    quote,
+    chunkId,
+    sourceText: source.text,
+    sourceTitle: source.title,
+    summaryPrefix: context.contextMode === "autonomous-reading"
+      ? `Nova 预读沉淀预览：${activeBook()?.title || activeBook()?.bookId || ""} · ${chunkId}`
+      : "",
+  });
   focusPanel(".sink-detail", "#sinkPreviewContent");
   return result;
+}
+
+async function reviewSourceForChunk(bookId, chunkId) {
+  const localText = readerDisplayChunkText(chunkId);
+  if (localText) return { text: localText, title: chunkTitleById(chunkId) || chunkId };
+  const result = await query({ command: "read_chunk", bookId, chunkId });
+  const chunk = result?.chunk || result || {};
+  const text = chunkTextFromResult(result);
+  if (!text) throw new Error(`无法读取 ${chunkId} 的原文，暂不能生成沉淀预览。`);
+  return { text, title: chunk.title || chunk.sectionTitle || chunkTitleById(chunkId) || chunkId };
 }
 
 async function createCurrentChunkSinkPreview(options = {}) {
@@ -4003,31 +4037,31 @@ function selfCheckNovaPrompt(answer) {
 
 function novaReplyNotePayload() {
   const selected = activeBook();
-  const replyChunkId = state.novaReplyContext?.chunkId || currentReadingChunkId();
+  const display = visibleNovaDisplayForAction();
+  const context = display?.context || {};
+  const replyChunkId = context.chunkId || currentReadingChunkId();
   if (!selected || !replyChunkId) throw new Error("请先选择一本书和 chunk。");
-  if (!state.novaReply) throw new Error("请先向 Nova 提问。");
-  if (!novaReplyBelongsToCurrentChunk() || state.novaReplyContext?.contextMode === "autonomous-reading") {
-    throw new Error("请先在当前段向 Nova 提问，再保存正式回应。");
-  }
-  const quote = novaReplyContextQuote() || selectedQuote();
+  if (!display?.text || context.bookId !== selected.bookId) throw new Error("请先让 Nova 读当前书或当前段。");
+  const isPreRead = context.contextMode === "autonomous-reading";
+  const quote = isPreRead ? null : (novaReplyContextQuote() || selectedQuote());
   const chunk = currentReadingChunkObject(replyChunkId);
   const fallbackQuote = chunk.title || chunk.sectionTitle || replyChunkId;
-  const prompt = String($("novaPrompt").value || "").trim();
+  const prompt = context.prompt || String($("novaPrompt").value || "").trim();
   return {
     command: "user_note_create",
     bookId: selected.bookId,
     chunkId: replyChunkId,
-    quote: quote.text || fallbackQuote,
-    quoteOffset: quote.offset ?? null,
+    quote: quote?.text || fallbackQuote,
+    quoteOffset: quote?.offset ?? null,
     note: [
-      "Nova 共读回应",
+      isPreRead ? "Nova 自主预读" : "Nova 共读回应",
       prompt ? `问题: ${prompt}` : "",
       "",
-      state.novaReply
+      display.text
     ].filter(Boolean).join("\n"),
-    kind: "nova-reply",
+    kind: isPreRead ? "nova-pre-read" : "nova-reply",
     status: "open",
-    tags: ["co-reading", "sidecar", "nova-reply"],
+    tags: ["co-reading", "sidecar", isPreRead ? "nova-pre-read" : "nova-reply"],
   };
 }
 
@@ -4060,6 +4094,20 @@ function novaReplyBelongsToCurrentChunk() {
     && state.novaReplyContext?.bookId === state.selectedBookId
     && state.novaReplyContext?.chunkId === currentReadingChunkId()
   );
+}
+
+function novaReplyBelongsToChunk(chunkId) {
+  return Boolean(
+    state.novaReply
+    && chunkId
+    && state.novaReplyContext?.bookId === state.selectedBookId
+    && state.novaReplyContext?.chunkId === chunkId
+  );
+}
+
+function novaReplyUsableForSelectedBook() {
+  const display = visibleNovaDisplayForAction();
+  return Boolean(display?.text && display.context?.bookId === state.selectedBookId && display.context?.chunkId);
 }
 
 function readingFootprintRanges(text) {
@@ -4427,8 +4475,9 @@ function renderNovaReply() {
   reply.textContent = display.text;
   status.textContent = display.statusText;
   copyButton.disabled = false;
-  saveButton.disabled = !hasChunk || !display.canUseReply;
-  sinkButton.disabled = !hasChunk || !display.canUseReply;
+  const canUseReply = Boolean(display.canUseReply && novaReplyUsableForSelectedBook());
+  saveButton.disabled = !canUseReply;
+  sinkButton.disabled = !canUseReply;
   autoButton.disabled = !hasChunk;
   bookScoutButton.disabled = !hasBook;
   renderImmersiveNovaCard();
@@ -5901,7 +5950,7 @@ function renderImmersiveNovaCard() {
     reply.className = display?.text ? "immersive-nova-reply" : "immersive-nova-reply empty";
     reply.textContent = display?.text || "Nova 的回应会在这里。";
   }
-  const canUseReply = Boolean(activeBook() && state.selectedChunkId && display?.canUseReply);
+  const canUseReply = Boolean(display?.canUseReply && novaReplyUsableForSelectedBook());
   if (save) save.disabled = !canUseReply;
   if (sink) sink.disabled = !canUseReply;
 }
@@ -8217,6 +8266,30 @@ function renderMetrics() {
   $("previewCount").textContent = String((snapshot.sinkPreviews || []).filter((item) => item.status === "pending").length);
 }
 
+function skillActionState(action, { selected = activeBook(), hasChunk = !!selected && !!state.selectedChunkId } = {}) {
+  if (action === "pre-read") {
+    return {
+      label: hasChunk ? "预读本段" : "先看本书",
+      disabled: !selected,
+      status: selected
+        ? (hasChunk ? "Nova 会自己选择当前段附近候选。" : "Nova 会先从目录和正文候选里挑一处。")
+        : "选择书籍后可用。"
+    };
+  }
+  const actions = {
+    review: ["写评注", "打开当前段评注表单。"],
+    backtrack: ["追线索", "按选区、搜索框或当前标题回溯证据。"],
+    notes: ["记笔记", "打开当前段私有笔记和边注。"],
+    sink: ["生成预览", "创建待批准沉淀预览，不会直接写入。"],
+  };
+  const [label, readyStatus] = actions[action] || ["使用", "执行这个技能。"];
+  return {
+    label,
+    disabled: !hasChunk,
+    status: hasChunk ? readyStatus : "选择书籍和段落后可用。"
+  };
+}
+
 function renderSkillOverview() {
   const list = $("skillOverviewList");
   if (!list) return;
@@ -8227,17 +8300,21 @@ function renderSkillOverview() {
     return;
   }
   list.className = "skill-overview-list";
+  const selected = activeBook();
+  const hasChunk = !!selected && !!state.selectedChunkId;
   list.innerHTML = skills.map((skill) => {
     const tools = Array.isArray(skill.tools) ? skill.tools : [];
     const toolLabel = tools.length ? `${tools.length} 个工具` : "无工具";
+    const action = skillActionState(skill.action || "", { selected, hasChunk });
     return `<article class="skill-card" data-skill-id="${escapeHtml(skill.id)}">
       <div>
         <span>${escapeHtml(skill.category || "skill")} · ${escapeHtml(toolLabel)}</span>
         <strong>${escapeHtml(skill.label || skill.id)}</strong>
         <p>${escapeHtml(skill.summary || "")}</p>
         <small>${escapeHtml(skill.howToUse || "")}</small>
+        <em class="skill-card-state">${escapeHtml(action.status)}</em>
       </div>
-      <button class="secondary compact" type="button" data-skill-action="${escapeHtml(skill.action || "")}">使用</button>
+      <button class="secondary compact skill-card-action" type="button" data-skill-action="${escapeHtml(skill.action || "")}" ${action.disabled ? "disabled" : ""}>${escapeHtml(action.label)}</button>
     </article>`;
   }).join("");
 }
