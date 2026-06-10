@@ -37,6 +37,7 @@ const state = {
   novaAutoReadSeen: new Set(),
   novaAutoReadInFlight: new Set(),
   novaAutoReadTimer: 0,
+  novaAutoBookScoutTimer: 0,
   readerFlow: { bookId: "", anchorChunkId: "", chunks: [] },
   readerFlowRequestId: 0,
   readerActiveChunkId: "",
@@ -1490,6 +1491,13 @@ function setNovaAutoReadEnabled(enabled) {
   localStorage.setItem(NOVA_AUTO_READ_KEY, String(state.novaAutoReadEnabled));
   const input = $("novaAutoReadToggle");
   if (input) input.checked = state.novaAutoReadEnabled;
+  if (state.novaAutoReadEnabled) {
+    maybeScheduleNovaAutonomousReading();
+    maybeScheduleNovaBookScout();
+  } else {
+    window.clearTimeout(state.novaAutoReadTimer);
+    window.clearTimeout(state.novaAutoBookScoutTimer);
+  }
   renderNovaReply();
 }
 
@@ -1550,7 +1558,11 @@ function currentNovaPreReadPreview() {
 }
 
 function currentNovaBookScoutPreview() {
-  return novaPreReadHistoryForBook().find((item) => item.scope === "book") || null;
+  return novaBookScoutHistoryForBook() || null;
+}
+
+function novaBookScoutHistoryForBook(bookId = state.selectedBookId) {
+  return novaPreReadHistoryForBook(bookId).find((item) => item.scope === "book") || null;
 }
 
 function novaReplyBelongsToSelectedBook() {
@@ -3061,7 +3073,7 @@ function renderReaderNovaAside() {
     label.textContent = pendingForCurrent
       ? `${readerNovaAsideModeLabel(context)}中`
       : display?.kind === "pre-read"
-        ? "Nova 已先读"
+        ? (context?.scope === "book" ? "Nova 已先看本书" : "Nova 已先读")
         : readerNovaAsideModeLabel(context);
   }
   if (meta) meta.textContent = readerNovaAsideMeta(context);
@@ -4581,7 +4593,8 @@ async function runNovaAutonomousReading({ manual = false, bookScout = false } = 
   }
   if (manual) state.novaAutoReadSeen.add(key);
   if (!manual) {
-    if (!state.novaAutoReadEnabled || state.novaAutoReadSeen.has(key) || novaPreReadHistoryForCurrentChunk()[0]) return;
+    const hasHistory = bookScout ? !!novaBookScoutHistoryForBook(requestBookId) : !!novaPreReadHistoryForCurrentChunk()[0];
+    if (!state.novaAutoReadEnabled || state.novaAutoReadSeen.has(key) || hasHistory) return;
     state.novaAutoReadSeen.add(key);
   }
   state.novaAutoReadInFlight.add(key);
@@ -4656,6 +4669,7 @@ async function runNovaAutonomousReading({ manual = false, bookScout = false } = 
     throw error;
   } finally {
     state.novaAutoReadInFlight.delete(key);
+    if (!bookScout && state.novaAutoReadEnabled) maybeScheduleNovaBookScout(1200);
     renderImmersiveNovaCard();
   }
 }
@@ -4667,6 +4681,26 @@ function maybeScheduleNovaAutonomousReading() {
       log(error.message || String(error));
     });
   }, 700);
+}
+
+function shouldAutoScoutSelectedBook() {
+  const selected = activeBook();
+  if (!state.novaAutoReadEnabled || !selected?.bookId || state.novaAskPending) return false;
+  const key = `${selected.bookId}:book-scout`;
+  return !state.novaAutoReadSeen.has(key)
+    && !state.novaAutoReadInFlight.has(key)
+    && !novaBookScoutHistoryForBook(selected.bookId);
+}
+
+function maybeScheduleNovaBookScout(delayMs = 2200) {
+  window.clearTimeout(state.novaAutoBookScoutTimer);
+  if (!shouldAutoScoutSelectedBook()) return;
+  state.novaAutoBookScoutTimer = window.setTimeout(() => {
+    if (!shouldAutoScoutSelectedBook()) return;
+    void runNovaAutonomousReading({ bookScout: true }).catch((error) => {
+      log(error.message || String(error));
+    });
+  }, delayMs);
 }
 
 function planFormChunkValue(name) {
@@ -8488,6 +8522,7 @@ async function readSelectedChunk() {
   renderReaderProgress();
   renderReadingQueue();
   maybeScheduleNovaAutonomousReading();
+  maybeScheduleNovaBookScout();
 }
 
 async function selectChunk(chunkId, autoRead = true, { resetScroll = true } = {}) {

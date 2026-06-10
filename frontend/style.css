@@ -2237,8 +2237,13 @@ body.reader-toc-open .plan-panel > .reader-toc-search {
 }
 
 .reader-nova-aside:not(.open) {
-  width: min(260px, calc(100% - 20px));
-  opacity: 0.66;
+  width: auto;
+  max-width: min(150px, calc(100% - 20px));
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 8px;
+  border-radius: 999px;
+  opacity: 0.72;
 }
 
 .reader-nova-aside.open,
@@ -2249,6 +2254,33 @@ body.reader-toc-open .plan-panel > .reader-toc-search {
 
 .reader-nova-aside:not(.open) .reader-nova-aside-actions button:not(#readerNovaAsideToggleBtn) {
   display: none;
+}
+
+.reader-nova-aside:not(.open) .reader-nova-aside-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.reader-nova-aside:not(.open) small,
+.reader-nova-aside:not(.open) p {
+  display: none;
+}
+
+.reader-nova-aside:not(.open) span {
+  max-width: 76px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-nova-aside:not(.open) #readerNovaAsideToggleBtn {
+  min-height: 22px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
 }
 
 .reader-text-shell {
