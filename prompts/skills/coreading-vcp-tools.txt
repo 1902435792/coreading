@@ -66,6 +66,32 @@ requireApproval:「始」true「末」
 <<<[END_TOOL_REQUEST]>>>
 ```
 
+把当前段评注做成待批准沉淀预览时，VCP/VCB 直调 CoReadingMCP 要先建 `review_create`，再用返回的 `reviewId` 调 `sink_preview_create`；不要直接把散文式 `content` 塞给底层 `sink_preview_create`。
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」CoReadingMCP「末」,
+command:「始」review_create「末」,
+bookId:「始」<bookId>「末」,
+startChunkId:「始」<当前chunkId>「末」,
+endChunkId:「始」<当前chunkId>「末」,
+summary:「始」<这一段的评注摘要>「末」,
+createdBy:「始」Nova「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+```text
+<<<[TOOL_REQUEST]>>>
+maid:「始」Nova「末」,
+tool_name:「始」CoReadingMCP「末」,
+command:「始」sink_preview_create「末」,
+reviewId:「始」<reviewId>「末」,
+targets:「始」obsidian,obs,dailyNote「末」,
+requireApproval:「始」true「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
 批准和执行沉淀：
 
 ```text
@@ -159,3 +185,18 @@ filePath:「始」<绝对路径>「末」
 - `POST /api/agent/run`
 
 产品 UI 或 Codex 调试时优先走这些接口。运行态里 Nova 仍然是单 Agent；Pi-style 只是工具注册、事件 trace、顺序执行和批准边界的实现方式。
+
+在 sidecar Agent 工具层，`sink_preview_create` 做了读书适配：如果已经有 `reviewId` 就直接建 preview；如果没有 `reviewId`，但提供了 `bookId`、明确 `chunkId/startChunkId/endChunkId/chunkIds` 和 `summary/content/note/text`，sidecar 会先自动创建一个 review，再创建 pending preview。示例：
+
+```json
+{
+  "tool": "sink_preview_create",
+  "arguments": {
+    "bookId": "<bookId>",
+    "chunkId": "<当前chunkId>",
+    "target": "obs",
+    "summary": "<这一段的评注摘要>",
+    "requireApproval": true
+  }
+}
+```

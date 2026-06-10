@@ -305,6 +305,22 @@ Sidecar 提供轻量 Agent API，用现有 VCP/Nova 接口执行读书任务：
 
 日记类能力不直接暴露 `DailyNote.create/update` 给 Nova。读书沉淀统一走 `sink_preview_create` / `sink_preview_update` / `sink_execute`，所以写入 Obsidian、OBS、DailyNote、VCPMemory 前仍有预览和批准边界。
 
+Agent 工具层的 `sink_preview_create` 比底层 CoReadingMCP 命令更适合 Nova 使用：有 `reviewId` 时直接创建沉淀预览；没有 `reviewId` 时，只要传入 `bookId`、明确 chunk 范围和 `summary/content/note/text`，sidecar 会先自动创建 review，再创建 pending preview。底层 VCP/VCB 直调 `CoReadingMCP` 时仍按严格协议：先 `review_create`，再 `sink_preview_create reviewId=<...>`。
+
+```powershell
+$body = @{
+  tool = "sink_preview_create"
+  arguments = @{
+    bookId = "geb-jiyibi"
+    chunkId = "ch04"
+    target = "obs"
+    summary = "这一段把语言结构本身当成意义的一部分。"
+    requireApproval = $true
+  }
+} | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8791/api/agent/tool -Body $body -ContentType 'application/json'
+```
+
 暂停和恢复：
 
 ```powershell

@@ -1366,8 +1366,25 @@ const AGENT_TOOL_DEFINITIONS = [
     aliases: ["diary_preview_create", "daily_note_preview", "memory_preview"],
     mutates: true,
     requiresApproval: true,
-    description: "从 review 创建 Obsidian/OBS/DailyNote/VCPMemory 沉淀预览，仍需批准。",
-    parameters: AGENT_SCHEMA.anyObject
+    description: "从 review 创建 Obsidian/OBS/DailyNote/VCPMemory 沉淀预览；没有 reviewId 时会先用 bookId 和明确 chunk 范围自动创建 review。",
+    parameters: {
+      type: "object",
+      required: ["bookId"],
+      properties: {
+        reviewId: { type: "string" },
+        bookId: { type: "string" },
+        chunkId: { type: "string" },
+        startChunkId: { type: "string" },
+        endChunkId: { type: "string" },
+        chunkIds: { type: "array", items: { type: "string" } },
+        summary: { type: "string" },
+        content: { type: "string" },
+        target: { type: "string" },
+        targets: { type: "array", items: { type: "string" } },
+        requireApproval: { type: "boolean" }
+      },
+      additionalProperties: true
+    }
   },
   {
     name: "backtrack_sink_preview_create",
@@ -1641,9 +1658,75 @@ async function runSidecarAgentTool(definition, args) {
   throw error;
 }
 
+function normalizeAgentTargetList(args = {}) {
+  const source = Array.isArray(args.targets) ? args.targets : (args.targets || args.target || "");
+  return (Array.isArray(source) ? source : String(source).split(/[,\s]+/u))
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function hasExplicitAgentReviewScope(args = {}) {
+  const chunkIds = Array.isArray(args.chunkIds)
+    ? args.chunkIds
+    : String(args.chunkIds || "").split(/[,\s]+/u).filter(Boolean);
+  return Boolean(
+    args.chunkId
+    || args.startChunkId
+    || args.endChunkId
+    || chunkIds.length
+  );
+}
+
+function normalizeAgentSinkArgs(args = {}) {
+  const payload = { ...args };
+  const targets = normalizeAgentTargetList(payload);
+  if (targets.length) payload.targets = targets;
+  if (payload.chunkId && !payload.startChunkId && !payload.endChunkId && !payload.chunkIds) {
+    payload.startChunkId = payload.chunkId;
+    payload.endChunkId = payload.chunkId;
+  }
+  return payload;
+}
+
+async function prepareAgentSinkPreviewPayload(payload) {
+  const next = normalizeAgentSinkArgs(payload);
+  if (next.reviewId) return next;
+  if (!next.bookId || !hasExplicitAgentReviewScope(next)) {
+    const error = new Error("sink_preview_create 需要 reviewId，或 bookId 加明确 chunk 范围。");
+    error.statusCode = 400;
+    throw error;
+  }
+  const summary = compactText(next.summary || next.content || next.note || next.text || "", 5000);
+  if (!summary) {
+    const error = new Error("自动创建沉淀预览需要 summary/content/note/text 之一。");
+    error.statusCode = 400;
+    throw error;
+  }
+  const reviewResult = await runWrapper({
+    command: "review_create",
+    bookId: next.bookId,
+    title: next.title || `Nova 工具沉淀 ${next.chunkId || next.startChunkId || "range"}`,
+    summary,
+    stance: next.stance || "",
+    startChunkId: next.startChunkId,
+    endChunkId: next.endChunkId,
+    chunkIds: next.chunkIds,
+    observations: next.observations,
+    questions: next.questions,
+    quotes: next.quotes,
+    nextActions: next.nextActions,
+    tags: next.tags || ["co-reading", "nova-agent"],
+    createdBy: next.createdBy || "Nova Agent"
+  });
+  const reviewId = reviewResult.data?.review?.reviewId || reviewResult.data?.fullReview?.reviewId;
+  if (!reviewId) throw new Error("自动创建 review 后没有返回 reviewId。");
+  return { ...next, reviewId, __agentCreatedReview: reviewResult.data?.review || null };
+}
+
 async function executePiAgentTool(toolName, args = {}, run = null) {
   const definition = findPiAgentTool(toolName);
-  const payload = definition.mapArgs ? definition.mapArgs({ ...args }) : { ...args };
+  let payload = definition.mapArgs ? definition.mapArgs({ ...args }) : { ...args };
+  if (definition.name === "sink_preview_create") payload = await prepareAgentSinkPreviewPayload(payload);
   if (definition.vcpCommand) payload.command = definition.vcpCommand;
   const startedAt = new Date().toISOString();
   if (run) {
