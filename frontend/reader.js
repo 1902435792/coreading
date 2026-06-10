@@ -26,10 +26,14 @@ const state = {
   novaActiveHistoryId: "",
   novaPending: false,
   novaReply: null,        // { meta, text, chunkId }
-  selection: null,        // { text, chunkId }
+  selection: null,        // { text, chunkId, rect }
   sessionReplies: [],     // 本次会话 Nova 回复: { id, bookId, chunkId, text }
   annotations: [],        // 评注模型: { id, speaker, role, text, quote, chunkId, source, sourceId }
   chunkTextCache: new Map(),
+  myNotes: new Map(),     // `${bookId}:${chunkId}` -> 已存笔记/边注的评注条目（懒加载缓存）
+  myNotesPending: new Set(),
+  noteDraft: null,        // { quote, chunkId }
+  noteSaving: false,
   lastScrollY: 0,
   savePositionTimer: 0,
 };
@@ -316,6 +320,7 @@ function showShelf() {
   closeNova();
   hideSelTool();
   closeCommentCard();
+  closeNoteCard();
   document.title = "共读";
   window.scrollTo(0, 0);
   loadShelf();
@@ -371,6 +376,7 @@ async function openBook(bookId, targetChunkId = "") {
 async function anchorFlowAt(index, { restoreOffset = 0 } = {}) {
   const requestId = ++state.flowRequestId;
   closeCommentCard();
+  closeNoteCard();
   state.anchorIndex = Math.max(0, Math.min(index, state.chunks.length - 1));
   state.loadedTo = state.anchorIndex;
   state.activeChunkId = getChunkId(state.chunks[state.anchorIndex]);
@@ -745,6 +751,11 @@ function rebuildAnnotations() {
       sourceId: reply.id, source: "nova-reply", chunkId: reply.chunkId, text: reply.text,
     }));
   }
+  for (const entries of state.myNotes.values()) {
+    for (const entry of entries) {
+      if (entry.bookId === state.bookId) items.push(entry);
+    }
+  }
   state.annotations = items;
 }
 
@@ -803,6 +814,7 @@ function renderParagraph(paragraph, ranges, flashRange = null) {
 
 function decorateSection(section) {
   const chunkId = section.dataset.chunkId;
+  ensureChunkNotes(chunkId);
   for (const paragraph of section.querySelectorAll("p")) {
     renderParagraph(paragraph, underlineRangesFor(paragraph));
   }
@@ -902,6 +914,7 @@ function openCommentCard(annotations, anchorEl) {
     head.className = "comment-head";
     const speaker = document.createElement("span");
     speaker.className = "comment-speaker";
+    if (ann.source === "mine") speaker.classList.add("mine");
     speaker.textContent = ann.speaker;
     const role = document.createElement("span");
     role.className = "comment-role";
@@ -910,15 +923,19 @@ function openCommentCard(annotations, anchorEl) {
     const body = document.createElement("p");
     body.className = "comment-text";
     body.textContent = ann.text;
-    const action = document.createElement("button");
-    action.type = "button";
-    action.className = "text-btn comment-open";
-    action.textContent = "在 Nova 面板查看";
-    action.addEventListener("click", () => {
-      closeCommentCard();
-      showAnnotationInNova(ann);
-    });
-    item.append(head, body, action);
+    item.append(head, body);
+    // 我的笔记全文已在卡片里，无需再去 Nova 面板。
+    if (ann.source !== "mine") {
+      const action = document.createElement("button");
+      action.type = "button";
+      action.className = "text-btn comment-open";
+      action.textContent = "在 Nova 面板查看";
+      action.addEventListener("click", () => {
+        closeCommentCard();
+        showAnnotationInNova(ann);
+      });
+      item.append(action);
+    }
     card.append(item);
   }
   card.hidden = false;
@@ -936,6 +953,176 @@ function openCommentCard(annotations, anchorEl) {
   ));
   card.style.left = `${left}px`;
   card.style.top = `${rect.bottom + window.scrollY + 8}px`;
+}
+
+/* ---------- 我的笔记 / 边注（user_note_create / annotate，进同一评注层） ---------- */
+
+function myAnnotationFromRecord(record, fallbackRole) {
+  const id = String(record?.id || "");
+  const text = compactText(record?.note, 520);
+  const chunkId = String(record?.chunkId || "");
+  if (!id || !text || !chunkId) return null;
+  // 旧壳把 Nova 回复也存成 user note（kind nova-reply / nova-pre-read），署名还给 Nova。
+  const fromNova = /^nova/.test(String(record?.kind || ""));
+  return {
+    id: `${id}#q`,
+    speaker: fromNova ? "Nova" : "我",
+    role: fromNova ? "AI 共读" : fallbackRole,
+    text,
+    quote: String(record?.quote || ""),
+    chunkId,
+    bookId: String(record?.bookId || state.bookId),
+    source: fromNova ? "nova-saved" : "mine",
+    sourceId: id,
+  };
+}
+
+function ensureChunkNotes(chunkId) {
+  const key = `${state.bookId}:${chunkId}`;
+  if (!state.bookId || state.myNotes.has(key) || state.myNotesPending.has(key)) return;
+  state.myNotesPending.add(key);
+  void loadChunkNotes(state.bookId, chunkId, key);
+}
+
+async function loadChunkNotes(bookId, chunkId, key) {
+  let entries = [];
+  try {
+    const [noteList, annotations] = await Promise.all([
+      query({ command: "user_note_list", bookId, chunkId }),
+      query({ command: "list_annotations", bookId, chunkId, author: "claude" }),
+    ]);
+    entries = [
+      ...(Array.isArray(noteList?.notes) ? noteList.notes : []).map((note) => myAnnotationFromRecord(note, "笔记")),
+      ...(Array.isArray(annotations) ? annotations : []).map((ann) => myAnnotationFromRecord(ann, "边注")),
+    ].filter(Boolean);
+  } catch {
+    // 拉取失败按空处理，避免对同一 chunk 反复请求。
+  } finally {
+    // 合并而非覆盖：列表请求在飞时用户可能刚存了一条，直接 set 会把它冲掉。
+    const local = state.myNotes.get(key) || [];
+    const merged = [...entries, ...local.filter((item) => !entries.some((entry) => entry.sourceId === item.sourceId))];
+    state.myNotes.set(key, merged);
+    state.myNotesPending.delete(key);
+  }
+  if (bookId !== state.bookId) return;
+  if (entries.length) {
+    rebuildAnnotations();
+    redecorateChunk(chunkId);
+  }
+}
+
+function addMyNoteRecord(entry) {
+  if (!entry) return;
+  const key = `${entry.bookId}:${entry.chunkId}`;
+  const entries = state.myNotes.get(key) || [];
+  entries.push(entry);
+  state.myNotes.set(key, entries);
+  rebuildAnnotations();
+  redecorateChunk(entry.chunkId);
+}
+
+function closeNoteCard() {
+  const card = $("noteCard");
+  if (card.hidden) return;
+  card.hidden = true;
+  state.noteDraft = null;
+  $("noteCardText").value = "";
+  $("noteCardStatus").textContent = "";
+}
+
+function openNoteCardFromSelection() {
+  const selection = state.selection;
+  hideSelTool();
+  closeCommentCard();
+  if (!selection?.text || !state.bookId) return;
+  state.noteDraft = { quote: selection.text, chunkId: selection.chunkId };
+  $("noteCardQuote").textContent = compactText(selection.text, 160);
+  $("noteCardText").value = "";
+  $("noteCardStatus").textContent = "";
+  const card = $("noteCard");
+  card.hidden = false;
+  if (window.matchMedia("(max-width: 1099px)").matches) {
+    card.classList.add("sheet");
+    card.style.left = "";
+    card.style.top = "";
+  } else {
+    card.classList.remove("sheet");
+    const rect = selection.rect || { left: 64, bottom: window.scrollY + 200 };
+    const left = Math.max(8, Math.min(rect.left, document.documentElement.clientWidth - card.offsetWidth - 8));
+    card.style.left = `${left}px`;
+    card.style.top = `${rect.bottom + 8}px`;
+  }
+  $("noteCardText").focus();
+}
+
+function setNoteCardBusy(busy) {
+  $("noteSaveNoteBtn").disabled = busy;
+  $("noteSaveAnnotBtn").disabled = busy;
+}
+
+async function saveMyNote(kind) {
+  const draft = state.noteDraft;
+  const text = $("noteCardText").value.trim();
+  // 同步捕获 bookId：保存途中切书时 state.bookId 会变，不能把旧 chunk 的笔记存进新书。
+  const bookId = state.bookId;
+  if (!draft?.quote || !bookId || state.noteSaving) return;
+  if (!text) {
+    $("noteCardStatus").textContent = "先写点想法再保存。";
+    return;
+  }
+  state.noteSaving = true;
+  setNoteCardBusy(true);
+  $("noteCardStatus").textContent = "保存中…";
+  try {
+    let quoteOffset = null;
+    try {
+      const raw = await chunkRawText(draft.chunkId);
+      const index = raw.indexOf(draft.quote);
+      quoteOffset = index >= 0 ? index : null;
+    } catch {
+      // offset 可选，拿不到原文就传 null。
+    }
+    // payload 形状对照旧壳 saveUserNote / saveAnnotation。
+    const payload = kind === "note"
+      ? {
+        command: "user_note_create",
+        bookId,
+        chunkId: draft.chunkId,
+        quote: draft.quote,
+        quoteOffset,
+        note: text,
+        kind: "note",
+        status: "open",
+        tags: ["co-reading", "sidecar", "user-note"],
+      }
+      : {
+        command: "annotate",
+        bookId,
+        chunkId: draft.chunkId,
+        quote: draft.quote,
+        quoteOffset,
+        note: text,
+        kind: "annotation",
+        tags: ["co-reading", "sidecar"],
+      };
+    const result = await query(payload);
+    // user_note_create 返回 { note: {...} }；annotate 直接返回 annotation 对象（其 .note 是正文字符串）。
+    const record = result?.note && typeof result.note === "object" ? result.note : (result || {});
+    addMyNoteRecord(myAnnotationFromRecord({
+      id: record.id || `local-${Date.now()}`,
+      bookId: record.bookId || bookId,
+      chunkId: record.chunkId || draft.chunkId,
+      quote: record.quote || draft.quote,
+      note: record.note || text,
+      kind: record.kind || payload.kind,
+    }, kind === "note" ? "笔记" : "边注"));
+    closeNoteCard();
+  } catch (error) {
+    $("noteCardStatus").textContent = `保存失败：${error.message || error}`;
+  } finally {
+    state.noteSaving = false;
+    setNoteCardBusy(false);
+  }
 }
 
 /* ---------- Nova 提问 ---------- */
@@ -1098,8 +1285,15 @@ function onSelectionEnd() {
   const node = range.startContainer;
   const element = node.nodeType === 3 ? node.parentElement : node;
   const section = element?.closest?.(".flow-chunk");
-  state.selection = { text, chunkId: section?.dataset?.chunkId || state.activeChunkId };
   const rect = range.getBoundingClientRect();
+  state.selection = {
+    text,
+    chunkId: section?.dataset?.chunkId || state.activeChunkId,
+    rect: {
+      left: rect.left + window.scrollX,
+      bottom: rect.bottom + window.scrollY,
+    },
+  };
   const tool = $("selTool");
   tool.hidden = false;
   const left = Math.max(8, Math.min(
@@ -1132,6 +1326,9 @@ function setupEvents() {
   $("novaCloseBtn").addEventListener("click", closeNova);
   $("novaSendBtn").addEventListener("click", sendNovaPrompt);
   $("selAskBtn").addEventListener("click", askNovaFromSelection);
+  $("selNoteBtn").addEventListener("click", openNoteCardFromSelection);
+  $("noteSaveNoteBtn").addEventListener("click", () => saveMyNote("note"));
+  $("noteSaveAnnotBtn").addEventListener("click", () => saveMyNote("annotation"));
   $("flow").addEventListener("click", (event) => {
     const span = event.target.closest(".annot-underline");
     if (!span) return;
@@ -1144,11 +1341,13 @@ function setupEvents() {
   });
   document.addEventListener("click", (event) => {
     if (!event.target.closest?.("#commentCard, .annot-underline, .annot-bubble")) closeCommentCard();
+    // 已经打了字的输入卡不随便被外点关掉，避免误点丢稿；Esc / 保存 / 切章仍会关闭。
+    if (!event.target.closest?.("#noteCard, #selTool") && !$("noteCardText").value.trim()) closeNoteCard();
   });
   setupTypoPop();
   window.addEventListener("scroll", onScroll, { passive: true });
   document.addEventListener("mouseup", (event) => {
-    if (event.target.closest?.("#selTool")) return;
+    if (event.target.closest?.("#selTool, #noteCard")) return;
     window.setTimeout(onSelectionEnd, 0);
   });
   document.addEventListener("keyup", (event) => {
@@ -1156,10 +1355,11 @@ function setupEvents() {
       closeToc();
       hideSelTool();
       closeCommentCard();
+      closeNoteCard();
       $("typoPop").hidden = true;
       return;
     }
-    if (event.target.closest?.("#novaPanel")) return;
+    if (event.target.closest?.("#novaPanel, #noteCard")) return;
     window.setTimeout(onSelectionEnd, 0);
   });
   window.addEventListener("beforeunload", savePositionNow);

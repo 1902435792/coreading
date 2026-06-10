@@ -75,6 +75,18 @@
     <!-- 选区工具条 -->
     <div id="selTool" class="sel-tool" hidden>
       <button id="selAskBtn" class="text-btn" type="button">问 Nova</button>
+      <button id="selNoteBtn" class="text-btn" type="button">写想法</button>
+    </div>
+
+    <!-- 选区笔记/边注输入卡 -->
+    <div id="noteCard" class="note-card" hidden>
+      <p id="noteCardQuote" class="note-quote"></p>
+      <textarea id="noteCardText" rows="3" placeholder="写下你的想法…"></textarea>
+      <p id="noteCardStatus" class="muted note-status"></p>
+      <div class="note-actions">
+        <button id="noteSaveNoteBtn" class="text-btn" type="button">存笔记</button>
+        <button id="noteSaveAnnotBtn" class="text-btn" type="button">存边注</button>
+      </div>
     </div>
 
     <!-- 统一评论卡片（Nova / Phase 3 书友共用） -->

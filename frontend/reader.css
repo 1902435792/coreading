@@ -285,6 +285,7 @@ mark.quote-flash {
   margin: 0 0 4px;
 }
 .comment-speaker { font-size: 13px; font-weight: 600; }
+.comment-speaker.mine { color: var(--accent); }
 .comment-role { font-size: 11px; color: var(--muted); }
 
 .comment-text {
@@ -299,6 +300,65 @@ mark.quote-flash {
   font-size: 12px;
   padding: 2px 0;
 }
+
+/* ---------- 选区笔记/边注输入卡 ---------- */
+
+.note-card {
+  position: absolute;
+  z-index: 50;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  padding: 10px 14px 8px;
+}
+.note-card.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  width: 100%;
+  max-width: none;
+  border-radius: 10px 10px 0 0;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.08);
+}
+
+.note-quote {
+  margin: 0 0 8px;
+  padding-left: 8px;
+  border-left: 2px solid var(--hairline);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.note-card textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--bg);
+}
+.note-card textarea:focus { outline: none; border-color: var(--accent); }
+
+.note-status { margin: 4px 0 0; }
+
+.note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 4px;
+}
+.note-actions .text-btn { color: var(--accent); font-size: 13px; }
 
 /* ---------- 目录抽屉 ---------- */
 
