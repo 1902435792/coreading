@@ -39,6 +39,10 @@
       "type": "string",
       "description": "执行 vcpMemory 沉淀预览时的 VCPMemory 提案目录。未配置时使用 VCPMemory 默认 data/vcp-memory。"
     },
+    "CO_READING_OBS_OUTPUT_DIR": {
+      "type": "string",
+      "description": "执行 obs 沉淀预览时的 OBS 输出目录。会写入 Markdown 全文和供 OBS 文本源读取的 txt 摘要。"
+    },
     "CO_READING_SIDECAR_HOST": {
       "type": "string",
       "description": "独立共读 sidecar 监听地址，默认 127.0.0.1。"
@@ -53,7 +57,11 @@
     },
     "CO_READING_NOVA_BACKENDS": {
       "type": "string",
-      "description": "Nova 后端顺序，默认 agent-assistant,openai；优先走 6005 AgentAssistant，失败后走 3100 OpenAI 兼容 bridge。"
+      "description": "Nova 后端顺序，默认 vcp,bridge；优先走 6005 VCP OpenAI 兼容模型接口，失败后短探测 3100 bridge。AgentAssistant 只在显式加入 agent-assistant 时使用。"
+    },
+    "CO_READING_NOVA_VCP_URL": {
+      "type": "string",
+      "description": "6005 VCP OpenAI 兼容 chat completions 地址，默认 http://127.0.0.1:6005/v1/chat/completions。"
     },
     "CO_READING_NOVA_AGENT_URL": {
       "type": "string",
@@ -300,7 +308,7 @@
       {
         "commandIdentifier": "sink_execute",
         "command": "sink_execute",
-        "description": "执行已 approved 的沉淀预览。参数：previewId 必需；force、overwrite、overwriteAssets、vaultPath、assetFolder、dailyNoteRoot、vcpMemoryRoot、targetFolder、reviewer 可选。obsidian 写入 Markdown 文件并可复制本地插图附件，dailyNote 调用 DailyNoteWrite，vcpMemory 调用 ProposeMemory。"
+        "description": "执行已 approved 的沉淀预览。参数：previewId 必需；force、overwrite、overwriteAssets、vaultPath、assetFolder、dailyNoteRoot、vcpMemoryRoot、obsOutputDir、obsMarkdownPath、obsTextPath、targetFolder、reviewer 可选。obsidian 写入 Markdown 文件并可复制本地插图附件，obs 写 Markdown 全文和 OBS 文本源 txt，dailyNote 调用 DailyNoteWrite，vcpMemory 调用 ProposeMemory。"
       },
       {
         "commandIdentifier": "obsidian_note_read",

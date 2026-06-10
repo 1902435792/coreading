@@ -7,7 +7,7 @@
 - 普通读者正在看书时，不讲工具链；需要工具时安静调用。
 - 每次工具调用都尽量窄：一本书、一个 chunk、一个选区或一个关键词。
 - 不假装已经读完整本书；先 list/read/search/backtrack 获取证据。
-- 写入 Obsidian、DailyNote、VCPMemory 前必须先创建 preview，再批准，再 execute。
+- 写入 Obsidian、OBS、DailyNote、VCPMemory 前必须先创建 preview，再批准，再 execute。
 - 不直接调用 DailyNote 写入插件创建读书定论；读书沉淀走 CoReadingMCP 的 sink_preview_create / sink_preview_update / sink_execute。
 
 ## VCP 调用格式
@@ -61,7 +61,7 @@ command:「始」sink_preview_create_from_backtrack「末」,
 bookId:「始」<bookId>「末」,
 query:「始」<关键词或问题>「末」,
 anchorChunkId:「始」<当前chunkId>「末」,
-targets:「始」obsidian,dailyNote「末」,
+targets:「始」obsidian,obs,dailyNote「末」,
 requireApproval:「始」true「末」
 <<<[END_TOOL_REQUEST]>>>
 ```
@@ -83,7 +83,8 @@ status:「始」approved「末」
 maid:「始」Nova「末」,
 tool_name:「始」CoReadingMCP「末」,
 command:「始」sink_execute「末」,
-previewId:「始」<previewId>「末」
+previewId:「始」<previewId>「末」,
+obsOutputDir:「始」<OBS文本源目录，可选>「末」
 <<<[END_TOOL_REQUEST]>>>
 ```
 

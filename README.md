@@ -65,7 +65,7 @@ http://127.0.0.1:3100/v1/chat/completions
 - 标记已读、查看进度、收集阅读卡片。
 - 浏览阅读卡片收件箱、预览/保存/移出卡片。
 - 维护并执行 Nova 共读计划，支持全书、范围和兴趣线索阅读。
-- 生成章节/范围评价，并创建 Obsidian、DailyNote、VCPMemory 的沉淀预览。
+- 生成章节/范围评价，并创建 Obsidian、OBS、DailyNote、VCPMemory 的沉淀预览。
 
 ## 目录
 
@@ -157,7 +157,7 @@ D:\VCP\VCPToolBox\data\co-reading-mcp
 
 ## 独立共读 Sidecar
 
-不接入 6005/AdminPanel-Vue。共读驾驶舱作为插件自带 sidecar 运行：
+前端不接入 AdminPanel-Vue；Nova 模型请求默认走 6005，阅读驾驶舱作为插件自带 sidecar 运行：
 
 ```powershell
 cd D:\VCP\VCPToolBox\Plugin\CoReadingMCP
@@ -232,14 +232,14 @@ Sidecar 页面支持：
 - 将已命中的边注/我的笔记高亮回原文，右侧阅读足迹卡片可点击定位。
 - 保存用户私有笔记，按当前 chunk 提交给 Nova，并回看提交批次。
 - 把当前选区或段落沉淀为阅读卡片，查看卡片收件箱/收藏，并预览或保存卡片图片。
-- 为当前 chunk/range 创建范围评价，并生成 Obsidian/DailyNote/VCPMemory 沉淀预览。
+- 为当前 chunk/range 创建范围评价，并生成 Obsidian/OBS/DailyNote/VCPMemory 沉淀预览。
 - 领取下一步、执行一个 `plan_execute_step`，或用 `plan_run` 连续推进 3 步。
 - 启动/停止 sidecar durable 后台 runner，自动按间隔推进计划，并在失败时显示错误与重试入口。
 - 暂停/恢复计划；暂停状态会阻止 runner 继续执行。
 - 查看沉淀预览正文，再批准并执行 `sink_execute`。
 - 保存 Obsidian 全库 proposed/resolved 快照，回看快照列表，比较整理前后的快照差异，并从差异项定位到对应笔记 block；这些操作只写 CoReadingMCP 数据，不写 Obsidian vault。
 - 建立 Obsidian 本地 block 索引、回看索引列表、按待整理状态读取索引、检查索引是否过期、生成只读同步审阅计划、确认后重建索引，并从索引项定位到对应笔记 block；索引只写 CoReadingMCP 数据，不写 Obsidian vault。
-- 沉淀路径输入框会优先使用浏览器本地记住的 `Vault`、`DailyNote`、`MemoryRoot`；若本地没有保存值，会从 sidecar 环境变量 `CO_READING_OBSIDIAN_VAULT_DIR`、`CO_READING_DAILY_NOTE_ROOT`、`CO_READING_VCP_MEMORY_ROOT` 自动带入。可用“清空路径”移除浏览器本地设置。
+- 沉淀路径输入框会优先使用浏览器本地记住的 `Vault`、`DailyNote`、`MemoryRoot`、`OBS`；若本地没有保存值，会从 sidecar 环境变量 `CO_READING_OBSIDIAN_VAULT_DIR`、`CO_READING_DAILY_NOTE_ROOT`、`CO_READING_VCP_MEMORY_ROOT`、`CO_READING_OBS_OUTPUT_DIR` 自动带入。可用“清空路径”移除浏览器本地设置。
 - 基于当前 chunk 生成无剧透插图提示词建议，创建插图请求，登记图库/已生成图片 URI，并在插图库中预览。
 
 ## 共读计划
@@ -302,7 +302,7 @@ Sidecar 提供轻量 Agent API，用现有 VCP/Nova 接口执行读书任务：
 
 `interest_backtrack` 会把搜索/回溯/沉淀都记成一条 Agent trace，默认通过 `interest_backtrack` 工具返回 bounded evidence，再由 `backtrack_sink_preview_create` 或 `sink_preview_create` 进入沉淀链路。`tool_call` 则把 `AnySearch`、`JinaReader`、`FileOperator` 的只读子集，以及 `sink_preview_*`、`obsidian_note_*` 这类共读动作统一成一层 Pi 风格工具背包。直接 spawn VCP 插件时，sidecar 会合并 VCP 根 `config.env` 和插件自己的 `config.env`，模拟 VCP 主程序加载配置的方式。
 
-日记类能力不直接暴露 `DailyNote.create/update` 给 Nova。读书沉淀统一走 `sink_preview_create` / `sink_preview_update` / `sink_execute`，所以写入 Obsidian、DailyNote、VCPMemory 前仍有预览和批准边界。
+日记类能力不直接暴露 `DailyNote.create/update` 给 Nova。读书沉淀统一走 `sink_preview_create` / `sink_preview_update` / `sink_execute`，所以写入 Obsidian、OBS、DailyNote、VCPMemory 前仍有预览和批准边界。
 
 暂停和恢复：
 
@@ -415,6 +415,7 @@ Obsidian 预览会自动嵌入同书同范围内 `generated/inserted` 状态的�
 
 - `obsidian`：写入 `vaultPath` 或 `CO_READING_OBSIDIAN_VAULT_DIR` 下的 Markdown 文件。
 - Obsidian 执行时会把 Markdown 中的本地插图链接（`file:///...` 或 Windows 本地路径）复制到 `CoReading/_assets/<reviewId>/`，并改写为 vault 相对链接；远程 URL 保持原样。可用 `assetFolder` 和 `overwriteAssets` 覆盖。
+- `obs`：写入 `obsOutputDir` 或 `CO_READING_OBS_OUTPUT_DIR` 下的 Markdown 全文和 `.txt` 短摘要；`.txt` 可直接给 OBS 文本源读取。
 - `dailyNote`：调用 `DailyNoteWrite`，需要 `dailyNoteRoot`、`CO_READING_DAILY_NOTE_ROOT` 或 `KNOWLEDGEBASE_ROOT_PATH`。
 - `vcpMemory`：调用 `VCPMemory ProposeMemory`，可用 `vcpMemoryRoot` 或 `CO_READING_VCP_MEMORY_ROOT` 指定提案目录。
 - 只有 `approved` 状态会执行；`pending`、`rejected` 默认拒绝执行，除非显式传 `force:true`。

@@ -55,11 +55,12 @@ Nova 可以在当前请求给出的 `autonomousCandidates` 里自主选择一个
 
 ## 沉淀和记忆
 
-Obsidian、DailyNote、VCPMemory 都必须先预览、再批准、再执行。不要把临时猜测写进长期记忆。
+Obsidian、OBS、DailyNote、VCPMemory 都必须先预览、再批准、再执行。不要把临时猜测写进长期记忆。
 
 推荐边界：
 
 - Obsidian：书籍笔记、章节评价、可长期编辑的读书卡片。
+- OBS：直播/录屏可读的短摘要文本源，不当长期知识库。
 - DailyNote：当天阅读状态、用户当下困惑、Nova 陪读节奏。
 - VCPMemory：稳定偏好、反复出现的阅读困难、已验证的系统经验。
 

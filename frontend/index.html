@@ -211,6 +211,7 @@
             <fieldset>
               <legend>沉淀目标</legend>
               <label><input name="obsidian" type="checkbox" checked> Obsidian</label>
+              <label><input name="obs" type="checkbox"> OBS</label>
               <label><input name="dailyNote" type="checkbox"> DailyNote</label>
               <label><input name="vcpMemory" type="checkbox"> VCPMemory</label>
             </fieldset>
@@ -474,6 +475,7 @@
               <div class="chunk-review-actions">
                 <fieldset class="chunk-sink-targets" aria-label="本段沉淀目标">
                   <label><input id="chunkSinkObsidian" type="checkbox" checked> Obsidian</label>
+                  <label><input id="chunkSinkObs" type="checkbox"> OBS</label>
                   <label><input id="chunkSinkDailyNote" type="checkbox"> DailyNote</label>
                   <label><input id="chunkSinkVcpMemory" type="checkbox"> VCPMemory</label>
                 </fieldset>
@@ -701,6 +703,7 @@
             <fieldset>
               <legend>生成预览</legend>
               <label><input name="obsidian" type="checkbox" checked> Obsidian</label>
+              <label><input name="obs" type="checkbox"> OBS</label>
               <label><input name="dailyNote" type="checkbox"> DailyNote</label>
               <label><input name="vcpMemory" type="checkbox"> VCPMemory</label>
             </fieldset>
@@ -811,6 +814,10 @@
             <label>
               <span>MemoryRoot</span>
               <input id="vcpMemoryRoot" placeholder="D:\VCP\VCPToolBox\data\vcp-memory">
+            </label>
+            <label>
+              <span>OBS</span>
+              <input id="obsOutputDir" placeholder="D:\VCP\VCPToolBox\data\co-reading-obs">
             </label>
           </div>
           <div id="sinkList" class="sink-list empty" role="list">暂无沉淀预览</div>

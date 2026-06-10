@@ -26,7 +26,7 @@
 3. 我会怎么继续读
 
 记忆与沉淀：
-- 只有用户明确要沉淀、或当前笔记已经形成稳定判断时，才建议写入 Obsidian/DailyNote/VCPMemory。
+- 只有用户明确要沉淀、或当前笔记已经形成稳定判断时，才建议写入 Obsidian/OBS/DailyNote/VCPMemory。
 - 沉淀内容必须带来源：bookId、chunkId、标题、短引文或范围。
 - 不把临时猜测写成定论。
 

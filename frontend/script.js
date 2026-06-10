@@ -1994,6 +1994,7 @@ function readingVisitReviewPayload(book = activeBook()) {
     sinkPolicy: {
       requireApproval: true,
       obsidian: targets.includes("obsidian"),
+      obs: targets.includes("obs"),
       dailyNote: targets.includes("dailyNote"),
       vcpMemory: targets.includes("vcpMemory"),
     },
@@ -2030,6 +2031,7 @@ function readingVisitHistoryReviewPayload(item) {
     sinkPolicy: {
       requireApproval: true,
       obsidian: targets.includes("obsidian"),
+      obs: targets.includes("obs"),
       dailyNote: targets.includes("dailyNote"),
       vcpMemory: targets.includes("vcpMemory"),
     },
@@ -2048,9 +2050,7 @@ async function createReadingVisitSinkPreview(item = null) {
     reviewId,
     targets: currentChunkSinkTargets(),
     requireApproval: true,
-    vaultPath: $("vaultPath").value || undefined,
-    dailyNoteRoot: $("dailyNoteRoot").value || undefined,
-    vcpMemoryRoot: $("vcpMemoryRoot").value || undefined,
+    ...sinkDestinationPayload(),
     createdBy: "CoReadingSidecar",
   });
   const opened = await openPreviewFromResult(previewResult, { refreshSnapshot: true });
@@ -2303,7 +2303,7 @@ function clearFormError(form) {
 }
 
 function sinkSettingInputs() {
-  return [$("vaultPath"), $("dailyNoteRoot"), $("vcpMemoryRoot")].filter(Boolean);
+  return [$("vaultPath"), $("dailyNoteRoot"), $("vcpMemoryRoot"), $("obsOutputDir")].filter(Boolean);
 }
 
 function sinkSettingsPayload() {
@@ -2311,6 +2311,17 @@ function sinkSettingsPayload() {
     vaultPath: $("vaultPath")?.value.trim() || "",
     dailyNoteRoot: $("dailyNoteRoot")?.value.trim() || "",
     vcpMemoryRoot: $("vcpMemoryRoot")?.value.trim() || "",
+    obsOutputDir: $("obsOutputDir")?.value.trim() || "",
+  };
+}
+
+function sinkDestinationPayload() {
+  const settings = sinkSettingsPayload();
+  return {
+    vaultPath: settings.vaultPath || undefined,
+    dailyNoteRoot: settings.dailyNoteRoot || undefined,
+    vcpMemoryRoot: settings.vcpMemoryRoot || undefined,
+    obsOutputDir: settings.obsOutputDir || undefined,
   };
 }
 
@@ -2321,7 +2332,8 @@ function sinkSettingsSummary() {
     "",
     `vaultPath: ${settings.vaultPath}`,
     `dailyNoteRoot: ${settings.dailyNoteRoot}`,
-    `vcpMemoryRoot: ${settings.vcpMemoryRoot}`
+    `vcpMemoryRoot: ${settings.vcpMemoryRoot}`,
+    `obsOutputDir: ${settings.obsOutputDir}`
   ].join("\n");
 }
 
@@ -2333,6 +2345,7 @@ function applySinkSettings(settings, { overwrite = false } = {}) {
   if (settings.vaultPath && (overwrite || !$("vaultPath").value)) $("vaultPath").value = settings.vaultPath;
   if (settings.dailyNoteRoot && (overwrite || !$("dailyNoteRoot").value)) $("dailyNoteRoot").value = settings.dailyNoteRoot;
   if (settings.vcpMemoryRoot && (overwrite || !$("vcpMemoryRoot").value)) $("vcpMemoryRoot").value = settings.vcpMemoryRoot;
+  if (settings.obsOutputDir && (overwrite || !$("obsOutputDir").value)) $("obsOutputDir").value = settings.obsOutputDir;
 }
 
 function sinkPreviewTarget(preview) {
@@ -3710,6 +3723,7 @@ function chunkReviewSummary() {
 function currentChunkSinkTargets() {
   const targets = [];
   if ($("chunkSinkObsidian")?.checked) targets.push("obsidian");
+  if ($("chunkSinkObs")?.checked) targets.push("obs");
   if ($("chunkSinkDailyNote")?.checked) targets.push("dailyNote");
   if ($("chunkSinkVcpMemory")?.checked) targets.push("vcpMemory");
   return targets.length ? targets : ["obsidian"];
@@ -3791,6 +3805,7 @@ function currentChunkNotesReviewPayload({ quote = null } = {}) {
     sinkPolicy: {
       requireApproval: true,
       obsidian: targets.includes("obsidian"),
+      obs: targets.includes("obs"),
       dailyNote: targets.includes("dailyNote"),
       vcpMemory: targets.includes("vcpMemory"),
     },
@@ -3841,9 +3856,7 @@ async function createCurrentChunkSinkPreview(options = {}) {
     reviewId,
     targets: currentChunkSinkTargets(),
     requireApproval: true,
-    vaultPath: $("vaultPath").value || undefined,
-    dailyNoteRoot: $("dailyNoteRoot").value || undefined,
-    vcpMemoryRoot: $("vcpMemoryRoot").value || undefined,
+    ...sinkDestinationPayload(),
     createdBy: "CoReadingSidecar",
   });
   const opened = await openPreviewFromResult(previewResult, { refreshSnapshot: true });
@@ -4705,6 +4718,7 @@ function buildPlanCreatePayload(selected, form) {
     sinkPolicy: {
       requireApproval: true,
       obsidian: form.get("obsidian") === "on",
+      obs: form.get("obs") === "on",
       dailyNote: form.get("dailyNote") === "on",
       vcpMemory: form.get("vcpMemory") === "on",
     },
@@ -4743,6 +4757,7 @@ async function createPlanForCurrentSection() {
 function reviewTargetsFromForm(form) {
   const targets = [];
   if (form.get("obsidian") === "on") targets.push("obsidian");
+  if (form.get("obs") === "on") targets.push("obs");
   if (form.get("dailyNote") === "on") targets.push("dailyNote");
   if (form.get("vcpMemory") === "on") targets.push("vcpMemory");
   return targets;
@@ -4769,6 +4784,7 @@ function buildReviewCreatePayload(selected, form) {
     sinkPolicy: {
       requireApproval: true,
       obsidian: targets.includes("obsidian"),
+      obs: targets.includes("obs"),
       dailyNote: targets.includes("dailyNote"),
       vcpMemory: targets.includes("vcpMemory"),
     },
@@ -4890,7 +4906,7 @@ function planDecisionPacket(selected) {
     safety: {
       requiresExplicitConfirm: true,
       createsPlan: true,
-      mayCreateSinkPreviewLater: Boolean(payload.sinkPolicy?.obsidian || payload.sinkPolicy?.dailyNote || payload.sinkPolicy?.vcpMemory),
+      mayCreateSinkPreviewLater: Boolean(payload.sinkPolicy?.obsidian || payload.sinkPolicy?.obs || payload.sinkPolicy?.dailyNote || payload.sinkPolicy?.vcpMemory),
       productRuntimeAgent: "Nova",
     },
   };
@@ -4906,6 +4922,7 @@ function reviewDecisionPacket(selected) {
         reviewId: "<reviewId>",
         targets,
         requireApproval: true,
+        ...sinkDestinationPayload(),
         createdBy: "CoReadingSidecar",
       }
     : null;
@@ -5019,7 +5036,7 @@ function cardDecisionPacket(card, selected) {
         ...backtrack,
         command: "sink_preview_create_from_backtrack",
         requireApproval: true,
-        vaultPath: $("vaultPath").value || undefined,
+        ...sinkDestinationPayload(),
         createdBy: "CoReadingSidecar",
       },
       createSinkPreviewFromCards: {
@@ -5028,7 +5045,7 @@ function cardDecisionPacket(card, selected) {
         cardIds: [card.id || ""].filter(Boolean),
         limit: 200,
         title: `${card.title || card.kicker || card.id || "阅读卡片"} 卡片沉淀`,
-        vaultPath: $("vaultPath").value || undefined,
+        ...sinkDestinationPayload(),
         requireApproval: true,
         createdBy: "CoReadingSidecar",
       },
@@ -5130,7 +5147,7 @@ async function copyReviewFollowUpDecision(reviewId) {
     command: "sink_preview_create",
     reviewId: review.reviewId || reviewId,
     requireApproval: true,
-    vaultPath: $("vaultPath").value || undefined,
+    ...sinkDestinationPayload(),
     createdBy: "CoReadingSidecar",
   };
   const packet = {
@@ -6162,7 +6179,7 @@ function backtrackDecisionPacket(selected, evidence) {
     ? {
         ...backtrackPayload(selected.bookId, evidence.anchorChunkId || state.selectedChunkId),
         command: "sink_preview_create_from_backtrack",
-        targets: ["obsidian"],
+        targets: currentChunkSinkTargets(),
         requireApproval: true,
       }
     : null;
@@ -8921,7 +8938,7 @@ document.addEventListener("click", async (event) => {
         ...payload,
         command: "sink_preview_create_from_backtrack",
         requireApproval: true,
-        vaultPath: $("vaultPath").value || undefined,
+        ...sinkDestinationPayload(),
         createdBy: "CoReadingSidecar",
       });
       state.backtrackEvidence = result.data?.backtrack || result.raw?.backtrack || null;
@@ -9099,7 +9116,7 @@ document.addEventListener("click", async (event) => {
         command: "sink_preview_create",
         reviewId: id,
         requireApproval: true,
-        vaultPath: $("vaultPath").value || undefined,
+        ...sinkDestinationPayload(),
         createdBy: "CoReadingSidecar",
       });
       await loadSnapshot();
@@ -9153,7 +9170,7 @@ document.addEventListener("click", async (event) => {
         cardIds: [id],
         limit: 200,
         title: `${card.title || card.kicker || id} 卡片沉淀`,
-        vaultPath: $("vaultPath").value || undefined,
+        ...sinkDestinationPayload(),
         requireApproval: true,
         createdBy: "CoReadingSidecar"
       });
@@ -9248,9 +9265,7 @@ document.addEventListener("click", async (event) => {
       await command({
         command: "sink_execute",
         previewId,
-        vaultPath: $("vaultPath").value || undefined,
-        dailyNoteRoot: $("dailyNoteRoot").value || undefined,
-        vcpMemoryRoot: $("vcpMemoryRoot").value || undefined,
+        ...sinkDestinationPayload(),
         updatedBy: "CoReadingSidecar",
       });
       try {
@@ -9603,9 +9618,7 @@ document.addEventListener("click", async (event) => {
       await command({
         command: "sink_execute",
         previewId: id,
-        vaultPath: $("vaultPath").value || undefined,
-        dailyNoteRoot: $("dailyNoteRoot").value || undefined,
-        vcpMemoryRoot: $("vcpMemoryRoot").value || undefined,
+        ...sinkDestinationPayload(),
         updatedBy: "CoReadingSidecar",
       });
       await refreshExecutedSinkPreview(id);
@@ -10360,7 +10373,7 @@ async function sinkTrailGuide({ openPreview = true } = {}) {
     action: "tool_call",
     tool: "backtrack_sink_preview_create",
     ...backtrackPayload(selected.bookId, evidence.anchorChunkId || state.selectedChunkId),
-    vaultPath: $("vaultPath").value || undefined,
+    ...sinkDestinationPayload(),
     requireApproval: true,
     bookTitle: selected.title || selected.bookId,
     chunkTitle: chunkTitleById(evidence.anchorChunkId || state.selectedChunkId),
@@ -10493,7 +10506,7 @@ $("cardDigestBtn").addEventListener("click", async () => {
       bookId: selected.bookId,
       limit: 24,
       title: `${selected.title || selected.bookId} 阅读卡片 digest`,
-      vaultPath: $("vaultPath").value || undefined,
+      ...sinkDestinationPayload(),
       requireApproval: true,
       createdBy: "CoReadingSidecar"
     });
@@ -10763,7 +10776,7 @@ $("copySinkReviewPacketBtn").addEventListener("click", async () => {
       `rawTextIncluded: ${preview.rawTextIncluded === false ? "false" : "true"}`,
       "",
       "审稿目标:",
-      "- 判断是否适合写入 Obsidian/DailyNote/VCPMemory。",
+      "- 判断是否适合写入 Obsidian/OBS/DailyNote/VCPMemory。",
       "- 保持当前书籍语境、引用边界和 Nova 审美一致性。",
       "- 如需修改，直接给出可替换的沉淀正文。",
       "",
@@ -11188,12 +11201,15 @@ async function executeSelectedSinkPreview() {
 }
 
 function sinkExecutePayload(preview) {
+  const destination = preview.destination || {};
+  const settings = sinkDestinationPayload();
   return {
     command: "sink_execute",
     previewId: preview.previewId,
-    vaultPath: $("vaultPath").value.trim() || preview.destination?.vaultPath || undefined,
-    dailyNoteRoot: $("dailyNoteRoot").value.trim() || undefined,
-    vcpMemoryRoot: $("vcpMemoryRoot").value.trim() || undefined,
+    vaultPath: settings.vaultPath || destination.vaultPath || undefined,
+    dailyNoteRoot: settings.dailyNoteRoot,
+    vcpMemoryRoot: settings.vcpMemoryRoot,
+    obsOutputDir: settings.obsOutputDir || destination.outputDir || undefined,
     updatedBy: "CoReadingSidecar",
   };
 }
@@ -13090,6 +13106,7 @@ $("reviewForm").addEventListener("submit", async (event) => {
         reviewId,
         targets,
         requireApproval: true,
+        ...sinkDestinationPayload(),
         createdBy: "CoReadingSidecar",
       });
     }

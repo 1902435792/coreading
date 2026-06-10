@@ -14,6 +14,7 @@ const PLUGIN_DIR = __dirname;
 const PROJECT_ROOT = process.env.PROJECT_BASE_PATH || path.resolve(PLUGIN_DIR, "..", "..");
 const DEFAULT_VENDOR_DIR = path.join(PLUGIN_DIR, "vendor", "co-reading-mcp");
 const DEFAULT_DATA_DIR = path.join(PROJECT_ROOT, "data", "co-reading-mcp");
+const SINK_TARGETS = ["obsidian", "dailyNote", "vcpMemory", "obs"];
 
 const COMMAND_ALIASES = {
   tools: "list_tools",
@@ -304,7 +305,7 @@ const LOCAL_PLAN_TOOLS = [
         markRead: { type: "boolean" },
         createReview: { type: "boolean" },
         createSinkPreview: { type: "boolean" },
-        targets: { type: "array", items: { type: "string", enum: ["obsidian", "dailyNote", "vcpMemory"] } },
+        targets: { type: "array", items: { type: "string", enum: SINK_TARGETS } },
         requireApproval: { type: "boolean" },
         searchLimit: { type: "number" },
         chosenChunkIds: { type: "array", items: { type: "string" } },
@@ -329,7 +330,7 @@ const LOCAL_PLAN_TOOLS = [
         markRead: { type: "boolean" },
         createReview: { type: "boolean" },
         createSinkPreview: { type: "boolean" },
-        targets: { type: "array", items: { type: "string", enum: ["obsidian", "dailyNote", "vcpMemory"] } },
+        targets: { type: "array", items: { type: "string", enum: SINK_TARGETS } },
         requireApproval: { type: "boolean" },
         searchLimit: { type: "number" },
         createdBy: { type: "string" }
@@ -399,18 +400,21 @@ const LOCAL_REVIEW_TOOLS = [
 const LOCAL_SINK_TOOLS = [
   {
     name: "sink_preview_create",
-    description: "Create sink previews for Obsidian, DailyNote, and/or VCPMemory from a curated review.",
+    description: "Create sink previews for Obsidian, OBS, DailyNote, and/or VCPMemory from a curated review.",
     inputSchema: {
       type: "object",
       required: ["reviewId"],
       properties: {
         reviewId: { type: "string" },
-        targets: { type: "array", items: { type: "string", enum: ["obsidian", "dailyNote", "vcpMemory"] } },
+        targets: { type: "array", items: { type: "string", enum: SINK_TARGETS } },
         requireApproval: { type: "boolean" },
         illustrationIds: { type: "array", items: { type: "string" } },
         illustrationStatuses: { type: "array", items: { type: "string" } },
         vaultPath: { type: "string" },
         notePath: { type: "string" },
+        obsOutputDir: { type: "string" },
+        obsMarkdownPath: { type: "string" },
+        obsTextPath: { type: "string" },
         createdBy: { type: "string" }
       },
       additionalProperties: true
@@ -419,7 +423,7 @@ const LOCAL_SINK_TOOLS = [
   },
   {
     name: "sink_preview_create_from_backtrack",
-    description: "Create an approval-gated Obsidian sink preview from an interest_backtrack evidence packet.",
+    description: "Create approval-gated Obsidian/OBS sink previews from an interest_backtrack evidence packet.",
     inputSchema: {
       type: "object",
       required: ["bookId"],
@@ -432,9 +436,13 @@ const LOCAL_SINK_TOOLS = [
         limit: { type: "number" },
         maxRanges: { type: "number" },
         mergeGap: { type: "number" },
+        targets: { type: "array", items: { type: "string", enum: SINK_TARGETS } },
         requireApproval: { type: "boolean" },
         vaultPath: { type: "string" },
         notePath: { type: "string" },
+        obsOutputDir: { type: "string" },
+        obsMarkdownPath: { type: "string" },
+        obsTextPath: { type: "string" },
         createdBy: { type: "string" }
       },
       additionalProperties: true
@@ -443,7 +451,7 @@ const LOCAL_SINK_TOOLS = [
   },
   {
     name: "sink_preview_create_from_cards",
-    description: "Create an approval-gated Obsidian digest preview from collected reading cards.",
+    description: "Create approval-gated Obsidian/OBS digest previews from collected reading cards.",
     inputSchema: {
       type: "object",
       required: ["bookId"],
@@ -456,9 +464,13 @@ const LOCAL_SINK_TOOLS = [
         limit: { type: "number" },
         offset: { type: "number" },
         title: { type: "string" },
+        targets: { type: "array", items: { type: "string", enum: SINK_TARGETS } },
         requireApproval: { type: "boolean" },
         vaultPath: { type: "string" },
         notePath: { type: "string" },
+        obsOutputDir: { type: "string" },
+        obsMarkdownPath: { type: "string" },
+        obsTextPath: { type: "string" },
         createdBy: { type: "string" }
       },
       additionalProperties: true
@@ -510,7 +522,7 @@ const LOCAL_SINK_TOOLS = [
   },
   {
     name: "sink_execute",
-    description: "Execute one approved sink preview through the configured Obsidian/DailyNote/VCPMemory adapter.",
+    description: "Execute one approved sink preview through the configured Obsidian/OBS/DailyNote/VCPMemory adapter.",
     inputSchema: {
       type: "object",
       required: ["previewId"],
@@ -523,6 +535,10 @@ const LOCAL_SINK_TOOLS = [
         assetFolder: { type: "string" },
         dailyNoteRoot: { type: "string" },
         vcpMemoryRoot: { type: "string" },
+        obsOutputDir: { type: "string" },
+        obsMarkdownPath: { type: "string" },
+        obsTextPath: { type: "string" },
+        obsTextMaxChars: { type: "number" },
         targetFolder: { type: "string" },
         reviewer: { type: "string" },
         updatedBy: { type: "string" }
@@ -1595,6 +1611,7 @@ function normalizeSinkPolicy(input) {
   return {
     requireApproval: sinkPolicy.requireApproval !== false,
     obsidian: sinkPolicy.obsidian === true,
+    obs: sinkPolicy.obs === true,
     dailyNote: sinkPolicy.dailyNote === true,
     vcpMemory: sinkPolicy.vcpMemory === true,
     rawText: sinkPolicy.rawText === true ? "forbidden-by-default" : "never",
@@ -2997,6 +3014,7 @@ function defaultTargetsForReview(review) {
   const policy = review.sinkPolicy || {};
   const targets = [];
   if (policy.obsidian) targets.push("obsidian");
+  if (policy.obs) targets.push("obs");
   if (policy.dailyNote) targets.push("dailyNote");
   if (policy.vcpMemory) targets.push("vcpMemory");
   return targets.length ? targets : ["obsidian"];
@@ -3061,29 +3079,39 @@ function buildSinkPreview(review, target, args, now, context = {}) {
       content: buildVcpMemoryProposal(review)
     };
   }
+  if (target === "obs") {
+    const titleSlug = slugPart(review.title || review.reviewId);
+    return {
+      ...base,
+      destination: {
+        type: "obs",
+        outputDir: args.obsOutputDir || null,
+        markdownPath: ensureMarkdownPath(args.obsMarkdownPath, `${titleSlug}.md`),
+        textPath: ensureTextPath(args.obsTextPath, `${titleSlug}.txt`)
+      },
+      contentType: "markdown",
+      content: renderReviewMarkdown(review, { illustrations })
+    };
+  }
   fail(`未知沉淀目标: ${target}`);
 }
 
-function buildBacktrackSinkPreview(args, backtrack, now) {
-  const previewId = createArtifactId("sink-obsidian-backtrack", backtrack.bookId);
-  const title = backtrack.evidence?.title || `兴趣点回溯 ${args.query || args.anchorChunkId || backtrack.bookId}`;
+function standaloneSinkTargets(args) {
+  const targets = normalizeArray(args.targets);
+  const allowed = targets.filter((target) => SINK_TARGETS.includes(target));
+  return allowed.length ? allowed : ["obsidian"];
+}
+
+function buildMarkdownSinkPreview(args, target, now, source) {
   const requireApproval = args.requireApproval !== false;
-  const notePath = args.notePath || `CoReading/${slugPart(backtrack.bookId)}/${slugPart(title)}.md`;
-  return {
-    previewId,
+  const titleSlug = slugPart(source.title || source.bookId || source.sourceType);
+  const base = {
+    previewId: createArtifactId(`sink-${target}-${source.idSuffix}`, source.bookId || source.sourceType),
     reviewId: null,
-    sourceType: "backtrack_evidence",
-    backtrack: {
-      bookId: backtrack.bookId,
-      query: backtrack.query,
-      anchorChunkId: backtrack.anchorChunkId,
-      window: backtrack.window,
-      chunkIds: backtrack.chunkIds,
-      rangeCount: backtrack.ranges.length,
-      anchorCount: backtrack.anchors.length
-    },
-    bookId: backtrack.bookId,
-    target: "obsidian",
+    sourceType: source.sourceType,
+    ...source.metadata,
+    bookId: source.bookId,
+    target,
     status: requireApproval ? "pending" : "approved",
     requireApproval,
     createdBy: args.createdBy || "nova",
@@ -3091,17 +3119,57 @@ function buildBacktrackSinkPreview(args, backtrack, now) {
     updatedAt: now,
     rawTextIncluded: false,
     illustrationIds: [],
-    destination: { type: "obsidian", vaultPath: args.vaultPath || null, notePath },
     contentType: "markdown",
-    content: backtrack.evidenceMarkdown,
+    content: source.content,
     history: [
       {
         at: now,
-        event: "created_from_backtrack",
+        event: source.historyEvent,
         by: args.createdBy || "nova"
       }
     ]
   };
+  if (target === "obsidian") {
+    const notePath = args.notePath || `CoReading/${slugPart(source.bookId)}/${titleSlug}.md`;
+    return { ...base, destination: { type: "obsidian", vaultPath: args.vaultPath || null, notePath } };
+  }
+  if (target === "obs") {
+    return {
+      ...base,
+      destination: {
+        type: "obs",
+        outputDir: args.obsOutputDir || null,
+        markdownPath: ensureMarkdownPath(args.obsMarkdownPath, `${titleSlug}.md`),
+        textPath: ensureTextPath(args.obsTextPath, `${titleSlug}.txt`)
+      }
+    };
+  }
+  if (target === "dailyNote") return { ...base, destination: { type: "dailyNote", section: "co-reading" } };
+  if (target === "vcpMemory") return { ...base, destination: { type: "vcpMemory", collection: "co-reading" } };
+  fail(`未知沉淀目标: ${target}`);
+}
+
+function buildBacktrackSinkPreviews(args, backtrack, now) {
+  const title = backtrack.evidence?.title || `兴趣点回溯 ${args.query || args.anchorChunkId || backtrack.bookId}`;
+  return standaloneSinkTargets(args).map((target) => buildMarkdownSinkPreview(args, target, now, {
+    sourceType: "backtrack_evidence",
+    idSuffix: "backtrack",
+    bookId: backtrack.bookId,
+    title,
+    content: backtrack.evidenceMarkdown,
+    historyEvent: "created_from_backtrack",
+    metadata: {
+      backtrack: {
+        bookId: backtrack.bookId,
+        query: backtrack.query,
+        anchorChunkId: backtrack.anchorChunkId,
+        window: backtrack.window,
+        chunkIds: backtrack.chunkIds,
+        rangeCount: backtrack.ranges.length,
+        anchorCount: backtrack.anchors.length
+      }
+    }
+  }));
 }
 
 function renderCardDigestMarkdown(args, cards) {
@@ -3144,44 +3212,28 @@ function renderCardDigestMarkdown(args, cards) {
   return lines.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
-function buildCardDigestSinkPreview(args, cards, now) {
+function buildCardDigestSinkPreviews(args, cards, now) {
   const title = args.title || `${args.bookId} 阅读卡片 digest`;
-  const requireApproval = args.requireApproval !== false;
-  const notePath = args.notePath || `CoReading/${slugPart(args.bookId)}/${slugPart(title)}.md`;
-  return {
-    previewId: createArtifactId("sink-obsidian-card-digest", args.bookId),
-    reviewId: null,
+  return standaloneSinkTargets(args).map((target) => buildMarkdownSinkPreview(args, target, now, {
     sourceType: "card_digest",
-    cardDigest: {
-      bookId: args.bookId,
-      chunkId: args.chunkId || null,
-      source: args.source || null,
-      scope: args.scope || null,
-      limit: args.limit || 20,
-      offset: args.offset || 0,
-      cardIds: cards.map((card) => card.id).filter(Boolean),
-      cardCount: cards.length
-    },
+    idSuffix: "card-digest",
     bookId: args.bookId,
-    target: "obsidian",
-    status: requireApproval ? "pending" : "approved",
-    requireApproval,
-    createdBy: args.createdBy || "nova",
-    createdAt: now,
-    updatedAt: now,
-    rawTextIncluded: false,
-    illustrationIds: [],
-    destination: { type: "obsidian", vaultPath: args.vaultPath || null, notePath },
-    contentType: "markdown",
+    title,
     content: renderCardDigestMarkdown(args, cards),
-    history: [
-      {
-        at: now,
-        event: "created_from_cards",
-        by: args.createdBy || "nova"
+    historyEvent: "created_from_cards",
+    metadata: {
+      cardDigest: {
+        bookId: args.bookId,
+        chunkId: args.chunkId || null,
+        source: args.source || null,
+        scope: args.scope || null,
+        limit: args.limit || 20,
+        offset: args.offset || 0,
+        cardIds: cards.map((card) => card.id).filter(Boolean),
+        cardCount: cards.length
       }
-    ]
-  };
+    }
+  }));
 }
 
 function summarizePreview(preview) {
@@ -3252,6 +3304,17 @@ function ensureMarkdownPath(notePath, fallback) {
     .join("/");
   const finalPath = withoutTraversal || fallback || "co-reading-review.md";
   return /\.md$/i.test(finalPath) ? finalPath : `${finalPath}.md`;
+}
+
+function ensureTextPath(textPath, fallback) {
+  const raw = String(textPath || fallback || "co-reading-obs.txt").trim().replace(/\\/g, "/");
+  const cleaned = raw.replace(/^\/+/, "").replace(/\0/g, "");
+  const withoutTraversal = cleaned
+    .split("/")
+    .filter((part) => part && part !== "." && part !== "..")
+    .join("/");
+  const finalPath = withoutTraversal || fallback || "co-reading-obs.txt";
+  return /\.txt$/i.test(finalPath) ? finalPath : `${finalPath}.txt`;
 }
 
 function localPathFromImageUri(uri) {
@@ -4943,10 +5006,64 @@ function writeVcpMemoryPreview(preview, args) {
   };
 }
 
+function markdownToObsText(content, maxChars) {
+  const limit = Number.isFinite(Number(maxChars)) && Number(maxChars) > 0 ? Number(maxChars) : 2200;
+  const text = String(content || "")
+    .replace(/^---[\s\S]*?---\s*/u, "")
+    .replace(/!\[[^\]]*\]\([^)]+\)/gu, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/gu, "$1")
+    .replace(/^#{1,6}\s*/gmu, "")
+    .replace(/^>\s?/gmu, "")
+    .replace(/^[*-]\s+/gmu, "")
+    .replace(/`([^`]+)`/gu, "$1")
+    .replace(/\*\*([^*]+)\*\*/gu, "$1")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
+  return text.length > limit ? `${text.slice(0, limit).trim()}\n...` : text;
+}
+
+function writeObsPreview(preview, args) {
+  const outputDirInput = args.obsOutputDir || preview.destination?.outputDir || process.env.CO_READING_OBS_OUTPUT_DIR;
+  if (!outputDirInput || !String(outputDirInput).trim()) {
+    fail("执行 OBS 预览需要 obsOutputDir 或 CO_READING_OBS_OUTPUT_DIR。");
+  }
+  const outputDir = path.resolve(String(outputDirInput));
+  if (outputDir === path.parse(outputDir).root) fail(`拒绝把 OBS 输出目录设置为磁盘根: ${outputDir}`);
+  fs.mkdirSync(outputDir, { recursive: true });
+  const defaultSlug = slugPart(preview.reviewId || preview.previewId || "co-reading");
+  const markdownPath = ensureMarkdownPath(args.obsMarkdownPath || preview.destination?.markdownPath, `${defaultSlug}.md`);
+  const textPath = ensureTextPath(args.obsTextPath || preview.destination?.textPath, `${defaultSlug}.txt`);
+  const markdownTargetPath = resolveInside(outputDir, markdownPath);
+  const textTargetPath = resolveInside(outputDir, textPath);
+  if (fs.existsSync(markdownTargetPath) && args.overwrite !== true) {
+    fail(`OBS Markdown 文件已存在，传 overwrite=true 才会覆盖: ${markdownTargetPath}`);
+  }
+  if (fs.existsSync(textTargetPath) && args.overwrite !== true) {
+    fail(`OBS 文本源文件已存在，传 overwrite=true 才会覆盖: ${textTargetPath}`);
+  }
+  const markdownContent = String(preview.content || "").trim();
+  const textContent = markdownToObsText(markdownContent, args.obsTextMaxChars);
+  fs.mkdirSync(path.dirname(markdownTargetPath), { recursive: true });
+  fs.mkdirSync(path.dirname(textTargetPath), { recursive: true });
+  fs.writeFileSync(markdownTargetPath, `${markdownContent}\n`, "utf8");
+  fs.writeFileSync(textTargetPath, `${textContent}\n`, "utf8");
+  return {
+    adapter: "obs_text_files",
+    outputDir,
+    markdownPath,
+    textPath,
+    markdownTargetPath,
+    textTargetPath,
+    markdownBytesWritten: Buffer.byteLength(`${markdownContent}\n`, "utf8"),
+    textBytesWritten: Buffer.byteLength(`${textContent}\n`, "utf8")
+  };
+}
+
 function executePreview(preview, args) {
   if (preview.target === "obsidian") return writeObsidianPreview(preview, args);
   if (preview.target === "dailyNote") return writeDailyNotePreview(preview, args);
   if (preview.target === "vcpMemory") return writeVcpMemoryPreview(preview, args);
+  if (preview.target === "obs") return writeObsPreview(preview, args);
   fail(`未知沉淀目标: ${preview.target}`);
 }
 
@@ -5028,13 +5145,13 @@ async function handleSinkPreviewCreateFromBacktrack(args, dataDir, serverModule)
   if (!backtrack.evidenceMarkdown) fail("回溯结果缺少 evidenceMarkdown，无法创建沉淀预览。");
   const now = new Date().toISOString();
   const store = loadSinkPreviewStore(dataDir);
-  const preview = buildBacktrackSinkPreview(args, backtrack, now);
-  store.previews.push(preview);
+  const previews = buildBacktrackSinkPreviews(args, backtrack, now);
+  store.previews.push(...previews);
   saveSinkPreviewStore(dataDir, store);
   return {
     backtrack,
-    previews: [summarizePreview(preview)],
-    preview,
+    previews: previews.map(summarizePreview),
+    preview: previews[0],
     sinkPreviewPath: sinkPreviewsPath(dataDir)
   };
 }
@@ -5054,14 +5171,14 @@ async function handleSinkPreviewCreateFromCards(args, dataDir, serverModule) {
     : normalizeArray(cards);
   const now = new Date().toISOString();
   const store = loadSinkPreviewStore(dataDir);
-  const preview = buildCardDigestSinkPreview(args, selectedCards, now);
-  store.previews.push(preview);
+  const previews = buildCardDigestSinkPreviews(args, selectedCards, now);
+  store.previews.push(...previews);
   saveSinkPreviewStore(dataDir, store);
   return {
     cards: selectedCards,
     requestedCardIds: [...requestedCardIds],
-    previews: [summarizePreview(preview)],
-    preview,
+    previews: previews.map(summarizePreview),
+    preview: previews[0],
     sinkPreviewPath: sinkPreviewsPath(dataDir)
   };
 }

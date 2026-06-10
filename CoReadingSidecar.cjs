@@ -49,7 +49,8 @@ function configuredSinkDefaults() {
   const defaults = {
     vaultPath: process.env.CO_READING_OBSIDIAN_VAULT_DIR || "",
     dailyNoteRoot: process.env.CO_READING_DAILY_NOTE_ROOT || process.env.KNOWLEDGEBASE_ROOT_PATH || "",
-    vcpMemoryRoot: process.env.CO_READING_VCP_MEMORY_ROOT || process.env.VCP_MEMORY_ROOT || ""
+    vcpMemoryRoot: process.env.CO_READING_VCP_MEMORY_ROOT || process.env.VCP_MEMORY_ROOT || "",
+    obsOutputDir: process.env.CO_READING_OBS_OUTPUT_DIR || ""
   };
   return Object.fromEntries(
     Object.entries(defaults)
@@ -811,7 +812,7 @@ function novaFailureResult(body, attempts, timeoutMs = NOVA_TIMEOUT_MS) {
   const failed = [
     vcpFailure ? "6005 VCP 模型接口" : "",
     bridgeFailure ? "3100 bridge" : "",
-    agentFailure ? "6005 AgentAssistant" : ""
+    agentFailure ? "AgentAssistant /v1/human/tool" : ""
   ].filter(Boolean);
   const authFailed = attempts.some((attempt) => attempt.kind === "unauthorized");
   const statusHint = failed.length ? `${failed.join("、")}没有返回可用文本。` : "Nova 后端没有返回可用文本。";
@@ -1340,7 +1341,7 @@ const AGENT_TOOL_DEFINITIONS = [
     aliases: ["diary_preview_create", "daily_note_preview", "memory_preview"],
     mutates: true,
     requiresApproval: true,
-    description: "从 review 创建 Obsidian/DailyNote/VCPMemory 沉淀预览，仍需批准。",
+    description: "从 review 创建 Obsidian/OBS/DailyNote/VCPMemory 沉淀预览，仍需批准。",
     parameters: AGENT_SCHEMA.anyObject
   },
   {
@@ -1385,7 +1386,7 @@ const AGENT_TOOL_DEFINITIONS = [
     aliases: ["diary_execute", "daily_note_write_approved", "memory_execute"],
     mutates: true,
     requiresApproval: true,
-    description: "执行已经 approved 的沉淀预览，写入 Obsidian、DailyNote 或 VCPMemory。",
+    description: "执行已经 approved 的沉淀预览，写入 Obsidian、OBS、DailyNote 或 VCPMemory。",
     parameters: AGENT_SCHEMA.anyObject
   }
 ];
@@ -1448,10 +1449,10 @@ const NOVA_AGENT_SKILL_DEFINITIONS = [
   },
   {
     id: "safe-sink",
-    label: "Obsidian/日记沉淀",
+    label: "Obsidian/OBS/日记沉淀",
     category: "diary",
-    summary: "把评注、回溯或本次阅读会话做成待批准 preview，再执行写入。",
-    howToUse: "点“沉淀本段”或“沉淀回溯”；先看预览，批准后才允许写入目标位置。",
+    summary: "把评注、回溯或本次阅读会话做成待批准 preview，再执行写入 Obsidian、OBS 文本源或日记/记忆。",
+    howToUse: "点“沉淀本段”或“沉淀回溯”；先看预览，批准后才允许写入目标位置。OBS 需要配置输出目录。",
     action: "sink",
     toolNames: ["sink_preview_create", "backtrack_sink_preview_create", "sink_preview_approve", "sink_execute"]
   }
