@@ -1834,6 +1834,8 @@ body.reader-toc-open #readerTocList.reader-toc-inline.empty {
 }
 
 .reader-surface header {
+  position: relative;
+  z-index: 2;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1841,6 +1843,7 @@ body.reader-toc-open #readerTocList.reader-toc-inline.empty {
   min-height: 38px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--line);
+  background: var(--surface);
 }
 
 .reader-surface header > div:first-child {
@@ -1958,6 +1961,7 @@ body.reader-toc-open #readerTocList.reader-toc-inline.empty {
 
 .reader-text-shell {
   position: relative;
+  z-index: 1;
   display: block;
   flex: 1 1 auto;
   min-height: 0;
@@ -2212,19 +2216,26 @@ body.reader-toc-open .plan-panel > .reader-toc-search {
 
 .reader-nova-aside:not([hidden]) {
   position: absolute;
-  top: 42px;
-  right: 12px;
+  top: 46px;
+  right: 10px;
   z-index: 18;
-  width: min(420px, calc(100% - 24px));
+  width: min(360px, calc(100% - 20px));
   border: 1px solid var(--line);
   border-radius: 6px;
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   box-shadow: 0 14px 34px rgba(15, 15, 15, 0.1);
+  pointer-events: none;
 }
 
 .reader-nova-aside:not(.open) {
-  width: min(300px, calc(100% - 24px));
-  opacity: 0.78;
+  width: min(260px, calc(100% - 20px));
+  opacity: 0.66;
+}
+
+.reader-nova-aside.open,
+.reader-nova-aside-actions,
+.reader-nova-aside-actions button {
+  pointer-events: auto;
 }
 
 .reader-nova-aside:not(.open) .reader-nova-aside-actions button:not(#readerNovaAsideToggleBtn) {

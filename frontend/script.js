@@ -296,11 +296,11 @@ function setupReaderModeControls() {
   focusTools.className = "reader-focus-tools";
   focusTools.setAttribute("aria-label", "专注阅读控制");
   focusTools.innerHTML = [
-    '<button id="readerFocusExitBtn" type="button">退出专注</button>',
+    '<button id="readerFocusExitBtn" type="button">退出沉浸</button>',
     '<button id="readerFocusFullscreenBtn" type="button">全屏</button>',
   ].join("");
   shell.insertAdjacentElement("afterend", focusTools);
-  $("readerFocusExitBtn")?.addEventListener("click", () => void setReadingFocus(false));
+  $("readerFocusExitBtn")?.addEventListener("click", () => void setImmersiveReading(false));
   $("readerFocusFullscreenBtn")?.addEventListener("click", () => void toggleReaderFullscreen());
   renderReaderFullscreenButtons();
 
@@ -1351,6 +1351,8 @@ function renderImmersivePositionNav({ current = 1, total = 1, mode = state.reade
 
 async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
   state.immersiveReading = !!enabled;
+  state.readingFocus = state.immersiveReading;
+  document.body.classList.remove("reading-focus");
   if (state.immersiveReading) closeReaderToc();
   document.body.classList.toggle("immersive-reading", state.immersiveReading);
   if (!state.immersiveReading) {
@@ -1368,6 +1370,7 @@ async function setImmersiveReading(enabled, { skipFullscreen = false } = {}) {
     button.textContent = state.immersiveReading ? "退出沉浸" : "沉浸";
     button.setAttribute("aria-pressed", state.immersiveReading ? "true" : "false");
   }
+  renderFocusReadingButton();
   if (!skipFullscreen) {
     try {
       if (state.immersiveReading && !document.fullscreenElement) {
@@ -1407,11 +1410,15 @@ function renderReaderFullscreenButtons() {
 }
 
 async function setReadingFocus(enabled, { fullscreen = false } = {}) {
-  state.readingFocus = Boolean(enabled);
-  document.body.classList.toggle("reading-focus", state.readingFocus);
-  renderReaderProgress();
-  focusPanel(".reader-surface", "#chunkText");
-  if (fullscreen && state.readingFocus && !document.fullscreenElement) await toggleReaderFullscreen();
+  await setImmersiveReading(Boolean(enabled), { skipFullscreen: !fullscreen });
+}
+
+function renderFocusReadingButton() {
+  const button = $("focusReadingBtn");
+  if (!button) return;
+  button.setAttribute("aria-pressed", state.immersiveReading ? "true" : "false");
+  button.textContent = state.immersiveReading ? "退出沉浸" : "沉浸";
+  button.title = state.immersiveReading ? "退出沉浸阅读" : "进入全屏沉浸阅读";
 }
 
 function toggleImmersiveCleanRead() {
@@ -2872,8 +2879,7 @@ function renderReaderProgress() {
   $("readerSinkHint").textContent = selected
     ? `本书待沉淀 ${pendingCount} 条 · 卡片 ${cardCountForBook} 张 · 本段笔记 ${state.userNotes.length} 条`
     : "笔记、卡片和沉淀入口会在这里提示。";
-  $("focusReadingBtn").setAttribute("aria-pressed", state.readingFocus ? "true" : "false");
-  $("focusReadingBtn").textContent = state.readingFocus ? "退出专注" : "专注";
+  renderFocusReadingButton();
   renderReadingNowBar({ scrollPercent });
   renderReadingMap({ scrollPercent });
   renderWaypoints();
@@ -12628,7 +12634,7 @@ $("nextChunkBtn").addEventListener("click", () => {
   void moveChunk(1);
 });
 $("focusReadingBtn").addEventListener("click", () => {
-  void setReadingFocus(!state.readingFocus);
+  void setImmersiveReading(!state.immersiveReading);
 });
 $("readerNextBtn").addEventListener("click", () => {
   $("readerNextBtn").disabled = true;
@@ -12652,8 +12658,8 @@ $("readerAskNovaBtn").addEventListener("click", () => {
   prepareNovaPromptFromCurrentReading();
 });
 $("readerOpenSinkBtn").addEventListener("click", async () => {
-  if (state.readingFocus) {
-    await setReadingFocus(false);
+  if (state.immersiveReading || state.readingFocus) {
+    await setImmersiveReading(false);
   }
   await openBestSinkPreview();
 });
