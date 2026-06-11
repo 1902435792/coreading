@@ -4,7 +4,9 @@
 const STORE_PREFIX = "coreading-reader.";
 const SETTINGS_KEY = `${STORE_PREFIX}settings`;
 const POSITION_KEY = (bookId) => `${STORE_PREFIX}position.${bookId}`;
+const AUTO_PREREAD_KEY = `${STORE_PREFIX}autoPreRead`;
 const NOVA_TIMEOUT_MS = 360000;
+const AUTO_PREREAD_DEBOUNCE_MS = 3000;
 const FLOW_BATCH_SIZE = 3;
 const LOAD_MORE_MARGIN = 1600;
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
@@ -23,10 +25,15 @@ const state = {
   flowRequestId: 0,
   activeChunkId: "",
   preReadHistory: [],
+  sessionPreReads: [],    // 本会话自动预读结果（/api/nova/ask 不产生 agentRun，快照里没有）
+  autoPreReadTimer: 0,
+  autoPreReadInFlight: false,   // 全局同时只允许一个在飞自动预读
+  autoPreReadTried: new Set(),  // `${bookId}:${chunkId}`：本会话已真正发过一次（成败都不再试）
   novaActiveHistoryId: "",
   novaPending: false,
   novaReply: null,        // { meta, text, chunkId }
   selection: null,        // { text, chunkId, rect }
+  trailPending: false,
   sessionReplies: [],     // 本次会话 Nova 回复: { id, bookId, chunkId, text }
   annotations: [],        // 评注模型: { id, speaker, role, text, quote, chunkId, source, sourceId }
   chunkTextCache: new Map(),
@@ -354,6 +361,7 @@ async function importLocalBook(book, button) {
 function showShelf() {
   savePositionNow();
   window.clearTimeout(state.savePositionTimer);
+  window.clearTimeout(state.autoPreReadTimer);
   state.flowRequestId += 1;
   history.replaceState(null, "", location.pathname);
   $("readView").hidden = true;
@@ -364,6 +372,7 @@ function showShelf() {
   closeNoteCard();
   closeSinkTargetPop();
   closeSinkDrawer();
+  closeTrailDrawer();
   document.title = "共读";
   window.scrollTo(0, 0);
   loadShelf();
@@ -442,6 +451,7 @@ async function anchorFlowAt(index, { restoreOffset = 0 } = {}) {
     });
   }
   updateActiveChunk();
+  scheduleAutoPreRead();
 }
 
 async function loadMoreChunks(requestId = state.flowRequestId) {
@@ -573,7 +583,10 @@ function renderProgressLine(percent) {
 function updateActiveChunk() {
   const section = activeSection();
   if (!section) return;
+  const previousChunkId = state.activeChunkId;
   state.activeChunkId = section.dataset.chunkId;
+  // 阅读推进到新 chunk：重置自动预读去抖计时（快速滚动时不连发）。
+  if (state.activeChunkId !== previousChunkId) scheduleAutoPreRead();
   const order = chunkOrder(state.activeChunkId);
   const percent = order === null || !state.chunks.length
     ? 0
@@ -715,7 +728,17 @@ function applyNovaAgentRuns(runs) {
 }
 
 function preReadForBook() {
-  return state.preReadHistory.filter((item) => item.bookId === state.bookId);
+  // 本会话自动预读走 /api/nova/ask，不会出现在快照 agentRuns 里，单独保存后在这里合并。
+  return [...state.sessionPreReads, ...state.preReadHistory]
+    .filter((item) => item.bookId === state.bookId);
+}
+
+function hasPreReadFor(bookId, chunkId) {
+  // 巡读（scope=book）记录的 chunkId 只是 Nova 当时挑中的段，不算这段已被专门预读；
+  // 对照旧壳 novaPreReadHistoryForCurrentChunk 的 scope!=="book" 过滤，否则评注层（同样跳过
+  // book scope）不显示、新预读又被抑制，这个 chunk 就两头落空。
+  return [...state.sessionPreReads, ...state.preReadHistory]
+    .some((item) => item.scope !== "book" && item.bookId === bookId && item.chunkId === chunkId);
 }
 
 function formatHistoryTime(value) {
@@ -763,6 +786,7 @@ function showPreReadItem(item) {
     bookId: item.bookId,
     bookTitle: state.bookTitle,
     chunkId: item.chunkId,
+    pinned: true, // 用户主动点开的回看：自动预读完成时不许覆盖
   };
   renderNovaReply();
   renderNovaHistory();
@@ -1002,7 +1026,7 @@ function closeCommentCard() {
 
 function showAnnotationInNova(ann) {
   if (ann.source === "nova-preread") {
-    const item = state.preReadHistory.find((entry) => entry.id === ann.sourceId);
+    const item = [...state.sessionPreReads, ...state.preReadHistory].find((entry) => entry.id === ann.sourceId);
     if (item) return showPreReadItem(item);
   }
   state.novaReply = {
@@ -1011,6 +1035,7 @@ function showAnnotationInNova(ann) {
     bookId: ann.bookId || state.bookId,
     bookTitle: state.bookTitle,
     chunkId: ann.chunkId,
+    pinned: true, // 用户从评论卡主动点开查看：自动预读完成时不许覆盖
   };
   state.novaActiveHistoryId = "";
   renderNovaReply();
@@ -1732,7 +1757,8 @@ async function saveNovaReplyAsNote() {
   // 笔记归属跟着回复本身：reply 可能来自上一本书（慢速回复期间切书），不能写进当前书。
   const bookId = reply?.bookId || state.bookId;
   if (!reply?.text || !reply.chunkId || !bookId || state.noteSaving) return;
-  const isPreRead = String(reply.meta || "").startsWith("Nova 预读");
+  // 历史预读 meta 是 "Nova 预读 · ..."，自动预读 meta 是 "Nova 自主预读 · ..."，都按预读归档。
+  const isPreRead = /^Nova (自主)?预读/.test(String(reply.meta || ""));
   const button = $("novaSaveNoteBtn");
   button.disabled = true;
   $("novaActionStatus").textContent = "保存中…";
@@ -1936,10 +1962,253 @@ async function sendNovaPrompt() {
   }
 }
 
+/* ---------- Nova 自动预读（autonomous pre-read 调度，移植旧壳能力） ---------- */
+
+function autoPreReadOn() {
+  return readJson(AUTO_PREREAD_KEY) !== "off";
+}
+
+function syncAutoPreReadButton() {
+  $("novaAutoBtn").setAttribute("aria-pressed", String(autoPreReadOn()));
+}
+
+function toggleAutoPreRead() {
+  writeJson(AUTO_PREREAD_KEY, autoPreReadOn() ? "off" : "on");
+  syncAutoPreReadButton();
+  if (autoPreReadOn()) scheduleAutoPreRead();
+  else window.clearTimeout(state.autoPreReadTimer);
+}
+
+function scheduleAutoPreRead() {
+  window.clearTimeout(state.autoPreReadTimer);
+  if (!autoPreReadOn() || !state.bookId || $("readView").hidden) return;
+  state.autoPreReadTimer = window.setTimeout(() => {
+    void runAutoPreRead();
+  }, AUTO_PREREAD_DEBOUNCE_MS);
+}
+
+async function runAutoPreRead() {
+  const bookId = state.bookId;
+  const chunkId = state.activeChunkId;
+  if (!autoPreReadOn() || !bookId || !chunkId || $("readView").hidden) return;
+  // 手动提问优先：手动在飞时让路，不占用本 chunk 的尝试机会，等下一次触发再试。
+  if (state.novaPending || state.autoPreReadInFlight) return;
+  const key = `${bookId}:${chunkId}`;
+  if (state.autoPreReadTried.has(key) || hasPreReadFor(bookId, chunkId)) return;
+  state.autoPreReadInFlight = true;
+  try {
+    const text = renderedChunkText(chunkId) || await chunkRawText(chunkId).catch(() => "");
+    if (!text.trim() || bookId !== state.bookId) return;
+    state.autoPreReadTried.add(key); // 即将真正发请求：每 chunk 会话内只试一次（成败都算）
+    const context = await buildAutoPreReadContext(bookId, chunkId, text);
+    if (bookId !== state.bookId) return; // 取候选期间切书，放弃本次
+    const result = await askNovaApi({ prompt: buildAutoPreReadPrompt(), context });
+    recordAutoPreRead(context, result.content || "");
+  } catch (error) {
+    // 真实环境 Nova 上游经常 35s+ 超时甚至 502：自动预读失败必须完全静默，不打扰阅读。
+    console.debug("[coreading] 自动预读静默失败:", error?.message || error);
+  } finally {
+    state.autoPreReadInFlight = false;
+  }
+}
+
+function buildAutoPreReadPrompt() {
+  // 对照旧壳 buildNovaAutonomousReadingPrompt 的自主预读风格。
+  return [
+    "请你作为 Nova 自主阅读当前段落，不等我指定问题。",
+    "你可以自己选择最值得看的角度：概念、隐喻、结构、疑点、值得停留的句子或后续线索。",
+    "输出保持短而有用：",
+    "1. 你决定先看哪里，为什么；",
+    "2. 对这一段做一条具体评论，必须锚定原文，引用原文句子时用“”引号包住原句；",
+    "3. 选一句值得摘下来的话；",
+    "4. 给我一个下一步阅读动作。",
+    "不要泛泛总结，不要假装读了未传入的后文。",
+  ].join("\n");
+}
+
+function novaTocPreview(limit = 18) {
+  // 对照旧壳 novaTocPreview：当前书目录前 ~18 项。
+  return state.chunks.slice(0, limit).map((chunk, index) => ({
+    chunkId: getChunkId(chunk),
+    title: chunkTitle(chunk),
+    sectionTitle: String(chunk.sectionTitle || chunk.title || ""),
+    position: `${index + 1}/${state.chunks.length}`,
+  }));
+}
+
+async function autoPreReadCandidates(chunkId, currentText) {
+  // 当前 chunk 附近 2-3 个候选：当前段 + 顺读方向的后两段。
+  const order = chunkOrder(chunkId) ?? 0;
+  const ids = [chunkId];
+  for (const neighbor of [order + 1, order + 2]) {
+    const chunk = state.chunks[neighbor];
+    if (chunk) ids.push(getChunkId(chunk));
+  }
+  const candidates = [];
+  for (const id of ids.slice(0, 3)) {
+    const chunk = chunkById(id) || {};
+    let text = id === chunkId ? currentText : renderedChunkText(id);
+    if (!text) {
+      try {
+        text = await chunkRawText(id);
+      } catch {
+        continue; // 候选段失败时跳过，保留其它可读上下文。
+      }
+    }
+    if (!text.trim()) continue;
+    candidates.push({ chunkId: id, title: chunkTitle(chunk) || id, text: compactText(text, 1800) });
+  }
+  return candidates;
+}
+
+async function buildAutoPreReadContext(bookId, chunkId, text) {
+  const chunk = chunkById(chunkId) || {};
+  const order = chunkOrder(chunkId);
+  return {
+    coReadingContextVersion: "2026-06-reader-shell",
+    contextMode: "autonomous-reading",
+    runtimeAgent: "Nova",
+    productMode: "single-agent-reader",
+    bookId,
+    bookTitle: state.bookTitle,
+    chunkId,
+    chunkTitle: chunkTitle(chunk) || chunkId,
+    chunkPosition: order === null ? "" : `${order + 1}/${state.chunks.length}`,
+    text: compactText(text, 6000),
+    selection: "",
+    selectionOffset: null,
+    tocPreview: novaTocPreview(),
+    autonomousCandidates: await autoPreReadCandidates(chunkId, text),
+    instructionBoundary: "Nova 可以在 autonomousCandidates 中自行选择先读哪里；只能评论传入候选段和当前段，不要假装读完整本书。",
+  };
+}
+
+function recordAutoPreRead(context, replyText) {
+  const note = compactText(replyText, 520);
+  if (!note) return;
+  const item = {
+    id: `nova-pre-${context.bookId}-${context.chunkId}-${Date.now()}`,
+    bookId: context.bookId,
+    chunkId: context.chunkId,
+    title: context.chunkTitle || context.chunkId,
+    note,
+    scope: "chunk",
+    answeredAt: new Date().toISOString(),
+  };
+  state.sessionPreReads.unshift(item);
+  // 慢速回复期间切书：历史按请求时的 bookId 归档，不渲染进当前书。
+  if (item.bookId !== state.bookId) return;
+  rebuildAnnotations();
+  redecorateChunk(item.chunkId);
+  // 不抢用户的对话：手动请求在飞、面板正显示手动回复、或用户正回看历史/评论时，只进历史列表和评注层。
+  if (!state.novaPending && !state.novaReply?.prompt && !state.novaReply?.pinned) {
+    state.novaActiveHistoryId = item.id;
+    state.novaReply = {
+      meta: `Nova 自主预读 · ${item.chunkId} · ${item.title}`,
+      text: item.note,
+      bookId: item.bookId,
+      bookTitle: state.bookTitle,
+      chunkId: item.chunkId,
+    };
+    renderNovaReply();
+  }
+  renderNovaHistory();
+}
+
+/* ---------- 选区追线索（interest_backtrack 抽屉） ---------- */
+
+function openTrailDrawer() {
+  $("trailDrawer").hidden = false;
+  $("trailBackdrop").hidden = false;
+}
+
+function closeTrailDrawer() {
+  $("trailDrawer").hidden = true;
+  $("trailBackdrop").hidden = true;
+}
+
+async function trailFromSelection() {
+  const selection = state.selection;
+  const bookId = state.bookId;
+  if (!selection?.text || !bookId || state.trailPending) return;
+  state.trailPending = true;
+  const button = $("selTrailBtn");
+  const status = $("selToolStatus");
+  button.disabled = true;
+  button.textContent = "追线索…";
+  status.hidden = true;
+  try {
+    // payload 对照旧壳 backtrackPayload：选区文本做线索 + bounded evidence 参数。
+    const result = await query({
+      command: "interest_backtrack",
+      bookId,
+      query: selection.text.replace(/\s+/g, " ").trim().slice(0, 120) || undefined,
+      anchorChunkId: selection.chunkId,
+      before: 2,
+      after: 2,
+      maxRanges: 4,
+      mergeGap: 1,
+      includeEvidence: true,
+    });
+    if (bookId !== state.bookId || $("readView").hidden) return; // 等待期间切书/回书架，结果作废
+    renderTrailResult(result);
+    hideSelTool();
+    openTrailDrawer();
+  } catch (error) {
+    status.textContent = `追线索失败：${compactText(error.message || error, 60)}，可点按钮重试。`;
+    status.hidden = false;
+  } finally {
+    state.trailPending = false;
+    button.disabled = false;
+    button.textContent = "追线索";
+  }
+}
+
+function renderTrailResult(result) {
+  const evidence = result?.evidence || {};
+  const ranges = Array.isArray(evidence.rangeSummaries) ? evidence.rangeSummaries : [];
+  const anchors = Array.isArray(evidence.anchorSnippets) ? evidence.anchorSnippets : [];
+  $("trailSummary").textContent = [
+    result?.query ? `「${compactText(result.query, 24)}」` : "",
+    `${anchors.length} 个锚点 · ${ranges.length} 组范围`,
+    ranges.length ? "" : "没有命中范围",
+  ].filter(Boolean).join(" · ");
+  const list = $("trailList");
+  list.textContent = "";
+  for (const range of ranges) {
+    const anchorChunkId = range.anchorChunkIds?.[0] || range.startChunkId;
+    const order = chunkOrder(anchorChunkId);
+    const chunk = chunkById(anchorChunkId);
+    // 选区锚点（source=anchor）的 snippet 恒为 null，优先挑同范围里带摘录的搜索锚点。
+    const snippet = anchors.find((anchor) => range.anchorChunkIds?.includes(anchor.chunkId) && anchor.snippet)?.snippet || "";
+    const item = document.createElement("li");
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "trail-row";
+    const head = document.createElement("p");
+    head.className = "trail-row-head";
+    head.textContent = [
+      order === null ? anchorChunkId : `第 ${order + 1} 段`,
+      chunk ? sectionLabel(chunk) : "",
+    ].filter(Boolean).join(" · ");
+    const body = document.createElement("p");
+    body.className = "trail-row-snippet";
+    body.textContent = compactText(snippet || range.label, 100);
+    row.append(head, body);
+    row.addEventListener("click", () => {
+      closeTrailDrawer();
+      void jumpToChunk(anchorChunkId); // 已加载滚动定位，未加载重锚加载（同 ↩ 跳转路径）
+    });
+    item.append(row);
+    list.append(item);
+  }
+}
+
 /* ---------- 选区工具条 ---------- */
 
 function hideSelTool() {
   $("selTool").hidden = true;
+  $("selToolStatus").hidden = true;
 }
 
 function onSelectionEnd() {
@@ -1969,6 +2238,7 @@ function onSelectionEnd() {
     },
   };
   const tool = $("selTool");
+  $("selToolStatus").hidden = true; // 新选区时清掉上一次的内联错误
   tool.hidden = false;
   const left = Math.max(8, Math.min(
     rect.left + window.scrollX + rect.width / 2 - tool.offsetWidth / 2,
@@ -1998,14 +2268,18 @@ function setupEvents() {
   $("tocBackdrop").addEventListener("click", closeToc);
   $("novaStrip").addEventListener("click", openNova);
   $("novaCloseBtn").addEventListener("click", closeNova);
+  $("novaAutoBtn").addEventListener("click", toggleAutoPreRead);
   $("novaSendBtn").addEventListener("click", sendNovaPrompt);
   $("selAskBtn").addEventListener("click", askNovaFromSelection);
   $("selNoteBtn").addEventListener("click", openNoteCardFromSelection);
+  $("selTrailBtn").addEventListener("click", trailFromSelection);
   $("noteSaveNoteBtn").addEventListener("click", () => saveMyNote("note"));
   $("noteSaveAnnotBtn").addEventListener("click", () => saveMyNote("annotation"));
   $("sinkBtn").addEventListener("click", openSinkDrawer);
   $("sinkCloseBtn").addEventListener("click", closeSinkDrawer);
   $("sinkBackdrop").addEventListener("click", closeSinkDrawer);
+  $("trailCloseBtn").addEventListener("click", closeTrailDrawer);
+  $("trailBackdrop").addEventListener("click", closeTrailDrawer);
   $("sinkTargetConfirmBtn").addEventListener("click", confirmSinkCreate);
   $("novaSaveNoteBtn").addEventListener("click", saveNovaReplyAsNote);
   $("novaSinkBtn").addEventListener("click", sinkFromNovaReply);
@@ -2040,6 +2314,7 @@ function setupEvents() {
       closeNoteCard();
       closeSinkTargetPop();
       closeSinkDrawer();
+      closeTrailDrawer();
       $("typoPop").hidden = true;
       return;
     }
@@ -2051,6 +2326,7 @@ function setupEvents() {
 
 async function init() {
   applySettings();
+  syncAutoPreReadButton();
   renderNovaReply();
   setupEvents();
   setupCompanionObserver();
