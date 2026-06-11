@@ -43,6 +43,8 @@ const COMMAND_ALIASES = {
   create_user_note: "user_note_create",
   user_note_list: "user_note_list",
   list_user_notes: "user_note_list",
+  user_note_delete: "user_note_delete",
+  delete_user_note: "user_note_delete",
   list_annotations: "reading_list_annotations",
   annotations: "reading_list_annotations",
   submit_notes: "reading_submit_user_notes",
@@ -1119,6 +1121,19 @@ const LOCAL_USER_NOTE_TOOLS = [
       additionalProperties: false
     },
     annotations: { title: "List User Notes", readOnlyHint: true }
+  },
+  {
+    name: "user_note_delete",
+    description: "Delete one annotation/user note by id, regardless of author. Replies under it are removed as well.",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string" }
+      },
+      additionalProperties: false
+    },
+    annotations: { title: "Delete User Note", destructiveHint: true }
   }
 ];
 
@@ -2303,6 +2318,14 @@ async function handleUserNoteCreate(args, dataDir, vendorDir) {
     status
   });
   return { note: summarizeUserNote(note), annotationsPath: path.join(dataDir, "annotations.jsonl") };
+}
+
+async function handleUserNoteDelete(args, dataDir, vendorDir) {
+  if (!args.id) fail("id 是必需参数。");
+  const store = await getVendorStore(vendorDir);
+  if (typeof store.deleteAnnotation !== "function") fail("vendor store 不支持 deleteAnnotation。");
+  const result = await store.deleteAnnotation({ id: args.id });
+  return { ...result, annotationsPath: path.join(dataDir, "annotations.jsonl") };
 }
 
 async function handleUserNoteList(args, dataDir, serverModule) {
@@ -5537,6 +5560,7 @@ async function callLocalCommand(command, args, dataDir, serverModule, vendorDir)
   if (command === "illustration_suggest") return handleIllustrationSuggest(args, dataDir);
   if (command === "user_note_create") return handleUserNoteCreate(args, dataDir, vendorDir);
   if (command === "user_note_list") return handleUserNoteList(args, dataDir, serverModule);
+  if (command === "user_note_delete") return handleUserNoteDelete(args, dataDir, vendorDir);
   fail(`未知本地命令: ${command}`);
 }
 

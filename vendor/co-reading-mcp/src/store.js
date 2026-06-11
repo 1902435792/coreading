@@ -82,7 +82,10 @@ async function writeJson(filePath, value) {
 async function writeJsonl(filePath, rows) {
   await mkdir(path.dirname(filePath), { recursive: true });
   const body = rows.map((row) => JSON.stringify(row)).join("\n");
-  await writeFile(filePath, body ? `${body}\n` : "", "utf8");
+  // 先写临时文件再同目录 rename：进程中途崩溃不会把整个 jsonl 截断成半行。
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tempPath, body ? `${body}\n` : "", "utf8");
+  await rename(tempPath, filePath);
 }
 
 function safeTrashName(value) {
@@ -1262,6 +1265,41 @@ export async function annotatePassage(input) {
     await appendFile(annotationsPath, `${JSON.stringify(annotation)}\n`, "utf8");
     invalidateAnnotationCache();
     return annotation;
+  });
+}
+
+export async function deleteAnnotation({ id } = {}) {
+  return withWriteLock(async () => {
+    if (!id) throw new Error("id is required");
+    const annotations = await readAllAnnotations();
+    const target = annotations.find((annotation) => annotation.id === id);
+    if (!target) throw new Error(`Annotation not found: ${id}`);
+    // 级联收集整棵回复树：replyToAnnotation 允许回复挂在回复上，只删一层会留下孤儿行。
+    const doomedIds = new Set([id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const annotation of annotations) {
+        if (!annotation.parentId || !doomedIds.has(annotation.parentId)) continue;
+        if (annotation.id == null || doomedIds.has(annotation.id)) continue;
+        doomedIds.add(annotation.id);
+        changed = true;
+      }
+    }
+    const kept = annotations.filter(
+      (annotation) => !doomedIds.has(annotation.id) && !(annotation.parentId && doomedIds.has(annotation.parentId))
+    );
+    await writeJsonl(annotationsPath, kept);
+    invalidateAnnotationCache();
+    return {
+      deletedId: id,
+      deletedReplyCount: annotations.length - kept.length - 1,
+      bookId: target.bookId,
+      chunkId: target.chunkId,
+      kind: target.kind || "annotation",
+      author: target.author || "",
+      message: `Deleted annotation ${id}.`,
+    };
   });
 }
 

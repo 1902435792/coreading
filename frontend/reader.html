@@ -33,6 +33,7 @@
       <div id="topbarTitle" class="topbar-title"></div>
       <nav class="topbar-right">
         <span id="topbarProgress" class="muted"></span>
+        <button id="sinkBtn" class="text-btn" type="button">沉淀<span id="sinkBadge" class="sink-badge" hidden></span></button>
         <button id="tocBtn" class="text-btn" type="button">目录</button>
         <button id="typoBtn" class="text-btn" type="button">Aa</button>
       </nav>
@@ -109,6 +110,29 @@
     <!-- 统一评论卡片（Nova / Phase 3 书友共用） -->
     <div id="commentCard" class="comment-card" hidden></div>
 
+    <!-- 沉淀目标选择小弹层 -->
+    <div id="sinkTargetPop" class="sink-target-pop" hidden>
+      <p class="sink-target-title">沉淀到</p>
+      <label class="sink-target-option"><input type="checkbox" value="obsidian">Obsidian</label>
+      <label class="sink-target-option"><input type="checkbox" value="dailyNote">DailyNote</label>
+      <label class="sink-target-option"><input type="checkbox" value="vcpMemory">VCPMemory</label>
+      <p id="sinkTargetStatus" class="muted sink-target-status"></p>
+      <div class="note-actions">
+        <button id="sinkTargetConfirmBtn" class="text-btn" type="button">生成预览</button>
+      </div>
+    </div>
+
+    <!-- 待沉淀箱抽屉 -->
+    <div id="sinkBackdrop" class="backdrop" hidden></div>
+    <aside id="sinkDrawer" class="sink-drawer" hidden>
+      <header class="sink-head">
+        <span>待沉淀</span>
+        <button id="sinkCloseBtn" class="text-btn" type="button">关闭</button>
+      </header>
+      <p id="sinkDrawerStatus" class="muted sink-drawer-status"></p>
+      <ul id="sinkList" class="sink-list"></ul>
+    </aside>
+
     <!-- Nova 侧栏 -->
     <button id="novaStrip" class="nova-strip" type="button">Nova</button>
     <aside id="novaPanel" class="nova-panel" hidden>
@@ -123,6 +147,12 @@
         <div class="nova-msg">
           <span class="nova-avatar" aria-hidden="true">N</span>
           <div id="novaReply" class="nova-reply"></div>
+          <div id="novaReplyActions" class="nova-reply-actions" hidden>
+            <button id="novaSaveNoteBtn" class="text-btn" type="button">存为笔记</button>
+            <span class="muted">·</span>
+            <button id="novaSinkBtn" class="text-btn sink-trigger" type="button">沉淀</button>
+            <span id="novaActionStatus" class="muted"></span>
+          </div>
         </div>
       </section>
       <footer class="nova-ask">

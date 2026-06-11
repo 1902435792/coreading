@@ -34,6 +34,8 @@ const state = {
   myNotesPending: new Set(),
   noteDraft: null,        // { quote, chunkId }
   noteSaving: false,
+  sinkDraft: null,        // 沉淀目标弹层的待沉淀内容
+  sinkCreating: false,
   lastScrollY: 0,
   savePositionTimer: 0,
 };
@@ -352,6 +354,8 @@ function showShelf() {
   hideSelTool();
   closeCommentCard();
   closeNoteCard();
+  closeSinkTargetPop();
+  closeSinkDrawer();
   document.title = "共读";
   window.scrollTo(0, 0);
   loadShelf();
@@ -403,6 +407,7 @@ async function openBook(bookId, targetChunkId = "") {
   });
   renderToc();
   renderNovaHistory();
+  renderSinkBadge();
 }
 
 async function anchorFlowAt(index, { restoreOffset = 0 } = {}) {
@@ -745,6 +750,8 @@ function showPreReadItem(item) {
   state.novaReply = {
     meta: `Nova 预读 · ${item.chunkId} · ${item.title}`,
     text: item.note,
+    bookId: item.bookId,
+    bookTitle: state.bookTitle,
     chunkId: item.chunkId,
   };
   renderNovaReply();
@@ -971,7 +978,13 @@ function showAnnotationInNova(ann) {
     const item = state.preReadHistory.find((entry) => entry.id === ann.sourceId);
     if (item) return showPreReadItem(item);
   }
-  state.novaReply = { meta: `${ann.speaker} · ${ann.chunkId}`, text: ann.text, chunkId: ann.chunkId };
+  state.novaReply = {
+    meta: `${ann.speaker} · ${ann.chunkId}`,
+    text: ann.text,
+    bookId: ann.bookId || state.bookId,
+    bookTitle: state.bookTitle,
+    chunkId: ann.chunkId,
+  };
   state.novaActiveHistoryId = "";
   renderNovaReply();
   renderNovaHistory();
@@ -1000,18 +1013,55 @@ function openCommentCard(annotations, anchorEl) {
     body.className = "comment-text";
     body.textContent = ann.text;
     item.append(head, body);
+    const actions = document.createElement("p");
+    actions.className = "comment-actions";
     // 我的笔记全文已在卡片里，无需再去 Nova 面板。
     if (ann.source !== "mine") {
-      const action = document.createElement("button");
-      action.type = "button";
-      action.className = "text-btn comment-open";
-      action.textContent = "在 Nova 面板查看";
-      action.addEventListener("click", () => {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "text-btn comment-open";
+      open.textContent = "在 Nova 面板查看";
+      open.addEventListener("click", () => {
         closeCommentCard();
         showAnnotationInNova(ann);
       });
-      item.append(action);
+      actions.append(open);
     }
+    const sink = document.createElement("button");
+    sink.type = "button";
+    sink.className = "text-btn comment-open sink-trigger";
+    sink.textContent = "沉淀";
+    sink.addEventListener("click", () => openSinkTargetPop(sinkDraftFromAnnotation(ann), sink));
+    actions.append(sink);
+    if (ann.source === "mine") {
+      // 二段式确认：第一次点变红“确认删除”，再点才真删。
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "text-btn comment-open";
+      del.textContent = "删除";
+      const fail = document.createElement("span");
+      fail.className = "muted";
+      del.addEventListener("click", async () => {
+        if (!del.classList.contains("danger")) {
+          del.classList.add("danger");
+          del.textContent = "确认删除";
+          return;
+        }
+        del.disabled = true;
+        try {
+          await deleteMyNote(ann);
+          closeCommentCard();
+        } catch (error) {
+          del.disabled = false;
+          del.classList.remove("danger");
+          del.textContent = "删除";
+          fail.textContent = ` 删除失败：${error.message || error}`;
+          if (!fail.isConnected) actions.append(fail);
+        }
+      });
+      actions.append(del);
+    }
+    item.append(actions);
     card.append(item);
   }
   card.hidden = false;
@@ -1201,6 +1251,384 @@ async function saveMyNote(kind) {
   }
 }
 
+/* ---------- 删除我的笔记/边注（user_note_delete，二段确认） ---------- */
+
+async function deleteMyNote(ann) {
+  await query({ command: "user_note_delete", id: ann.sourceId });
+  const key = `${ann.bookId}:${ann.chunkId}`;
+  state.myNotes.set(key, (state.myNotes.get(key) || []).filter((entry) => entry.sourceId !== ann.sourceId));
+  rebuildAnnotations();
+  redecorateChunk(ann.chunkId);
+}
+
+/* ---------- 沉淀：review_create → sink_preview_create → 批准 → 执行 ---------- */
+
+const SINK_TARGETS_KEY = `${STORE_PREFIX}sinkTargets`;
+const SINK_TARGET_LABELS = { obsidian: "Obsidian", dailyNote: "DailyNote", vcpMemory: "VCPMemory" };
+const SINK_STATUS_LABELS = { pending: "待批准", approved: "已批准", exported: "已写入", rejected: "已拒绝" };
+
+function bookSinkPreviews() {
+  return (state.snapshot?.sinkPreviews || [])
+    .filter((preview) => preview.bookId === state.bookId)
+    .slice()
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+}
+
+function renderSinkBadge() {
+  const pending = bookSinkPreviews().filter((preview) => preview.status === "pending").length;
+  const badge = $("sinkBadge");
+  badge.textContent = String(pending);
+  badge.hidden = pending === 0;
+}
+
+function savedSinkTargets() {
+  const saved = readJson(SINK_TARGETS_KEY);
+  return Array.isArray(saved) && saved.length ? saved : ["obsidian"];
+}
+
+function closeSinkTargetPop() {
+  $("sinkTargetPop").hidden = true;
+  state.sinkDraft = null;
+}
+
+function openSinkTargetPop(draft, anchorEl) {
+  // 先取锚点位置：锚点可能在 closeCommentCard() 即将隐藏的评论卡里，隐藏后 rect 全为 0。
+  const anchorRect = anchorEl.getBoundingClientRect();
+  closeCommentCard();
+  state.sinkDraft = draft;
+  const pop = $("sinkTargetPop");
+  const saved = savedSinkTargets();
+  pop.querySelectorAll("input[type=checkbox]").forEach((input) => {
+    input.checked = saved.includes(input.value);
+  });
+  $("sinkTargetStatus").textContent = "";
+  $("sinkTargetConfirmBtn").disabled = false;
+  pop.hidden = false;
+  if (window.matchMedia("(max-width: 1099px)").matches) {
+    pop.classList.add("sheet");
+    pop.style.left = "";
+    pop.style.top = "";
+    return;
+  }
+  pop.classList.remove("sheet");
+  const left = Math.max(8, Math.min(
+    anchorRect.left + window.scrollX,
+    document.documentElement.clientWidth - pop.offsetWidth - 8
+  ));
+  pop.style.left = `${left}px`;
+  pop.style.top = `${anchorRect.bottom + window.scrollY + 8}px`;
+}
+
+async function confirmSinkCreate() {
+  const draft = state.sinkDraft;
+  if (!draft || state.sinkCreating) return;
+  const targets = Array.from($("sinkTargetPop").querySelectorAll("input[type=checkbox]:checked"))
+    .map((input) => input.value);
+  if (!targets.length) {
+    $("sinkTargetStatus").textContent = "至少选一个沉淀目标。";
+    return;
+  }
+  writeJson(SINK_TARGETS_KEY, targets);
+  state.sinkCreating = true;
+  $("sinkTargetConfirmBtn").disabled = true;
+  $("sinkTargetStatus").textContent = "生成预览中…";
+  try {
+    await createSinkPreview(draft, targets);
+    closeSinkTargetPop();
+    renderSinkBadge();
+  } catch (error) {
+    $("sinkTargetStatus").textContent = `生成失败：${error.message || error}`;
+    $("sinkTargetConfirmBtn").disabled = false;
+  } finally {
+    state.sinkCreating = false;
+  }
+}
+
+async function createSinkPreview(draft, targets) {
+  // payload 形状对照旧壳 currentChunkNotesReviewPayload / createCurrentChunkSinkPreview。
+  // bookId 取 draft 携带的归属书：慢速 Nova 回复可能属于上一本书，不能用当前 state.bookId 张冠李戴。
+  const bookId = draft.bookId || state.bookId;
+  const bookTitle = draft.bookTitle || state.bookTitle;
+  const chunkId = draft.chunkId;
+  // 跨书时 chunkById 查的是当前书的同名 chunk，标题会拿错，直接退回 chunkId。
+  const chunk = bookId === state.bookId ? (chunkById(chunkId) || {}) : {};
+  const sourceQuote = draft.quote || compactText(draft.text, 200);
+  const observations = [
+    {
+      section: "source_quote",
+      source: draft.quote ? "reader-selection" : "current-chunk",
+      chunkId,
+      title: chunkTitle(chunk) || chunkId,
+      quote: sourceQuote,
+      text: sourceQuote,
+      quoteOffset: null,
+    },
+    {
+      section: draft.section || "user_note",
+      source: draft.source || "user-note",
+      kind: draft.kind || "note",
+      chunkId,
+      quote: draft.quote || "",
+      note: draft.text,
+      text: draft.text,
+    },
+  ];
+  const reviewResult = await query({
+    command: "review_create",
+    bookId,
+    startChunkId: chunkId,
+    endChunkId: chunkId,
+    summary: `${draft.sourceLabel || "评论"}沉淀预览：${bookTitle} · ${chunkId}`,
+    observations,
+    tags: ["co-reading", "reader-shell", "comment-sink"],
+    sinkPolicy: {
+      requireApproval: true,
+      obsidian: targets.includes("obsidian"),
+      dailyNote: targets.includes("dailyNote"),
+      vcpMemory: targets.includes("vcpMemory"),
+    },
+    createdBy: "CoReadingReader",
+  });
+  const reviewId = reviewResult?.review?.reviewId || reviewResult?.reviewId;
+  if (!reviewId) throw new Error("已创建评价，但没有返回 reviewId。");
+  await query({
+    command: "sink_preview_create",
+    reviewId,
+    targets,
+    requireApproval: true,
+    createdBy: "CoReadingReader",
+  });
+  try {
+    await loadSnapshot();
+  } catch {
+    // 预览已经创建成功；快照刷新失败只影响角标，报“生成失败”会诱导用户重试出重复预览。
+  }
+}
+
+function sinkDraftFromAnnotation(ann) {
+  const fromNova = ann.speaker === "Nova";
+  return {
+    text: ann.text,
+    quote: ann.quote || "",
+    bookId: ann.bookId || state.bookId,
+    bookTitle: state.bookTitle,
+    chunkId: ann.chunkId,
+    sourceLabel: fromNova ? "Nova 评注" : "我的笔记",
+    section: fromNova ? "nova_reply" : "user_note",
+    source: fromNova ? "nova-reply-current" : "user-note",
+    kind: fromNova ? "nova-reply" : "note",
+  };
+}
+
+/* ---------- 待沉淀箱抽屉 ---------- */
+
+function openSinkDrawer() {
+  $("sinkDrawer").hidden = false;
+  $("sinkBackdrop").hidden = false;
+  void refreshSinkDrawer();
+}
+
+function closeSinkDrawer() {
+  $("sinkDrawer").hidden = true;
+  $("sinkBackdrop").hidden = true;
+}
+
+async function refreshSinkDrawer() {
+  $("sinkDrawerStatus").textContent = "加载中…";
+  try {
+    await loadSnapshot();
+  } catch (error) {
+    $("sinkDrawerStatus").textContent = `加载失败：${error.message || error}`;
+    return;
+  }
+  renderSinkBadge();
+  renderSinkList();
+}
+
+function renderSinkList() {
+  const list = $("sinkList");
+  list.textContent = "";
+  const previews = bookSinkPreviews();
+  $("sinkDrawerStatus").textContent = previews.length ? "" : "本书还没有沉淀预览。";
+  for (const preview of previews) {
+    list.append(buildSinkItem(preview));
+  }
+}
+
+function buildSinkItem(preview) {
+  const item = document.createElement("li");
+  item.className = "sink-item";
+  const head = document.createElement("p");
+  head.className = "sink-item-head";
+  const target = document.createElement("span");
+  target.className = "sink-item-target";
+  target.textContent = SINK_TARGET_LABELS[preview.target] || preview.target;
+  const status = document.createElement("span");
+  status.className = `sink-item-status status-${preview.status}`;
+  status.textContent = SINK_STATUS_LABELS[preview.status] || preview.status;
+  head.append(target, status);
+  const meta = document.createElement("p");
+  meta.className = "sink-item-meta";
+  meta.textContent = [formatHistoryTime(preview.createdAt), preview.reviewId].filter(Boolean).join(" · ");
+  const body = document.createElement("div");
+  body.className = "sink-preview-body";
+  body.hidden = true;
+  const actions = document.createElement("div");
+  actions.className = "sink-item-actions";
+  const feedback = document.createElement("span");
+  feedback.className = "muted sink-item-feedback";
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "text-btn";
+  toggle.textContent = "展开预览";
+  toggle.addEventListener("click", async () => {
+    if (!body.hidden) {
+      body.hidden = true;
+      toggle.textContent = "展开预览";
+      return;
+    }
+    if (!body.textContent) {
+      toggle.disabled = true;
+      try {
+        const result = await query({ command: "sink_preview_get", previewId: preview.previewId });
+        // vcpMemory 的 content 是对象不是字符串，对照旧壳用 JSON 展示，别渲染成 [object Object]。
+        const content = result?.preview?.content ?? result?.content;
+        body.textContent = typeof content === "string" && content
+          ? content
+          : content ? JSON.stringify(content, null, 2) : "（没有预览正文）";
+      } catch (error) {
+        body.textContent = `预览读取失败：${error.message || error}`;
+      } finally {
+        toggle.disabled = false;
+      }
+    }
+    body.hidden = false;
+    toggle.textContent = "收起预览";
+  });
+  actions.append(toggle);
+
+  // 审批门禁：pending → 批准；approved → 执行写入；exported 无动作。
+  if (preview.status === "pending") {
+    const approve = document.createElement("button");
+    approve.type = "button";
+    approve.className = "text-btn";
+    approve.textContent = "批准";
+    approve.addEventListener("click", async () => {
+      approve.disabled = true;
+      feedback.textContent = "批准中…";
+      try {
+        await query({
+          command: "sink_preview_update",
+          previewId: preview.previewId,
+          status: "approved",
+          updatedBy: "CoReadingReader",
+        });
+        await refreshSinkDrawer();
+      } catch (error) {
+        feedback.textContent = `批准失败：${error.message || error}`;
+        approve.disabled = false;
+      }
+    });
+    actions.append(approve);
+  }
+  if (preview.status === "approved") {
+    const execute = document.createElement("button");
+    execute.type = "button";
+    execute.className = "text-btn";
+    execute.textContent = "执行写入";
+    execute.addEventListener("click", async () => {
+      execute.disabled = true;
+      feedback.textContent = "写入中…";
+      try {
+        await query({
+          command: "sink_execute",
+          previewId: preview.previewId,
+          updatedBy: "CoReadingReader",
+        });
+        await refreshSinkDrawer();
+      } catch (error) {
+        feedback.textContent = `写入失败：${error.message || error}`;
+        execute.disabled = false;
+      }
+    });
+    actions.append(execute);
+  }
+  if (preview.status === "exported" && preview.destination?.notePath) {
+    const where = document.createElement("span");
+    where.className = "muted sink-item-feedback";
+    where.textContent = preview.destination.notePath;
+    actions.append(where);
+  }
+  actions.append(feedback);
+  item.append(head, meta, body, actions);
+  return item;
+}
+
+/* ---------- Nova 回复动作：存为笔记 / 沉淀 ---------- */
+
+async function saveNovaReplyAsNote() {
+  const reply = state.novaReply;
+  // 笔记归属跟着回复本身：reply 可能来自上一本书（慢速回复期间切书），不能写进当前书。
+  const bookId = reply?.bookId || state.bookId;
+  if (!reply?.text || !reply.chunkId || !bookId || state.noteSaving) return;
+  const isPreRead = String(reply.meta || "").startsWith("Nova 预读");
+  const button = $("novaSaveNoteBtn");
+  button.disabled = true;
+  $("novaActionStatus").textContent = "保存中…";
+  try {
+    // payload 对照旧壳 novaReplyNotePayload：kind 用 nova-reply / nova-pre-read 约定，还原 Nova 署名。
+    // 跨书时 chunkById 查的是当前书，标题会拿错，直接退回 chunkId。
+    const quoteTitle = bookId === state.bookId ? chunkTitle(chunkById(reply.chunkId)) : "";
+    const result = await query({
+      command: "user_note_create",
+      bookId,
+      chunkId: reply.chunkId,
+      quote: quoteTitle || reply.chunkId,
+      quoteOffset: null,
+      note: [
+        isPreRead ? "Nova 自主预读" : "Nova 共读回应",
+        reply.prompt ? `问题: ${reply.prompt}` : "",
+        "",
+        reply.text,
+      ].filter(Boolean).join("\n"),
+      kind: isPreRead ? "nova-pre-read" : "nova-reply",
+      status: "open",
+      tags: ["co-reading", "sidecar", isPreRead ? "nova-pre-read" : "nova-reply"],
+    });
+    const record = result?.note && typeof result.note === "object" ? result.note : (result || {});
+    addMyNoteRecord(myAnnotationFromRecord({
+      id: record.id || `local-${Date.now()}`,
+      bookId: record.bookId || bookId,
+      chunkId: record.chunkId || reply.chunkId,
+      quote: record.quote || "",
+      note: record.note || reply.text,
+      kind: record.kind || (isPreRead ? "nova-pre-read" : "nova-reply"),
+    }, "笔记"));
+    $("novaActionStatus").textContent = "已存为笔记。";
+  } catch (error) {
+    $("novaActionStatus").textContent = `保存失败：${error.message || error}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function sinkFromNovaReply() {
+  const reply = state.novaReply;
+  if (!reply?.text || !reply.chunkId || !state.bookId) return;
+  openSinkTargetPop({
+    text: reply.text,
+    quote: "",
+    bookId: reply.bookId || state.bookId,
+    bookTitle: reply.bookTitle || state.bookTitle,
+    chunkId: reply.chunkId,
+    sourceLabel: "Nova 回复",
+    section: "nova_reply",
+    source: "nova-reply-current",
+    kind: "nova-reply",
+  }, $("novaSinkBtn"));
+}
+
 /* ---------- Nova 提问 ---------- */
 
 function openNova() {
@@ -1221,6 +1649,8 @@ function renderNovaReply() {
   userBubble.hidden = !state.novaReply?.prompt;
   const container = $("novaReply");
   container.textContent = "";
+  $("novaReplyActions").hidden = !state.novaReply?.text;
+  $("novaActionStatus").textContent = "";
   if (!state.novaReply?.text) {
     container.textContent = "选中正文文字点「问 Nova」，或直接在下面输入问题。";
     return;
@@ -1313,16 +1743,19 @@ async function sendNovaPrompt() {
   try {
     const result = await askNovaApi({ prompt, context });
     const replyText = result.content || "Nova 暂无文本回复。";
+    // 归属用请求时的 context.bookId：Nova 最长可等几分钟，期间切书不能把回复算到新书头上。
     state.novaReply = {
       meta: `Nova · ${context.chunkId} · 刚刚`,
       text: replyText,
+      bookId: context.bookId,
+      bookTitle: context.bookTitle,
       chunkId: context.chunkId,
       prompt,
     };
     if (result.content) {
       state.sessionReplies.push({
         id: `nova-reply-${Date.now()}`,
-        bookId: state.bookId,
+        bookId: context.bookId,
         chunkId: context.chunkId,
         text: compactText(result.content, 520),
       });
@@ -1410,6 +1843,12 @@ function setupEvents() {
   $("selNoteBtn").addEventListener("click", openNoteCardFromSelection);
   $("noteSaveNoteBtn").addEventListener("click", () => saveMyNote("note"));
   $("noteSaveAnnotBtn").addEventListener("click", () => saveMyNote("annotation"));
+  $("sinkBtn").addEventListener("click", openSinkDrawer);
+  $("sinkCloseBtn").addEventListener("click", closeSinkDrawer);
+  $("sinkBackdrop").addEventListener("click", closeSinkDrawer);
+  $("sinkTargetConfirmBtn").addEventListener("click", confirmSinkCreate);
+  $("novaSaveNoteBtn").addEventListener("click", saveNovaReplyAsNote);
+  $("novaSinkBtn").addEventListener("click", sinkFromNovaReply);
   $("flow").addEventListener("click", (event) => {
     const span = event.target.closest(".annot-underline");
     if (!span) return;
@@ -1422,6 +1861,8 @@ function setupEvents() {
   });
   document.addEventListener("click", (event) => {
     if (!event.target.closest?.("#commentCard, .annot-underline, .annot-bubble")) closeCommentCard();
+    // 沉淀目标弹层：触发按钮（.sink-trigger）刚把它打开时不要立刻关掉。
+    if (!event.target.closest?.("#sinkTargetPop, .sink-trigger")) closeSinkTargetPop();
     // 已经打了字的输入卡不随便被外点关掉，避免误点丢稿；Esc / 保存 / 切章仍会关闭。
     if (!event.target.closest?.("#noteCard, #selTool") && !$("noteCardText").value.trim()) closeNoteCard();
   });
@@ -1437,6 +1878,8 @@ function setupEvents() {
       hideSelTool();
       closeCommentCard();
       closeNoteCard();
+      closeSinkTargetPop();
+      closeSinkDrawer();
       $("typoPop").hidden = true;
       return;
     }

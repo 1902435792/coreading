@@ -99,6 +99,7 @@ D:\VCP\VCPToolBox\data\co-reading-mcp
 - `annotate`
 - `user_note_create`
 - `user_note_list`
+- `user_note_delete`
 - `submit_notes`
 - `list_submissions`
 - `read_submission`
@@ -351,6 +352,12 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8791/api/agent/tool -Body $
 ```
 
 `quoteOffset` 可选；sidecar 从原文选区自动计算。`user_note_create` 直接写入 `author=user,status=open/private/draft`，不会发布成 Nova 边注；`submit_notes` 会把可提交用户笔记标记为 `submitted`，并生成提交批次供 Nova 回应。
+
+删除一条笔记/边注（按 id，不限 author；其下回复一并删除；id 不存在返回明确错误）：
+
+```powershell
+'{"command":"user_note_delete","id":"ann_1700000000000_abcd1234"}' | node .\CoReadingMCP.cjs
+```
 
 收集和回访阅读卡片：
 

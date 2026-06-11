@@ -74,6 +74,7 @@ const ALLOWED_COMMANDS = new Set([
   "annotate",
   "user_note_create",
   "user_note_list",
+  "user_note_delete",
   "submit_notes",
   "list_submissions",
   "read_submission",
