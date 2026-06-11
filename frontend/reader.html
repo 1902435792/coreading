@@ -34,6 +34,8 @@
       <nav class="topbar-right">
         <span id="topbarProgress" class="muted"></span>
         <button id="sinkBtn" class="text-btn" type="button">沉淀<span id="sinkBadge" class="sink-badge" hidden></span></button>
+        <button id="bookmarkBtn" class="text-btn" type="button">书签</button>
+        <button id="fullscreenBtn" class="text-btn" type="button">全屏</button>
         <button id="tocBtn" class="text-btn" type="button">目录</button>
         <button id="typoBtn" class="text-btn" type="button">Aa</button>
       </nav>
@@ -43,6 +45,16 @@
     <article id="flow" class="flow"></article>
     <p id="flowStatus" class="muted flow-status"></p>
 
+    <!-- 书内查找条（Ctrl+F / Cmd+F） -->
+    <div id="findBar" class="find-bar" hidden>
+      <input id="findInput" type="text" placeholder="书内查找" autocomplete="off">
+      <span id="findCount" class="find-count"></span>
+      <button id="findPrevBtn" class="text-btn" type="button">上一个</button>
+      <button id="findNextBtn" class="text-btn" type="button">下一个</button>
+      <button id="findMoreBtn" class="text-btn" type="button" title="已加载部分未找到，加载后文继续查找" hidden>加载更多</button>
+      <button id="findCloseBtn" class="text-btn" type="button" aria-label="关闭查找">✕</button>
+    </div>
+
     <!-- 目录抽屉 -->
     <div id="tocBackdrop" class="backdrop" hidden></div>
     <aside id="tocDrawer" class="toc-drawer" hidden>
@@ -50,6 +62,13 @@
         <span>目录</span>
         <button id="tocCloseBtn" class="text-btn" type="button">关闭</button>
       </header>
+      <div class="toc-search">
+        <input id="tocSearch" type="text" placeholder="搜章节标题 / 序号" autocomplete="off">
+      </div>
+      <section id="tocBookmarks" class="toc-bookmarks" hidden>
+        <p class="toc-group-label">书签</p>
+        <ul id="tocBookmarkList" class="toc-bookmark-list"></ul>
+      </section>
       <ul id="tocList" class="toc-list"></ul>
     </aside>
 
@@ -94,6 +113,7 @@
         <button class="text-btn" type="button" data-value="off">关</button>
       </div>
       <p id="companionHint" class="typo-hint" hidden>未配置书友接口</p>
+      <p class="typo-hint typo-hint-find">书内查找：Ctrl + F</p>
     </div>
 
     <!-- 选区工具条 -->
@@ -175,6 +195,23 @@
             <button id="novaSinkBtn" class="text-btn sink-trigger" type="button">沉淀</button>
             <span id="novaActionStatus" class="muted"></span>
           </div>
+        </div>
+      </section>
+      <!-- 可折叠阅读计划小节：只做“下一步”导向，不做计划管理列表 -->
+      <section id="planSection" class="nova-plan">
+        <button id="planToggleBtn" class="nova-plan-toggle" type="button" aria-expanded="false">
+          <span id="planToggleLabel">阅读计划</span>
+          <span class="nova-plan-caret" aria-hidden="true">▾</span>
+        </button>
+        <div id="planBody" class="nova-plan-body" hidden>
+          <p id="planStepMeta" class="muted nova-plan-meta"></p>
+          <p id="planStepTitle" class="nova-plan-title"></p>
+          <p class="nova-plan-actions">
+            <button id="planReadStepBtn" class="text-btn" type="button">读这一步</button>
+            <button id="planDoneStepBtn" class="text-btn" type="button">完成这一步</button>
+            <button id="planSectionBtn" class="text-btn" type="button">计划本章</button>
+          </p>
+          <p id="planStatus" class="muted nova-plan-status"></p>
         </div>
       </section>
       <footer class="nova-ask">

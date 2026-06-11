@@ -49,6 +49,13 @@ const state = {
   companionSeen: new Set(),     // key：chunk 已首次进入过视口
   companionConfigured: null,    // null=未知；false 时开关置灰、不自动生成
   companionQueue: Promise.resolve(), // 自动生成按序串行，避免撞后端同书在飞锁
+  find: { open: false, query: "", hits: [], active: -1, capped: false }, // hits: { paragraph, start, end } 文档序
+  findInputTimer: 0,
+  bookmarkFeedbackTimer: 0,
+  novaOpenBeforeImmersive: false, // 进沉浸时 Nova 是否开着：退出时恢复原状
+  plan: null,             // 当前书 active 计划缓存: { planId, title, status, stepCount, doneCount, nextStep, hydrated }
+  planOpen: false,
+  planBusy: false,
   lastScrollY: 0,
   savePositionTimer: 0,
 };
@@ -373,6 +380,8 @@ function showShelf() {
   closeSinkTargetPop();
   closeSinkDrawer();
   closeTrailDrawer();
+  closeFindBar();
+  if (immersiveOn()) exitImmersive();
   document.title = "共读";
   window.scrollTo(0, 0);
   loadShelf();
@@ -398,6 +407,12 @@ async function openBook(bookId, targetChunkId = "") {
   const book = (state.snapshot?.books || []).find((item) => item.bookId === bookId);
   if (!book) return false;
   window.clearTimeout(state.savePositionTimer);
+  closeFindBar(); // 查找状态不跨书：旧命中引用的段落 DOM 即将被清掉
+  state.plan = null;
+  // 立即重渲计划小节：hydratePlanNext 要等正文加载后才跑，期间不能留着旧书的
+  // “下一步”标签和可点的“完成这一步”（会执行到旧书计划上）。
+  $("planStatus").textContent = "";
+  renderPlanSection();
   state.bookId = bookId;
   state.bookTitle = book.title || bookId;
   history.replaceState(null, "", `#book=${encodeURIComponent(bookId)}`);
@@ -425,6 +440,7 @@ async function openBook(bookId, targetChunkId = "") {
   renderToc();
   renderNovaHistory();
   renderSinkBadge();
+  void hydratePlanNext();
 }
 
 async function anchorFlowAt(index, { restoreOffset = 0 } = {}) {
@@ -495,6 +511,8 @@ async function loadChunkBatch(requestId) {
   }
   for (const item of loaded) appendFlowChunk(item.chunk, item.text);
   state.loadedTo += batch.length;
+  // 查找打开时：新增正文渲染已自带高亮（renderParagraph 内部读 find 状态），这里补刷命中列表与计数。
+  if (state.find.open && state.find.query) runFind({ keepActive: true });
   const failedCount = loaded.filter((item) => item.failed).length;
   $("flowStatus").textContent = failedCount
     ? `有 ${failedCount} 段加载失败，继续滚动会接着读后面的内容。`
@@ -559,8 +577,9 @@ function appendFlowChunk(chunk, text) {
 function updateTopbarVisibility() {
   const y = window.scrollY;
   const delta = y - state.lastScrollY;
+  // 沉浸态顶栏初始隐藏：只有上滚（或鼠标到顶部边缘）才出现，接近页顶不再常驻。
   if (y > 80 && delta > 6) $("topbar").classList.add("hidden");
-  else if (delta < -6 || y <= 80) $("topbar").classList.remove("hidden");
+  else if (delta < -6 || (y <= 80 && !immersiveOn())) $("topbar").classList.remove("hidden");
   state.lastScrollY = y;
 }
 
@@ -645,16 +664,35 @@ function tocSections() {
   return sections;
 }
 
+function appendTocLabel(button, label, query) {
+  // 匹配片段用 mark.toc-match 高亮；纯文本节点拼装，零 innerHTML。
+  const index = query ? label.toLowerCase().indexOf(query) : -1;
+  if (index < 0) {
+    button.textContent = label;
+    return;
+  }
+  button.append(document.createTextNode(label.slice(0, index)));
+  const mark = document.createElement("mark");
+  mark.className = "toc-match";
+  mark.textContent = label.slice(index, index + query.length);
+  button.append(mark, document.createTextNode(label.slice(index + query.length)));
+}
+
 function renderToc() {
   const list = $("tocList");
   list.textContent = "";
+  const query = $("tocSearch").value.trim().toLowerCase();
   const activeOrder = chunkOrder(state.activeChunkId) ?? 0;
-  for (const section of tocSections()) {
+  let shown = 0;
+  tocSections().forEach((section, sectionNumber) => {
+    // 按章节标题或序号（第几节）过滤。
+    if (query && !section.label.toLowerCase().includes(query) && String(sectionNumber + 1) !== query) return;
+    shown += 1;
     const item = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
     button.className = "toc-item";
-    button.textContent = section.label;
+    appendTocLabel(button, section.label, query);
     let sectionEnd = state.chunks.length - 1;
     for (let i = section.index; i < state.chunks.length; i += 1) {
       if (`${state.chunks[i].sectionIndex}` !== `${state.chunks[section.index].sectionIndex}`) {
@@ -669,11 +707,18 @@ function renderToc() {
     });
     item.append(button);
     list.append(item);
+  });
+  if (query && !shown) {
+    const empty = document.createElement("li");
+    empty.className = "muted toc-empty";
+    empty.textContent = "没有匹配的章节。";
+    list.append(empty);
   }
 }
 
 function openToc() {
   renderToc();
+  renderTocBookmarks();
   $("tocDrawer").hidden = false;
   $("tocBackdrop").hidden = false;
   const active = $("tocList").querySelector(".toc-item.active");
@@ -683,6 +728,8 @@ function openToc() {
 function closeToc() {
   $("tocDrawer").hidden = true;
   $("tocBackdrop").hidden = true;
+  // 关抽屉时清掉搜索词：下次打开回到完整目录。
+  if ($("tocSearch").value) $("tocSearch").value = "";
 }
 
 async function jumpToChunk(chunkId) {
@@ -917,24 +964,37 @@ function underlineRangesFor(paragraph) {
 
 function renderParagraph(paragraph, ranges, flashRange = null) {
   // 用边界点把纯文本切片重建，重叠区间天然合并；textContent 渲染，无 innerHTML。
+  // 书内查找高亮走同一套切片：内部读全局 find 状态，任何重渲染路径都不破坏查找标记。
   const text = paragraph.textContent;
-  if (!ranges.length && !flashRange && !paragraph.querySelector(".annot-underline, .quote-flash")) return;
+  const findRanges = findRangesFor(paragraph);
+  if (!ranges.length && !flashRange && !findRanges.length
+    && !paragraph.querySelector(".annot-underline, .quote-flash, .find-mark")) return;
   const points = new Set([0, text.length]);
   for (const range of ranges) { points.add(range.start); points.add(range.end); }
+  for (const range of findRanges) { points.add(range.start); points.add(range.end); }
   if (flashRange) { points.add(flashRange.start); points.add(flashRange.end); }
   const sorted = [...points].filter((p) => p >= 0 && p <= text.length).sort((a, b) => a - b);
+  const activeHit = state.find.hits[state.find.active] || null;
   const nodes = [];
   for (let i = 0; i < sorted.length - 1; i += 1) {
     const [a, b] = [sorted[i], sorted[i + 1]];
     const piece = text.slice(a, b);
     const covering = ranges.filter((range) => range.start <= a && b <= range.end);
     const inFlash = Boolean(flashRange && flashRange.start <= a && b <= flashRange.end);
-    if (!covering.length && !inFlash) {
+    const inFind = findRanges.find((range) => range.start <= a && b <= range.end) || null;
+    if (!covering.length && !inFlash && !inFind) {
       nodes.push(document.createTextNode(piece));
       continue;
     }
-    const el = document.createElement(inFlash ? "mark" : "span");
-    if (inFlash) el.className = "quote-flash";
+    const el = document.createElement(inFlash || inFind ? "mark" : "span");
+    if (inFlash) el.classList.add("quote-flash");
+    if (inFind) {
+      el.classList.add("find-mark");
+      // 同一命中可能被评注边界切成多片，按命中区间起点识别当前命中，各片都加深。
+      if (activeHit && activeHit.paragraph === paragraph && activeHit.start === inFind.start) {
+        el.classList.add("find-active");
+      }
+    }
     if (covering.length) {
       el.classList.add("annot-underline");
       el.dataset.annotIds = covering.map((range) => range.annId).join(",");
@@ -2204,6 +2264,498 @@ function renderTrailResult(result) {
   }
 }
 
+/* ---------- 书内查找（Ctrl+F / Cmd+F） ---------- */
+
+const FIND_HITS_MAX = 500;
+
+function findRangesFor(paragraph) {
+  // renderParagraph 的切片渲染从这里取查找区间；大小写不敏感的明文匹配，不重叠。
+  if (!state.find.open || !state.find.query) return [];
+  const query = state.find.query.toLowerCase();
+  const text = paragraph.textContent.toLowerCase();
+  const ranges = [];
+  let index = text.indexOf(query);
+  while (index >= 0) {
+    ranges.push({ start: index, end: index + query.length });
+    index = text.indexOf(query, index + query.length);
+  }
+  return ranges;
+}
+
+function openFindBar() {
+  state.find.open = true;
+  $("findBar").hidden = false;
+  $("findInput").focus();
+  $("findInput").select();
+  if (state.find.query) runFind({ keepActive: true });
+  else renderFindCount();
+}
+
+function paragraphsWithFindMarks(into) {
+  // hits 有 500 上限：超限段落的 find-mark 不进 hits（懒加载/评注重渲染都会渲出来），
+  // 清理/换词时必须从 DOM 收齐，否则关掉查找后超限高亮永远残留。
+  for (const mark of $("flow").querySelectorAll("mark.find-mark")) {
+    const paragraph = mark.closest("p");
+    if (paragraph) into.add(paragraph);
+  }
+  return into;
+}
+
+function closeFindBar() {
+  if (!state.find.open) return;
+  const marked = paragraphsWithFindMarks(new Set(state.find.hits.map((hit) => hit.paragraph)));
+  state.find = { open: false, query: "", hits: [], active: -1, capped: false };
+  $("findBar").hidden = true;
+  $("findInput").value = "";
+  window.clearTimeout(state.findInputTimer);
+  // 状态清空后重渲染原命中段：findRangesFor 已返回空，所有 find-mark 被还原。
+  for (const paragraph of marked) {
+    if (paragraph.isConnected) renderParagraph(paragraph, underlineRangesFor(paragraph));
+  }
+}
+
+function defaultFindActive() {
+  // 从视口位置就近开始：第一个不在视口上方的命中；都在上方则回到第一个。
+  for (let i = 0; i < state.find.hits.length; i += 1) {
+    if (!state.find.hits[i].paragraph.isConnected) continue;
+    if (state.find.hits[i].paragraph.getBoundingClientRect().bottom >= 0) return i;
+  }
+  return 0;
+}
+
+function runFind({ keepActive = false } = {}) {
+  const raw = $("findInput").value;
+  const previousActive = state.find.hits[state.find.active] || null;
+  const touched = paragraphsWithFindMarks(new Set(state.find.hits.map((hit) => hit.paragraph)));
+  state.find.query = raw.trim() ? raw : "";
+  state.find.hits = [];
+  state.find.active = -1;
+  state.find.capped = false;
+  if (state.find.query) {
+    // 命中数上限：单字高频词在长正文流里可能上万次命中，截断保护渲染。
+    scan: for (const paragraph of $("flow").querySelectorAll(".flow-chunk > p")) {
+      for (const range of findRangesFor(paragraph)) {
+        if (state.find.hits.length >= FIND_HITS_MAX) {
+          state.find.capped = true;
+          break scan;
+        }
+        state.find.hits.push({ paragraph, start: range.start, end: range.end });
+      }
+    }
+  }
+  if (state.find.hits.length) {
+    const kept = keepActive && previousActive
+      ? state.find.hits.findIndex((hit) => hit.paragraph === previousActive.paragraph && hit.start === previousActive.start)
+      : -1;
+    state.find.active = kept >= 0 ? kept : defaultFindActive();
+  }
+  for (const hit of state.find.hits) touched.add(hit.paragraph);
+  for (const paragraph of touched) {
+    if (paragraph.isConnected) renderParagraph(paragraph, underlineRangesFor(paragraph));
+  }
+  renderFindCount();
+}
+
+function renderFindCount() {
+  const { query, hits, active, capped } = state.find;
+  $("findCount").textContent = !query
+    ? ""
+    : hits.length ? `${active + 1}/${hits.length}${capped ? "+" : ""}` : "0/0";
+  // 已加载部分查不到且后文还有：露出“加载更多”继续找。
+  $("findMoreBtn").hidden = !(query && !hits.length && state.loadedTo < state.chunks.length);
+}
+
+function scrollToActiveFindHit() {
+  const hit = state.find.hits[state.find.active];
+  if (!hit || !hit.paragraph.isConnected) return;
+  const mark = hit.paragraph.querySelector("mark.find-active");
+  if (!mark) return;
+  const top = mark.getBoundingClientRect().top + window.scrollY - window.innerHeight * 0.4;
+  window.scrollTo({ top: Math.max(0, top) });
+}
+
+function moveFindActive(delta) {
+  if (!state.find.hits.length) return;
+  const previous = state.find.hits[state.find.active] || null;
+  state.find.active = (state.find.active + delta + state.find.hits.length) % state.find.hits.length;
+  const current = state.find.hits[state.find.active];
+  for (const paragraph of new Set([previous?.paragraph, current.paragraph])) {
+    if (paragraph?.isConnected) renderParagraph(paragraph, underlineRangesFor(paragraph));
+  }
+  renderFindCount();
+  scrollToActiveFindHit();
+}
+
+function onFindInput() {
+  window.clearTimeout(state.findInputTimer);
+  state.findInputTimer = window.setTimeout(() => {
+    runFind();
+    scrollToActiveFindHit();
+  }, 150);
+}
+
+async function findLoadMore() {
+  const button = $("findMoreBtn");
+  if (button.disabled) return;
+  button.disabled = true;
+  button.textContent = "查找中…";
+  try {
+    // 每次最多再加载 10 批：找到命中、读到书尾或被重锚抢占就停，避免无界长跑。
+    for (let i = 0; i < 10 && state.find.open && !state.find.hits.length && state.loadedTo < state.chunks.length; i += 1) {
+      while (state.flowLoadPromise) await state.flowLoadPromise.catch(() => {});
+      const before = state.loadedTo;
+      await loadMoreChunks();
+      if (state.loadedTo === before) break;
+    }
+  } finally {
+    button.disabled = false;
+    button.textContent = "加载更多";
+  }
+  renderFindCount();
+  if (state.find.hits.length) scrollToActiveFindHit();
+}
+
+/* ---------- 书签（localStorage，上限 50 FIFO） ---------- */
+
+const BOOKMARKS_KEY = (bookId) => `${STORE_PREFIX}bookmarks.${bookId}`;
+const BOOKMARKS_MAX = 50;
+
+function readBookmarks(bookId = state.bookId) {
+  const saved = readJson(BOOKMARKS_KEY(bookId));
+  return Array.isArray(saved) ? saved : [];
+}
+
+function addBookmark() {
+  if (!state.bookId || $("readView").hidden) return;
+  const section = activeSection();
+  if (!section) return;
+  const chunkId = section.dataset.chunkId;
+  const order = chunkOrder(chunkId);
+  const bookmarks = readBookmarks();
+  bookmarks.push({
+    id: `bm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    chunkId,
+    // 与阅读位置持久化同一套段内偏移公式，恢复走 anchorFlowAt 的 restoreOffset。
+    offset: Math.max(0, Math.round(window.scrollY - section.offsetTop + 64)),
+    percent: order === null || !state.chunks.length ? 0 : Math.round(((order + 1) / state.chunks.length) * 100),
+    createdAt: new Date().toISOString(),
+  });
+  while (bookmarks.length > BOOKMARKS_MAX) bookmarks.shift();
+  writeJson(BOOKMARKS_KEY(state.bookId), bookmarks);
+  const button = $("bookmarkBtn");
+  button.textContent = "已加书签";
+  window.clearTimeout(state.bookmarkFeedbackTimer);
+  state.bookmarkFeedbackTimer = window.setTimeout(() => {
+    button.textContent = "书签";
+  }, 1200);
+}
+
+function deleteBookmark(id) {
+  writeJson(BOOKMARKS_KEY(state.bookId), readBookmarks().filter((item) => item.id !== id));
+  renderTocBookmarks();
+}
+
+async function openBookmark(bookmark) {
+  const order = chunkOrder(bookmark.chunkId);
+  if (order === null) return;
+  const offset = Math.max(0, Number(bookmark.offset || 0));
+  const existing = $("flow").querySelector(`.flow-chunk[data-chunk-id="${CSS.escape(bookmark.chunkId)}"]`);
+  if (existing) {
+    window.scrollTo(0, existing.offsetTop + offset - 64);
+    updateActiveChunk();
+    return;
+  }
+  await anchorFlowAt(order, { restoreOffset: offset });
+}
+
+function renderTocBookmarks() {
+  const wrap = $("tocBookmarks");
+  const list = $("tocBookmarkList");
+  list.textContent = "";
+  // 目录搜索输入时隐藏书签分组，把空间让给过滤结果。
+  const filtering = Boolean($("tocSearch").value.trim());
+  const bookmarks = readBookmarks().slice().reverse(); // 时间倒序，新的在前
+  wrap.hidden = filtering || !bookmarks.length;
+  if (wrap.hidden) return;
+  for (const bookmark of bookmarks) {
+    const item = document.createElement("li");
+    item.className = "toc-bookmark-item";
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "toc-bookmark-open";
+    const title = document.createElement("span");
+    title.className = "toc-bookmark-title";
+    title.textContent = sectionLabel(chunkById(bookmark.chunkId) || {}) || bookmark.chunkId;
+    const meta = document.createElement("span");
+    meta.className = "toc-bookmark-meta";
+    meta.textContent = [
+      `${Number(bookmark.percent || 0)}%`,
+      formatHistoryTime(bookmark.createdAt),
+    ].filter(Boolean).join(" · ");
+    open.append(title, meta);
+    open.addEventListener("click", () => {
+      closeToc();
+      void openBookmark(bookmark);
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "toc-bookmark-del";
+    del.textContent = "✕";
+    del.setAttribute("aria-label", "删除书签");
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteBookmark(bookmark.id);
+    });
+    item.append(open, del);
+    list.append(item);
+  }
+}
+
+/* ---------- 沉浸全屏 ---------- */
+
+function immersiveOn() {
+  return document.body.classList.contains("immersive");
+}
+
+function syncFullscreenButton() {
+  $("fullscreenBtn").textContent = immersiveOn() ? "退出全屏" : "全屏";
+}
+
+function enterImmersive() {
+  state.novaOpenBeforeImmersive = !$("novaPanel").hidden;
+  document.body.classList.add("immersive");
+  closeNova();                          // Nova 侧栏折叠（点 Nova 竖条随时唤回）
+  $("topbar").classList.add("hidden");  // 顶栏初始隐藏：上滚或鼠标到顶部边缘出现
+  syncFullscreenButton();
+  if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+    // 请求被拒（无手势/受限环境）时仍保留 immersive class，体验降级为隐藏 chrome。
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+}
+
+function exitImmersive() {
+  document.body.classList.remove("immersive");
+  $("topbar").classList.remove("hidden");
+  syncFullscreenButton();
+  // 进沉浸时被折叠的 Nova 在退出时恢复；回书架路径（readView 已隐藏）不弹面板。
+  if (state.novaOpenBeforeImmersive && !$("readView").hidden) openNova();
+  state.novaOpenBeforeImmersive = false;
+  if (document.fullscreenElement && document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
+function toggleImmersive() {
+  if (immersiveOn()) exitImmersive();
+  else enterImmersive();
+}
+
+function onFullscreenChange() {
+  // 浏览器原生 Esc / 系统手势退出全屏时同步状态。
+  if (!document.fullscreenElement && immersiveOn()) exitImmersive();
+}
+
+function onImmersiveMouseMove(event) {
+  if (!immersiveOn() || $("readView").hidden) return;
+  if (event.clientY <= 8) $("topbar").classList.remove("hidden");
+}
+
+/* ---------- Nova 面板：可折叠阅读计划小节 ---------- */
+
+function activePlanSummary() {
+  return (state.snapshot?.plans || [])
+    .filter((plan) => plan.bookId === state.bookId && plan.status === "active")
+    .slice()
+    .sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))[0] || null;
+}
+
+function planStepRange(step) {
+  const range = step?.range || {};
+  const ids = Array.isArray(step?.chunkIds) ? step.chunkIds.filter(Boolean) : [];
+  const start = range.startChunkId || ids[0] || "";
+  const end = range.endChunkId || ids[ids.length - 1] || start;
+  return start ? { start, end } : null;
+}
+
+function planStepLabel(step) {
+  // 折叠行优先报章节标题（与目录条目一致）；sectionIndex 各书 0/1 基不一，“第 N 节”会错位。
+  // 没有范围（如兴趣搜索步）退回步骤标题。
+  const range = planStepRange(step);
+  const chunk = range ? chunkById(range.start) : null;
+  return (chunk ? compactText(sectionLabel(chunk), 18) : "") || compactText(step?.title || "", 18);
+}
+
+function currentSectionRange() {
+  // 对照旧壳 currentSectionRange：同 sectionIndex 的 chunk 组成本章；
+  // 没有 sectionIndex 时 Number(undefined)=NaN 永不相等，退化为单 chunk 一章。
+  const order = chunkOrder(state.activeChunkId);
+  const current = order === null ? null : state.chunks[order];
+  if (!current) return null;
+  const sameSection = state.chunks.filter((chunk) => Number(chunk.sectionIndex) === Number(current.sectionIndex));
+  const sectionChunks = sameSection.length ? sameSection : [current];
+  const startChunkId = getChunkId(sectionChunks[0]);
+  const endChunkId = getChunkId(sectionChunks[sectionChunks.length - 1]);
+  if (!startChunkId || !endChunkId) return null;
+  return { title: sectionLabel(current), startChunkId, endChunkId };
+}
+
+function planCacheFromResult(planId, summary, nextStep, fallback = {}) {
+  const doneFromCounts = summary?.statusCounts?.done;
+  const doneFromSteps = Array.isArray(summary?.steps)
+    ? summary.steps.filter((step) => step.status === "done").length
+    : undefined;
+  return {
+    planId,
+    title: summary?.title || fallback.title || planId,
+    status: summary?.status || fallback.status || "active",
+    stepCount: summary?.stepCount ?? summary?.steps?.length ?? fallback.stepCount ?? 0,
+    doneCount: doneFromCounts ?? doneFromSteps ?? fallback.doneCount ?? 0,
+    nextStep: nextStep || null,
+    hydrated: true,
+  };
+}
+
+async function hydratePlanNext() {
+  const bookId = state.bookId;
+  const summary = activePlanSummary();
+  if (!summary) {
+    state.plan = null;
+    renderPlanSection();
+    return;
+  }
+  if (state.plan?.planId === summary.planId && state.plan.hydrated) {
+    renderPlanSection();
+    return;
+  }
+  state.plan = { planId: summary.planId, title: summary.title, status: summary.status, stepCount: summary.stepCount ?? 0, doneCount: summary.statusCounts?.done ?? 0, nextStep: null, hydrated: false };
+  renderPlanSection();
+  try {
+    const result = await query({ command: "plan_get", planId: summary.planId });
+    if (state.bookId !== bookId || state.plan?.planId !== summary.planId) return;
+    state.plan = planCacheFromResult(summary.planId, result?.plan, result?.nextStep, state.plan);
+  } catch {
+    if (state.bookId !== bookId || state.plan?.planId !== summary.planId) return;
+    state.plan = { ...state.plan, hydrated: true }; // 下一步读不到时按摘要降级展示
+  }
+  renderPlanSection();
+}
+
+function renderPlanSection() {
+  const plan = state.plan;
+  const label = $("planToggleLabel");
+  if (!plan) label.textContent = "为本书建个计划";
+  else if (!plan.hydrated) label.textContent = "计划 · 读取下一步…";
+  else if (!plan.nextStep) label.textContent = "计划 · 已全部完成";
+  else label.textContent = `计划 · 下一步 ${planStepLabel(plan.nextStep)}`.trim();
+  if (!state.planOpen) return;
+  const step = plan?.hydrated ? plan.nextStep : null;
+  const range = planStepRange(step);
+  $("planStepMeta").textContent = !plan
+    ? "本书还没有阅读计划，可从当前章节建一个。"
+    : !plan.hydrated
+      ? "读取计划中…"
+      : !step
+        ? `${plan.title || plan.planId} · ${plan.doneCount}/${plan.stepCount} 步 · 已完成`
+        : [
+          `${plan.doneCount}/${plan.stepCount} 步`,
+          range ? (range.start === range.end ? range.start : `${range.start} → ${range.end}`) : "",
+        ].filter(Boolean).join(" · ");
+  $("planStepTitle").textContent = step?.title || "";
+  $("planReadStepBtn").disabled = !range;
+  $("planDoneStepBtn").disabled = !step || state.planBusy;
+  $("planSectionBtn").disabled = state.planBusy || !currentSectionRange();
+}
+
+function togglePlanSection() {
+  state.planOpen = !state.planOpen;
+  $("planToggleBtn").setAttribute("aria-expanded", String(state.planOpen));
+  $("planBody").hidden = !state.planOpen;
+  if (state.planOpen) {
+    $("planStatus").textContent = "";
+    void hydratePlanNext();
+  }
+}
+
+function readPlanStep() {
+  const range = planStepRange(state.plan?.nextStep);
+  if (!range) return;
+  // 窄屏时 Nova 面板盖住正文，跳转前先收起。
+  if (window.matchMedia("(max-width: 1099px)").matches) closeNova();
+  void jumpToChunk(range.start);
+}
+
+async function completePlanStep() {
+  const plan = state.plan;
+  const bookId = state.bookId;
+  if (!plan?.nextStep || state.planBusy) return;
+  state.planBusy = true;
+  renderPlanSection();
+  $("planStatus").textContent = "执行这一步中…";
+  try {
+    // 对照旧壳 executePlanGuideStep：plan_execute_step 一发完成，响应自带推进后的 plan 摘要与 nextStep。
+    const result = await query({ command: "plan_execute_step", planId: plan.planId });
+    if (state.bookId !== bookId) return;
+    state.plan = planCacheFromResult(plan.planId, result?.plan, result?.nextStep, plan);
+    renderPlanSection(); // 先刷新步骤卡，再补快照角标，最后报完成，避免“已完成”配旧步骤
+    try {
+      await loadSnapshot();
+    } catch {
+      // 执行已成功；快照刷新失败只影响角标。
+    }
+    renderSinkBadge(); // 评价步会产生待批准沉淀预览
+    if (state.bookId !== bookId) return;
+    $("planStatus").textContent = result?.completed || !result?.nextStep
+      ? "这一步完成，本计划读完了。"
+      : "这一步完成，下一步已带出。";
+  } catch (error) {
+    if (state.bookId === bookId) $("planStatus").textContent = `执行失败：${compactText(error.message || error, 80)}`;
+  } finally {
+    state.planBusy = false;
+    if (state.bookId === bookId) renderPlanSection();
+  }
+}
+
+async function planCurrentSection() {
+  const bookId = state.bookId;
+  const section = currentSectionRange();
+  if (!bookId || !section || state.planBusy) return;
+  state.planBusy = true;
+  renderPlanSection();
+  $("planStatus").textContent = "创建本章计划中…";
+  try {
+    // payload 对照旧壳 buildPlanCreatePayload + createPlanForCurrentSection（mode=range 本章起止）。
+    const result = await query({
+      command: "plan_create",
+      bookId,
+      mode: "range",
+      startChunkId: section.startChunkId,
+      endChunkId: section.endChunkId,
+      budget: { maxChunksPerStep: 2, maxAnnotationsPerChunk: 2 },
+      annotationDensity: "medium",
+      sinkPolicy: { requireApproval: true, obsidian: true },
+      createdBy: "CoReadingReader",
+      title: `${state.bookTitle} · ${section.title} 共读计划`,
+    });
+    if (state.bookId !== bookId) return;
+    const planId = result?.plan?.planId || "";
+    if (!planId) throw new Error("计划已请求，但没有返回 planId。");
+    state.plan = planCacheFromResult(planId, result.plan, result?.nextStep);
+    renderPlanSection(); // 同上：先把下一步卡片亮出来，再刷新快照与完成文案
+    try {
+      await loadSnapshot();
+    } catch {
+      // 计划已创建成功；快照刷新失败不回报为创建失败。
+    }
+    if (state.bookId !== bookId) return;
+    $("planStatus").textContent = `已创建本章计划：${section.title}`;
+  } catch (error) {
+    if (state.bookId === bookId) $("planStatus").textContent = `创建失败：${compactText(error.message || error, 80)}`;
+  } finally {
+    state.planBusy = false;
+    if (state.bookId === bookId) renderPlanSection();
+  }
+}
+
 /* ---------- 选区工具条 ---------- */
 
 function hideSelTool() {
@@ -2283,6 +2835,36 @@ function setupEvents() {
   $("sinkTargetConfirmBtn").addEventListener("click", confirmSinkCreate);
   $("novaSaveNoteBtn").addEventListener("click", saveNovaReplyAsNote);
   $("novaSinkBtn").addEventListener("click", sinkFromNovaReply);
+  $("bookmarkBtn").addEventListener("click", addBookmark);
+  $("fullscreenBtn").addEventListener("click", toggleImmersive);
+  $("findPrevBtn").addEventListener("click", () => moveFindActive(-1));
+  $("findNextBtn").addEventListener("click", () => moveFindActive(1));
+  $("findCloseBtn").addEventListener("click", closeFindBar);
+  $("findMoreBtn").addEventListener("click", () => void findLoadMore());
+  $("findInput").addEventListener("input", onFindInput);
+  $("findInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      moveFindActive(event.shiftKey ? -1 : 1);
+    }
+  });
+  $("tocSearch").addEventListener("input", () => {
+    renderToc();
+    renderTocBookmarks();
+  });
+  $("planToggleBtn").addEventListener("click", togglePlanSection);
+  $("planReadStepBtn").addEventListener("click", readPlanStep);
+  $("planDoneStepBtn").addEventListener("click", () => void completePlanStep());
+  $("planSectionBtn").addEventListener("click", () => void planCurrentSection());
+  document.addEventListener("fullscreenchange", onFullscreenChange);
+  document.addEventListener("mousemove", onImmersiveMouseMove, { passive: true });
+  document.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+      if ($("readView").hidden) return; // 书架视图保留浏览器原生查找
+      event.preventDefault();
+      openFindBar();
+    }
+  });
   $("flow").addEventListener("click", (event) => {
     const span = event.target.closest(".annot-underline");
     if (!span) return;
@@ -2315,10 +2897,13 @@ function setupEvents() {
       closeSinkTargetPop();
       closeSinkDrawer();
       closeTrailDrawer();
+      closeFindBar();
       $("typoPop").hidden = true;
+      // 真全屏下浏览器通常先退全屏（fullscreenchange 已同步）；这里兜底退出降级沉浸态，重复调用无害。
+      if (immersiveOn()) exitImmersive();
       return;
     }
-    if (event.target.closest?.("#novaPanel, #noteCard")) return;
+    if (event.target.closest?.("#novaPanel, #noteCard, #findBar, #tocDrawer")) return;
     window.setTimeout(onSelectionEnd, 0);
   });
   window.addEventListener("beforeunload", savePositionNow);

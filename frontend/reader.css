@@ -11,6 +11,8 @@
   --hover-bg: rgba(0, 0, 0, 0.04);
   --underline: #c9d4f5;
   --flash: rgba(53, 103, 232, 0.16);
+  --find: rgba(247, 201, 72, 0.38);
+  --find-active: rgba(244, 173, 28, 0.62);
   --selection: rgba(53, 103, 232, 0.18);
   --topbar-bg: rgba(255, 255, 255, 0.85);
   --bubble-bg: rgba(0, 0, 0, 0.05);
@@ -38,6 +40,8 @@ body[data-theme="paper"] {
   --hover-bg: rgba(61, 56, 51, 0.05);
   --underline: #d9c9a6;
   --flash: rgba(122, 95, 51, 0.16);
+  --find: rgba(196, 151, 49, 0.3);
+  --find-active: rgba(171, 122, 23, 0.5);
   --selection: rgba(122, 95, 51, 0.2);
   --topbar-bg: rgba(247, 243, 233, 0.85);
   --bubble-bg: rgba(61, 56, 51, 0.06);
@@ -58,6 +62,8 @@ body[data-theme="dark"] {
   --hover-bg: rgba(255, 255, 255, 0.06);
   --underline: #4a5a8a;
   --flash: rgba(201, 176, 120, 0.22);
+  --find: rgba(201, 176, 120, 0.26);
+  --find-active: rgba(222, 184, 96, 0.46);
   --selection: rgba(125, 155, 255, 0.3);
   --topbar-bg: rgba(22, 22, 22, 0.85);
   --bubble-bg: rgba(255, 255, 255, 0.07);
@@ -390,6 +396,52 @@ mark.quote-flash {
   0% { background: var(--flash); }
   70% { background: var(--flash); }
   100% { background: transparent; }
+}
+
+/* 书内查找命中：主题化淡黄底 mark，与评注虚线可叠加在同一片段上。 */
+mark.find-mark {
+  color: inherit;
+  background: var(--find);
+  border-radius: 2px;
+}
+mark.find-mark.find-active { background: var(--find-active); }
+
+.find-bar {
+  position: fixed;
+  top: 47px;
+  right: 16px;
+  z-index: 36;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+  padding: 4px 6px;
+  animation: pop-in 0.15s ease both;
+}
+.find-bar input {
+  width: 180px;
+  border: none;
+  background: none;
+  outline: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 2px 6px;
+}
+.find-bar .text-btn { font-size: 13px; padding: 4px 8px; white-space: nowrap; }
+.find-count {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  padding: 0 4px;
+}
+
+/* 桌面上 Nova 面板打开时，查找条让出右侧面板宽度。 */
+@media (min-width: 1100px) {
+  body.nova-open .find-bar { right: calc(var(--nova-width) + 16px); }
 }
 
 .quote-jump {
@@ -830,6 +882,88 @@ body[data-theme="dark"] .sink-badge { color: #161616; }
   letter-spacing: 0.06em;
 }
 
+.toc-search {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--hairline);
+}
+.toc-search input {
+  width: 100%;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+}
+.toc-search input:focus { outline: none; border-color: var(--accent); }
+
+mark.toc-match {
+  color: inherit;
+  background: var(--find);
+  border-radius: 2px;
+}
+
+.toc-group-label {
+  margin: 0;
+  padding: 10px 20px 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.toc-bookmarks { border-bottom: 1px solid var(--hairline); padding-bottom: 6px; }
+
+.toc-bookmark-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.toc-bookmark-item { display: flex; align-items: center; }
+
+.toc-bookmark-open {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 8px 4px 8px 20px;
+  transition: background 0.15s ease;
+}
+.toc-bookmark-open:hover { background: var(--hover-bg); }
+
+.toc-bookmark-title {
+  display: block;
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toc-bookmark-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.toc-bookmark-del {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  transition: color 0.15s ease;
+}
+.toc-bookmark-del:hover { color: var(--danger); background: var(--hover-bg); }
+
+.toc-empty { padding: 10px 20px; }
+
 .toc-item {
   position: relative;
   display: block;
@@ -895,6 +1029,13 @@ body[data-theme="dark"] .sink-badge { color: #161616; }
   padding-left: 62px;
   font-size: 11px;
   color: var(--muted);
+}
+
+/* Aa 弹层底部的查找快捷键提示行。 */
+.typo-hint-find {
+  margin-top: 8px;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--hairline);
 }
 
 .theme-swatch {
@@ -1141,6 +1282,66 @@ body.nova-open .nova-strip { display: none; }
   padding: 10px 16px 14px;
 }
 
+/* ---------- Nova 面板：可折叠阅读计划小节 ---------- */
+
+.nova-plan {
+  flex-shrink: 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.nova-plan-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: left;
+  transition: color 0.15s ease;
+}
+.nova-plan-toggle:hover { color: var(--accent); }
+
+#planToggleLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-plan-caret {
+  flex-shrink: 0;
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+.nova-plan-toggle[aria-expanded="true"] .nova-plan-caret { transform: rotate(180deg); }
+
+.nova-plan-body { padding: 0 16px 12px; }
+
+.nova-plan-meta { margin: 0 0 2px; font-size: 12px; }
+
+.nova-plan-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.nova-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0;
+}
+.nova-plan-actions .text-btn { color: var(--accent); font-size: 13px; }
+
+.nova-plan-status { margin: 4px 0 0; font-size: 12px; }
+
 .nova-status { margin: 0 0 6px; }
 
 .nova-ask textarea {
@@ -1166,6 +1367,16 @@ body.nova-open .nova-strip { display: none; }
 /* ---------- 窄屏 ---------- */
 
 @media (max-width: 1099px) {
+  .find-bar {
+    left: 16px;
+    right: 16px;
+    justify-content: space-between;
+  }
+  .find-bar input {
+    width: auto;
+    flex: 1;
+    min-width: 56px;
+  }
   .nova-panel {
     top: auto;
     left: 0;
