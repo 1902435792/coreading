@@ -56,6 +56,10 @@ const state = {
   plan: null,             // 当前书 active 计划缓存: { planId, title, status, stepCount, doneCount, nextStep, hydrated }
   planOpen: false,
   planBusy: false,
+  skillOpen: false,
+  skillPending: new Set(), // 在飞技能卡: preread / scout / trail / review / plan
+  customFonts: [],        // 已注册导入字体: { name, family, size }（数据在 IndexedDB）
+  settingsReturn: "",     // 设置页来路：bookId = 从阅读页进入，"" = 从书架进入
   lastScrollY: 0,
   savePositionTimer: 0,
 };
@@ -165,23 +169,125 @@ function writeJson(key, value) {
 
 /* ---------- 排版设置 ---------- */
 
-const SETTING_FIELDS = ["theme", "face", "font", "width", "line", "para", "companions"];
+const SETTING_DEFAULTS = {
+  theme: "white",
+  face: "serif",
+  para: "indent",
+  companions: "on",
+  letter: "0",
+  paraGap: "normal",
+  margin: "normal",
+};
+const SETTING_RANGE_DEFAULTS = { fontPx: 18, lineH: 1.95, measureEm: 38 };
+const SETTING_RANGE_BOUNDS = { fontPx: [14, 22], lineH: [1.5, 2.4], measureEm: [32, 48] };
 
-function applySettings() {
-  const saved = readJson(SETTINGS_KEY) || {};
-  for (const field of SETTING_FIELDS) {
-    if (saved[field]) document.body.dataset[field] = saved[field];
-  }
-  syncTypoButtons();
+function clampRange(field, value) {
+  const [min, max] = SETTING_RANGE_BOUNDS[field];
+  // Number(null/"") 是 0：损坏值会被钳到下限（14px 字号），按缺省处理而不是钳值。
+  const num = value === null || value === "" ? NaN : Number(value);
+  return Number.isFinite(num) ? Math.min(max, Math.max(min, num)) : SETTING_RANGE_DEFAULTS[field];
 }
 
-function syncTypoButtons() {
-  document.querySelectorAll("#typoPop .typo-row").forEach((row) => {
-    const field = row.dataset.setting;
-    row.querySelectorAll("button").forEach((button) => {
-      button.setAttribute("aria-pressed", String(document.body.dataset[field] === button.dataset.value));
+function readSettings() {
+  const stored = readJson(SETTINGS_KEY);
+  // 非对象（手改/旧版本写坏的字符串、数组）按空设置处理，否则严格模式下写属性会抛错。
+  const saved = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  // 旧档位迁移：font s/m/l、width 窄/中/宽、line 紧凑/舒朗 → 数值存储（fontPx/measureEm/lineH）。
+  if (saved.font || saved.width || saved.line) {
+    if (!Number.isFinite(Number(saved.fontPx))) saved.fontPx = { s: 16, m: 18, l: 20 }[saved.font] || 18;
+    if (!Number.isFinite(Number(saved.measureEm))) saved.measureEm = { narrow: 32, normal: 38, wide: 44 }[saved.width] || 38;
+    if (!Number.isFinite(Number(saved.lineH))) {
+      // 旧“舒朗”行距随字号变化（1.85/1.95/2.0），迁移时保留这层对应关系。
+      saved.lineH = saved.line === "normal" ? 1.7 : { 16: 1.85, 18: 1.95, 20: 2 }[saved.fontPx] || 1.95;
+    }
+    delete saved.font;
+    delete saved.width;
+    delete saved.line;
+    writeJson(SETTINGS_KEY, saved);
+  }
+  return saved;
+}
+
+function applySettings() {
+  const saved = readSettings();
+  for (const [field, fallback] of Object.entries(SETTING_DEFAULTS)) {
+    document.body.dataset[field] = saved[field] || fallback;
+  }
+  // 导入字体没法写静态 CSS 选择器，--face-font 直接内联到 body；字体未注册完成前回退衬线栈。
+  if (saved.face === "custom" && saved.customFamily) {
+    document.body.style.setProperty("--face-font", `"${saved.customFamily}", var(--serif)`);
+  } else {
+    document.body.style.removeProperty("--face-font");
+  }
+  document.body.style.setProperty("--font-size", `${clampRange("fontPx", saved.fontPx)}px`);
+  document.body.style.setProperty("--line", String(clampRange("lineH", saved.lineH)));
+  document.body.style.setProperty("--measure", `${clampRange("measureEm", saved.measureEm)}em`);
+  syncSettingControls();
+}
+
+function applySettingChange(field, value) {
+  if (field === "autoPreRead") {
+    // 与 Nova 面板头部开关同一存储源（AUTO_PREREAD_KEY），不进 SETTINGS_KEY。
+    writeJson(AUTO_PREREAD_KEY, value === "on" ? "on" : "off");
+    syncAutoPreReadButton();
+    if (value === "on") scheduleAutoPreRead();
+    else window.clearTimeout(state.autoPreReadTimer);
+    syncSettingControls();
+    return;
+  }
+  const saved = readSettings();
+  if (field === "face" && value.startsWith("custom:")) {
+    const font = state.customFonts.find((item) => item.name === value.slice(7));
+    if (!font) return;
+    saved.face = "custom";
+    saved.customName = font.name;
+    saved.customFamily = font.family;
+  } else if (field in SETTING_RANGE_DEFAULTS) {
+    saved[field] = clampRange(field, value);
+  } else {
+    saved[field] = value;
+    if (field === "face") {
+      delete saved.customName;
+      delete saved.customFamily;
+    }
+  }
+  writeJson(SETTINGS_KEY, saved);
+  applySettings();
+  // 重新打开书友评论时，给本会话已进过视口的 chunk 一次补生成机会。
+  if (field === "companions" && value === "on") retryCompanionsForSeen();
+}
+
+function settingCurrentValue(field, saved) {
+  if (field === "autoPreRead") return autoPreReadOn() ? "on" : "off";
+  if (field === "face") return saved.face === "custom" ? `custom:${saved.customName}` : (saved.face || "serif");
+  return saved[field] || SETTING_DEFAULTS[field] || "";
+}
+
+function syncSettingControls() {
+  const saved = readSettings();
+  document.querySelectorAll("[data-setting]").forEach((row) => {
+    const current = settingCurrentValue(row.dataset.setting, saved);
+    row.querySelectorAll("button[data-value]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.value === current));
     });
   });
+  document.querySelectorAll("input.setting-range").forEach((input) => {
+    input.value = String(clampRange(input.dataset.field, saved[input.dataset.field]));
+  });
+  document.querySelectorAll("[data-range-value]").forEach((label) => {
+    const field = label.dataset.rangeValue;
+    const value = clampRange(field, saved[field]);
+    label.textContent = field === "fontPx" ? `${value}px`
+      : field === "measureEm" ? `${value}em`
+        : value.toFixed(2);
+  });
+}
+
+function onSettingButtonClick(event) {
+  const button = event.target.closest("button[data-value]");
+  const row = button?.closest("[data-setting]");
+  if (!button || !row || button.disabled) return;
+  applySettingChange(row.dataset.setting, button.dataset.value);
 }
 
 function setupTypoPop() {
@@ -191,19 +297,386 @@ function setupTypoPop() {
   });
   $("typoPop").addEventListener("click", (event) => {
     event.stopPropagation();
-    const button = event.target.closest("button[data-value]");
-    if (!button) return;
-    const field = button.closest(".typo-row").dataset.setting;
-    document.body.dataset[field] = button.dataset.value;
-    const saved = readJson(SETTINGS_KEY) || {};
-    saved[field] = button.dataset.value;
-    writeJson(SETTINGS_KEY, saved);
-    syncTypoButtons();
-    // 重新打开书友评论时，给本会话已进过视口的 chunk 一次补生成机会。
-    if (field === "companions" && button.dataset.value === "on") retryCompanionsForSeen();
+    onSettingButtonClick(event);
+  });
+  $("typoAllSettingsBtn").addEventListener("click", () => {
+    $("typoPop").hidden = true;
+    showSettings();
   });
   document.addEventListener("click", () => {
     $("typoPop").hidden = true;
+  });
+}
+
+/* ---------- 导入字体（IndexedDB 持久 + FontFace 注册） ---------- */
+
+const FONT_STORE = "fonts";
+const FONT_MAX_COUNT = 3;
+const FONT_MAX_BYTES = 25 * 1024 * 1024;
+
+function customFontFamily(name) {
+  // family 从文件名稳定推导：刷新后 IndexedDB 重载注册的名字与设置里存的一致。
+  return `reader-custom-${hashCode(String(name))}`;
+}
+
+function openFontDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("coreading-reader", 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(FONT_STORE)) {
+        request.result.createObjectStore(FONT_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("IndexedDB 打开失败"));
+  });
+}
+
+async function fontStoreRun(mode, action) {
+  const db = await openFontDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(FONT_STORE, mode);
+      const request = action(tx.objectStore(FONT_STORE));
+      tx.oncomplete = () => resolve(request?.result);
+      tx.onerror = () => reject(tx.error || new Error("IndexedDB 操作失败"));
+      tx.onabort = () => reject(tx.error || new Error("IndexedDB 操作中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function registerCustomFontFace(family, data) {
+  const face = new FontFace(family, data); // 损坏文件在构造/加载时抛异常
+  await face.load();
+  document.fonts.add(face);
+  return face;
+}
+
+async function loadCustomFontsAtStartup() {
+  let records = [];
+  try {
+    records = (await fontStoreRun("readonly", (store) => store.getAll())) || [];
+  } catch {
+    return; // IndexedDB 不可用：跳过导入字体，回退栈不受影响
+  }
+  for (const record of records) {
+    if (!record?.name || !record.data) continue;
+    const family = record.family || customFontFamily(record.name);
+    try {
+      const face = await registerCustomFontFace(family, record.data);
+      state.customFonts.push({ name: record.name, family, size: Number(record.size || 0), face });
+    } catch {
+      // 单个字体损坏只影响它自己。
+    }
+  }
+  // 设置里还指着已不存在的导入字体（浏览器清了 IndexedDB 等）：回退衬线，
+  // 否则字体行永远没有选中项、--face-font 永远指向加载不出来的 family。
+  const saved = readSettings();
+  if (saved.face === "custom" && !state.customFonts.some((item) => item.name === saved.customName)) {
+    saved.face = "serif";
+    delete saved.customName;
+    delete saved.customFamily;
+    writeJson(SETTINGS_KEY, saved);
+  }
+  renderFaceOptions();
+  // 注册完成后重应用：正在使用的导入字体由回退栈切回真身（或刚回退的衬线生效）。
+  applySettings();
+}
+
+async function importFontFile(file) {
+  const status = $("fontImportStatus");
+  if (!file) return;
+  if (state.customFonts.length >= FONT_MAX_COUNT) {
+    status.textContent = `最多导入 ${FONT_MAX_COUNT} 个字体，请先删除一个。`;
+    return;
+  }
+  if (file.size > FONT_MAX_BYTES) {
+    status.textContent = "单个字体文件不能超过 25MB。";
+    return;
+  }
+  if (state.customFonts.some((item) => item.name === file.name)) {
+    status.textContent = "同名字体已导入过。";
+    return;
+  }
+  status.textContent = "导入中…";
+  try {
+    const data = await file.arrayBuffer();
+    const family = customFontFamily(file.name);
+    const face = await registerCustomFontFace(family, data);
+    await fontStoreRun("readwrite", (store) => store.put({
+      name: file.name,
+      family,
+      size: file.size,
+      addedAt: new Date().toISOString(),
+      data,
+    }, file.name));
+    state.customFonts.push({ name: file.name, family, size: file.size, face });
+    renderFaceOptions();
+    renderDataUsage();
+    status.textContent = `已导入「${file.name}」，在上方字体里选用。`;
+  } catch (error) {
+    status.textContent = `导入失败：${compactText(error?.message || error, 80)}`;
+  }
+}
+
+async function deleteCustomFont(name) {
+  try {
+    await fontStoreRun("readwrite", (store) => store.delete(name));
+  } catch {
+    // 持久层删除失败也移除会话内引用；下次启动若还在可再删。
+  }
+  // 同步从 document.fonts 注销：否则 FontFace 一直占内存，且同名重导会出现两个同 family 的字体。
+  const removed = state.customFonts.find((item) => item.name === name);
+  if (removed?.face) document.fonts.delete(removed.face);
+  state.customFonts = state.customFonts.filter((item) => item.name !== name);
+  const saved = readSettings();
+  if (saved.face === "custom" && saved.customName === name) {
+    saved.face = "serif"; // 删除正在使用的字体：回退衬线
+    delete saved.customName;
+    delete saved.customFamily;
+    writeJson(SETTINGS_KEY, saved);
+  }
+  renderFaceOptions();
+  renderDataUsage();
+  applySettings();
+}
+
+function renderFaceOptions() {
+  const wrap = $("customFaceList");
+  wrap.textContent = "";
+  for (const font of state.customFonts) {
+    const item = document.createElement("span");
+    item.className = "custom-face-item";
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "text-btn";
+    pick.dataset.value = `custom:${font.name}`;
+    pick.textContent = `我的字体·${compactText(font.name.replace(/\.[^.]+$/, ""), 14)}`;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "custom-face-del";
+    del.textContent = "✕";
+    del.setAttribute("aria-label", `删除字体 ${font.name}`);
+    del.addEventListener("click", (event) => {
+      // 二段确认：第一次点变红，再点才真删。
+      event.stopPropagation();
+      if (!del.classList.contains("danger")) {
+        del.classList.add("danger");
+        window.setTimeout(() => del.classList.remove("danger"), 3000);
+        return;
+      }
+      void deleteCustomFont(font.name);
+    });
+    item.append(pick, del);
+    wrap.append(item);
+  }
+  syncSettingControls();
+}
+
+/* ---------- 设置页（#settings 全页路由） ---------- */
+
+function showSettings() {
+  // 记住来路：从阅读页进入时“返回”继续读原书，否则回书架。
+  state.settingsReturn = !$("readView").hidden && state.bookId ? state.bookId : "";
+  if (!$("readView").hidden) savePositionNow();
+  window.clearTimeout(state.autoPreReadTimer);
+  hideSelTool();
+  closeCommentCard();
+  closeNoteCard();
+  closeSinkTargetPop();
+  closeSinkDrawer();
+  closeTrailDrawer();
+  closeFindBar();
+  closeToc();
+  closeNova();
+  $("typoPop").hidden = true;
+  if (immersiveOn()) exitImmersive();
+  history.replaceState(null, "", "#settings");
+  $("shelfView").hidden = true;
+  $("readView").hidden = true;
+  $("settingsView").hidden = false;
+  document.title = "设置";
+  window.scrollTo(0, 0);
+  renderSettings();
+}
+
+function closeSettings() {
+  $("settingsView").hidden = true;
+  const bookId = state.settingsReturn;
+  state.settingsReturn = "";
+  if (bookId && (state.snapshot?.books || []).some((book) => book.bookId === bookId)) {
+    void openBook(bookId);
+    return;
+  }
+  showShelf();
+}
+
+function renderSettings() {
+  renderFaceOptions(); // 自带 syncSettingControls
+  renderSinkDefaultControls();
+  renderCompanionRoster();
+  renderDataUsage();
+  $("fontImportStatus").textContent = "";
+  $("dataStatus").textContent = "";
+  void renderSettingsHealth();
+}
+
+function renderSinkDefaultControls() {
+  const saved = savedSinkTargets();
+  document.querySelectorAll("input.sink-default").forEach((input) => {
+    input.checked = saved.includes(input.value);
+  });
+  $("sinkDefaultStatus").textContent = "";
+}
+
+function onSinkDefaultChange(input) {
+  const targets = Array.from(document.querySelectorAll("input.sink-default:checked")).map((item) => item.value);
+  if (!targets.length) {
+    input.checked = true; // 至少保留一个默认目标
+    $("sinkDefaultStatus").textContent = "至少保留一个默认导出目标。";
+    return;
+  }
+  writeJson(SINK_TARGETS_KEY, targets);
+  $("sinkDefaultStatus").textContent = "已保存默认导出目标。";
+}
+
+function renderCompanionRoster() {
+  // 前端没有 personas 列表接口：只读展示生成结果里见过的名字，没有就给配置说明。
+  const names = new Set();
+  for (const comments of state.companions.values()) {
+    for (const comment of comments) {
+      if (comment?.name) names.add(comment.name);
+    }
+  }
+  $("companionRoster").textContent = names.size
+    ? `本次会话出现过的书友：${[...names].join("、")}（AI 演绎）。`
+    : "书友名单由服务端 personas 配置（作者人格 + 历史读者，均为 AI 演绎），生成过评论后会在这里列出。";
+}
+
+async function renderSettingsHealth() {
+  $("novaHealthLine").textContent = "读取服务状态中…";
+  $("aboutHealth").textContent = "读取服务状态中…";
+  try {
+    const health = await api("/api/health");
+    setCompanionConfigured(Boolean(health.companionConfigured));
+    const backends = Array.isArray(health.novaBackends) ? health.novaBackends.filter(Boolean).join(" / ") : "";
+    const timeout = Number(health.novaTimeoutMs);
+    $("novaHealthLine").textContent = [
+      backends ? `后端 ${backends}` : "",
+      health.novaAgentName ? `模型代理 ${health.novaAgentName}` : "",
+      timeout ? `单次请求最长 ${Math.round(timeout / 1000)} 秒` : "",
+    ].filter(Boolean).join(" · ") || "服务未返回 Nova 配置。";
+    $("aboutHealth").textContent = `服务正常 · pid ${health.pid} · 已运行 ${Math.round(Number(health.uptimeSeconds || 0) / 60)} 分钟`;
+  } catch (error) {
+    $("novaHealthLine").textContent = "服务状态读取失败。";
+    $("aboutHealth").textContent = `服务异常：${compactText(error.message || error, 60)}`;
+  }
+}
+
+/* ---------- 设置页：本地数据占用与清理 ---------- */
+
+const DATA_GROUPS = {
+  positions: (key) => key.startsWith(`${STORE_PREFIX}position.`),
+  bookmarks: (key) => key.startsWith(`${STORE_PREFIX}bookmarks.`),
+  settings: (key) => [SETTINGS_KEY, AUTO_PREREAD_KEY, SINK_TARGETS_KEY].includes(key),
+};
+
+function localUsage(predicate) {
+  let bytes = 0;
+  let count = 0;
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (!predicate(key)) continue;
+    bytes += (key.length + String(localStorage.getItem(key) || "").length) * 2; // UTF-16 估算
+    count += 1;
+  }
+  return { bytes, count };
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function renderDataUsage() {
+  const positions = localUsage(DATA_GROUPS.positions);
+  const bookmarks = localUsage(DATA_GROUPS.bookmarks);
+  const settings = localUsage(DATA_GROUPS.settings);
+  const fontBytes = state.customFonts.reduce((sum, font) => sum + Number(font.size || 0), 0);
+  $("usagePositions").textContent = `${positions.count} 本 · ${formatBytes(positions.bytes)}`;
+  $("usageBookmarks").textContent = `${bookmarks.count} 本 · ${formatBytes(bookmarks.bytes)}`;
+  $("usageSettings").textContent = formatBytes(settings.bytes);
+  $("usageFonts").textContent = `${state.customFonts.length} 个 · ${formatBytes(fontBytes)}`;
+}
+
+function removeLocalKeys(predicate) {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i += 1) keys.push(localStorage.key(i));
+  for (const key of keys) {
+    if (predicate(key)) localStorage.removeItem(key);
+  }
+}
+
+function clearSettingsData() {
+  removeLocalKeys(DATA_GROUPS.settings);
+  applySettings();
+  syncAutoPreReadButton();
+  renderSinkDefaultControls();
+}
+
+async function clearFontData() {
+  try {
+    await fontStoreRun("readwrite", (store) => store.clear());
+  } catch {
+    // IndexedDB 不可用时只清会话内引用。
+  }
+  for (const font of state.customFonts) {
+    if (font.face) document.fonts.delete(font.face);
+  }
+  state.customFonts = [];
+  const saved = readSettings();
+  if (saved.face === "custom") {
+    saved.face = "serif";
+    delete saved.customName;
+    delete saved.customFamily;
+    writeJson(SETTINGS_KEY, saved);
+  }
+  renderFaceOptions();
+  applySettings();
+}
+
+function setupClearButton(id, action) {
+  const button = $(id);
+  const label = button.textContent;
+  let timer = 0;
+  button.addEventListener("click", async () => {
+    // 二段确认：第一次点变红“确认清除”，4 秒不点回弹。
+    if (!button.classList.contains("danger")) {
+      button.classList.add("danger");
+      button.textContent = "确认清除";
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        button.classList.remove("danger");
+        button.textContent = label;
+      }, 4000);
+      return;
+    }
+    window.clearTimeout(timer);
+    button.disabled = true;
+    try {
+      await action();
+      $("dataStatus").textContent = "已清除。";
+    } catch (error) {
+      $("dataStatus").textContent = `清除失败：${compactText(error.message || error, 60)}`;
+    } finally {
+      button.disabled = false;
+      button.classList.remove("danger");
+      button.textContent = label;
+      renderDataUsage();
+    }
   });
 }
 
@@ -372,6 +845,7 @@ function showShelf() {
   state.flowRequestId += 1;
   history.replaceState(null, "", location.pathname);
   $("readView").hidden = true;
+  $("settingsView").hidden = true;
   $("shelfView").hidden = false;
   closeNova();
   hideSelTool();
@@ -389,6 +863,7 @@ function showShelf() {
 
 function showReadView() {
   $("shelfView").hidden = true;
+  $("settingsView").hidden = true;
   $("readView").hidden = false;
 }
 
@@ -812,7 +1287,8 @@ function renderNovaHistory() {
     button.type = "button";
     button.className = "nova-history-item";
     if (item.id === state.novaActiveHistoryId) button.classList.add("active");
-    button.append(document.createTextNode(`${item.chunkId} · ${item.title}`));
+    // 巡读条目（scope=book）没有 chunkId，标签只剩标题。
+    button.append(document.createTextNode([item.chunkId, item.title].filter(Boolean).join(" · ")));
     const time = formatHistoryTime(item.answeredAt);
     if (time) {
       const span = document.createElement("span");
@@ -828,7 +1304,9 @@ function renderNovaHistory() {
 function showPreReadItem(item) {
   state.novaActiveHistoryId = item.id;
   state.novaReply = {
-    meta: `Nova 预读 · ${item.chunkId} · ${item.title}`,
+    meta: item.scope === "book"
+      ? `Nova 巡读 · ${item.title}`
+      : `Nova 预读 · ${item.chunkId} · ${item.title}`,
     text: item.note,
     bookId: item.bookId,
     bookTitle: state.bookTitle,
@@ -1152,7 +1630,7 @@ function openCommentCard(annotations, anchorEl) {
     const sink = document.createElement("button");
     sink.type = "button";
     sink.className = "text-btn comment-open sink-trigger";
-    sink.textContent = "沉淀";
+    sink.textContent = "导出";
     sink.addEventListener("click", () => openSinkTargetPop(sinkDraftFromAnnotation(ann), sink));
     actions.append(sink);
     if (ann.source === "mine") {
@@ -1570,7 +2048,7 @@ async function confirmSinkCreate() {
   const targets = Array.from($("sinkTargetPop").querySelectorAll("input[type=checkbox]:checked"))
     .map((input) => input.value);
   if (!targets.length) {
-    $("sinkTargetStatus").textContent = "至少选一个沉淀目标。";
+    $("sinkTargetStatus").textContent = "至少选一个导出目标。";
     return;
   }
   writeJson(SINK_TARGETS_KEY, targets);
@@ -1623,7 +2101,7 @@ async function createSinkPreview(draft, targets) {
     bookId,
     startChunkId: chunkId,
     endChunkId: chunkId,
-    summary: `${draft.sourceLabel || "评论"}沉淀预览：${bookTitle} · ${chunkId}`,
+    summary: `${draft.sourceLabel || "评论"}导出预览：${bookTitle} · ${chunkId}`,
     observations,
     tags: ["co-reading", "reader-shell", "comment-sink"],
     sinkPolicy: {
@@ -1694,7 +2172,7 @@ function renderSinkList() {
   const list = $("sinkList");
   list.textContent = "";
   const previews = bookSinkPreviews();
-  $("sinkDrawerStatus").textContent = previews.length ? "" : "本书还没有沉淀预览。";
+  $("sinkDrawerStatus").textContent = previews.length ? "" : "本书还没有导出预览。";
   for (const preview of previews) {
     list.append(buildSinkItem(preview));
   }
@@ -1895,7 +2373,8 @@ function renderNovaReply() {
   userBubble.hidden = !state.novaReply?.prompt;
   const container = $("novaReply");
   container.textContent = "";
-  $("novaReplyActions").hidden = !state.novaReply?.text;
+  // 巡读回复（scope=book）没有 chunkId 可归属，存笔记/导出动作不展示。
+  $("novaReplyActions").hidden = !(state.novaReply?.text && state.novaReply?.chunkId);
   $("novaActionStatus").textContent = "";
   if (!state.novaReply?.text) {
     container.textContent = "选中正文文字点「问 Nova」，或直接在下面输入问题。";
@@ -2035,6 +2514,7 @@ function syncAutoPreReadButton() {
 function toggleAutoPreRead() {
   writeJson(AUTO_PREREAD_KEY, autoPreReadOn() ? "off" : "on");
   syncAutoPreReadButton();
+  syncSettingControls(); // 设置页同一开关保持同步
   if (autoPreReadOn()) scheduleAutoPreRead();
   else window.clearTimeout(state.autoPreReadTimer);
 }
@@ -2187,40 +2667,44 @@ function closeTrailDrawer() {
   $("trailBackdrop").hidden = true;
 }
 
+async function executeTrail(clueText, anchorChunkId) {
+  const bookId = state.bookId;
+  // payload 对照旧壳 backtrackPayload：线索文本 + bounded evidence 参数。
+  const result = await query({
+    command: "interest_backtrack",
+    bookId,
+    query: String(clueText || "").replace(/\s+/g, " ").trim().slice(0, 120) || undefined,
+    anchorChunkId,
+    before: 2,
+    after: 2,
+    maxRanges: 4,
+    mergeGap: 1,
+    includeEvidence: true,
+  });
+  if (bookId !== state.bookId || $("readView").hidden) return false; // 等待期间切书/回书架，结果作废
+  renderTrailResult(result);
+  openTrailDrawer();
+  return true;
+}
+
 async function trailFromSelection() {
   const selection = state.selection;
-  const bookId = state.bookId;
-  if (!selection?.text || !bookId || state.trailPending) return;
+  if (!selection?.text || !state.bookId || state.trailPending) return;
   state.trailPending = true;
   const button = $("selTrailBtn");
   const status = $("selToolStatus");
   button.disabled = true;
-  button.textContent = "追线索…";
+  button.textContent = "查找中…";
   status.hidden = true;
   try {
-    // payload 对照旧壳 backtrackPayload：选区文本做线索 + bounded evidence 参数。
-    const result = await query({
-      command: "interest_backtrack",
-      bookId,
-      query: selection.text.replace(/\s+/g, " ").trim().slice(0, 120) || undefined,
-      anchorChunkId: selection.chunkId,
-      before: 2,
-      after: 2,
-      maxRanges: 4,
-      mergeGap: 1,
-      includeEvidence: true,
-    });
-    if (bookId !== state.bookId || $("readView").hidden) return; // 等待期间切书/回书架，结果作废
-    renderTrailResult(result);
-    hideSelTool();
-    openTrailDrawer();
+    if (await executeTrail(selection.text, selection.chunkId)) hideSelTool();
   } catch (error) {
-    status.textContent = `追线索失败：${compactText(error.message || error, 60)}，可点按钮重试。`;
+    status.textContent = `相关段落查找失败：${compactText(error.message || error, 60)}，可点按钮重试。`;
     status.hidden = false;
   } finally {
     state.trailPending = false;
     button.disabled = false;
-    button.textContent = "追线索";
+    button.textContent = "相关段落";
   }
 }
 
@@ -2647,6 +3131,7 @@ function renderPlanSection() {
   else if (!plan.hydrated) label.textContent = "计划 · 读取下一步…";
   else if (!plan.nextStep) label.textContent = "计划 · 已全部完成";
   else label.textContent = `计划 · 下一步 ${planStepLabel(plan.nextStep)}`.trim();
+  renderSkillCards(); // 计划忙闲影响“计划本章”技能卡
   if (!state.planOpen) return;
   const step = plan?.hydrated ? plan.nextStep : null;
   const range = planStepRange(step);
@@ -2756,6 +3241,302 @@ async function planCurrentSection() {
   }
 }
 
+/* ---------- Nova 技能卡（2×3 折叠区：每张卡执行一条已有链路） ---------- */
+
+function setSkillStatus(text) {
+  $("skillStatus").textContent = text;
+}
+
+function renderSkillCards() {
+  const hasBook = Boolean(state.bookId);
+  const hasChunk = hasBook && Boolean(state.activeChunkId);
+  const pending = state.skillPending;
+  $("skillPreReadBtn").disabled = !hasChunk || pending.has("preread");
+  $("skillScoutBtn").disabled = !hasBook || pending.has("scout");
+  $("skillTrailBtn").disabled = !hasChunk || pending.has("trail") || state.trailPending;
+  $("skillReviewBtn").disabled = !hasChunk || pending.has("review");
+  $("skillPlanBtn").disabled = !hasBook || state.planBusy || pending.has("plan") || !currentSectionRange();
+  $("skillSinkBtn").disabled = !hasChunk || state.sinkCreating;
+}
+
+function toggleSkillSection() {
+  state.skillOpen = !state.skillOpen;
+  $("skillToggleBtn").setAttribute("aria-expanded", String(state.skillOpen));
+  $("skillBody").hidden = !state.skillOpen;
+  if (state.skillOpen) {
+    setSkillStatus("");
+    renderSkillCards();
+  }
+}
+
+async function withSkillPending(name, work) {
+  if (state.skillPending.has(name)) return;
+  state.skillPending.add(name);
+  renderSkillCards();
+  try {
+    await work();
+  } finally {
+    state.skillPending.delete(name);
+    renderSkillCards();
+  }
+}
+
+/* 预读本段：手动触发当前 chunk 的自主预读，绕过会话 once 限制（复用自动预读的请求构造）。 */
+function skillPreRead() {
+  const bookId = state.bookId;
+  const chunkId = state.activeChunkId;
+  if (!bookId || !chunkId) return;
+  // 对照旧壳 runNovaAutonomousReading 的入口闸：手动提问或自动预读在飞时不并发同类请求，
+  // 否则同一 chunk 可能同时出两条预读（历史、评注层都翻倍）。
+  if (state.novaPending || state.autoPreReadInFlight) {
+    setSkillStatus("Nova 正在读上一条，等它回来再点。");
+    return;
+  }
+  void withSkillPending("preread", async () => {
+    // 借用自动预读的单飞闸：请求期间自动调度让路（不消耗它的会话名额），其它技能预读也进不来。
+    state.autoPreReadInFlight = true;
+    setSkillStatus("Nova 预读本段中…（单次请求，最长等 6 分钟）");
+    try {
+      const text = renderedChunkText(chunkId) || await chunkRawText(chunkId).catch(() => "");
+      if (!text.trim()) throw new Error("这一段还没有可读正文");
+      // 手动发出后占掉本 chunk 的自动预读名额，避免自动调度再发一次。
+      state.autoPreReadTried.add(`${bookId}:${chunkId}`);
+      const context = await buildAutoPreReadContext(bookId, chunkId, text);
+      const result = await askNovaApi({ prompt: buildAutoPreReadPrompt(), context });
+      const before = state.sessionPreReads.length;
+      recordAutoPreRead(context, result.content || "");
+      const item = state.sessionPreReads[0];
+      if (state.sessionPreReads.length > before && item && item.bookId === state.bookId) {
+        showPreReadItem(item); // 用户主动点的卡：直接展示，不让位
+        setSkillStatus("预读完成，回复已在 Nova 面板。");
+      } else if (state.sessionPreReads.length > before) {
+        setSkillStatus("预读完成，已归档到原书的预读历史。"); // 等待期间切了书
+      } else {
+        setSkillStatus("Nova 没有返回内容，可稍后再试。");
+      }
+    } catch (error) {
+      setSkillStatus(`预读失败：${compactText(error.message || error, 80)}`);
+    } finally {
+      state.autoPreReadInFlight = false;
+    }
+  });
+}
+
+/* 先看全书：book-scope 巡读，payload 对照旧壳 bookScout（scope:"book"，候选上限 4）。 */
+function buildBookScoutPrompt() {
+  return [
+    `请你作为 Nova 在我继续读《${state.bookTitle || "这本书"}》之前，先自主巡读一次。`,
+    "你可以从系统传入的目录和候选正文里自己挑一个最值得停留的位置。",
+    "输出保持短而有用：",
+    "1. 你先看了哪里，为什么选这里；",
+    "2. 对这个段落做一条具体评论，必须锚定原文；",
+    "3. 选一句值得我稍后留意的话；",
+    "4. 给我一个下一步阅读动作。",
+    "只能评论已传入的候选正文，不要假装读完整本书。",
+  ].join("\n");
+}
+
+async function bookScoutCandidates(maxCandidates = 4) {
+  // 从第一个正文章节起取若干候选段（跳过封面/版权等前置页），交给 Nova 自己挑。
+  const candidates = [];
+  for (let i = preferredAnchorIndex(); i < state.chunks.length && candidates.length < maxCandidates; i += 1) {
+    const chunk = state.chunks[i];
+    const chunkId = getChunkId(chunk);
+    let text = renderedChunkText(chunkId);
+    if (!text) {
+      try {
+        text = await chunkRawText(chunkId);
+      } catch {
+        continue; // 单个候选失败跳过，保留其它可读上下文
+      }
+    }
+    if (!text.trim()) continue;
+    candidates.push({ chunkId, title: chunkTitle(chunk) || chunkId, text: compactText(text, 1800) });
+  }
+  return candidates;
+}
+
+function skillBookScout() {
+  const bookId = state.bookId;
+  if (!bookId) return;
+  // 同预读本段：手动提问或自动预读在飞时不并发第二条 Nova 自主请求。
+  if (state.novaPending || state.autoPreReadInFlight) {
+    setSkillStatus("Nova 正在读上一条，等它回来再点。");
+    return;
+  }
+  void withSkillPending("scout", async () => {
+    state.autoPreReadInFlight = true; // 巡读期间自动预读让路（不消耗它的会话名额）
+    setSkillStatus("Nova 巡读全书中…（单次请求，最长等 6 分钟）");
+    try {
+      const context = {
+        coReadingContextVersion: "2026-06-reader-shell",
+        contextMode: "autonomous-reading",
+        scope: "book",
+        runtimeAgent: "Nova",
+        productMode: "single-agent-reader",
+        bookId,
+        bookTitle: state.bookTitle,
+        chunkId: "",
+        chunkTitle: "",
+        chunkPosition: "",
+        text: "",
+        selection: "",
+        selectionOffset: null,
+        tocPreview: novaTocPreview(),
+        autonomousCandidates: await bookScoutCandidates(),
+        instructionBoundary: "Nova 在 autonomousCandidates 里自行挑一个最值得停留的位置；只能评论传入候选段，不要假装读完整本书。",
+      };
+      if (bookId !== state.bookId) return; // 取候选期间切书，放弃本次
+      const result = await askNovaApi({ prompt: buildBookScoutPrompt(), context });
+      const note = compactText(result.content || "", 520);
+      if (!note) {
+        setSkillStatus("Nova 没有返回内容，可稍后再试。");
+        return;
+      }
+      const item = {
+        id: `nova-scout-${bookId}-${Date.now()}`,
+        bookId,
+        chunkId: "",
+        title: "本书巡读",
+        note,
+        // book scope：不进评注层、不抑制各 chunk 的自动预读（对照旧壳 scope!=="book" 过滤）。
+        scope: "book",
+        answeredAt: new Date().toISOString(),
+      };
+      state.sessionPreReads.unshift(item);
+      if (bookId === state.bookId) showPreReadItem(item);
+      setSkillStatus("巡读完成，回复已在 Nova 面板。");
+    } catch (error) {
+      setSkillStatus(`巡读失败：${compactText(error.message || error, 80)}`);
+    } finally {
+      state.autoPreReadInFlight = false;
+    }
+  });
+}
+
+/* 相关段落：等同选区动作；无选区时用当前章节标题做线索。 */
+function skillTrail() {
+  const chunkId = state.activeChunkId;
+  if (!state.bookId || !chunkId || state.trailPending) return;
+  void withSkillPending("trail", async () => {
+    const clue = state.selection?.text || sectionLabel(chunkById(chunkId) || {});
+    if (!clue.trim()) {
+      setSkillStatus("先选中一段文字，或等本段标题加载好再试。");
+      return;
+    }
+    state.trailPending = true;
+    setSkillStatus("查找相关段落中…");
+    try {
+      if (await executeTrail(clue, state.selection?.chunkId || chunkId)) {
+        setSkillStatus("相关段落已在右侧抽屉展开。");
+      }
+    } catch (error) {
+      setSkillStatus(`相关段落查找失败：${compactText(error.message || error, 80)}`);
+    } finally {
+      state.trailPending = false;
+    }
+  });
+}
+
+/* 评价本段：review_create，观察项 = 本段我的笔记 + Nova 评注摘要（payload 对照 C2 导出链的 review_create）。 */
+function chunkCommentObservations(chunkId) {
+  // 书友评论是 AI 演绎人格，不进评价观察项。
+  const observations = [];
+  for (const ann of uniqueComments(annotationsForChunk(chunkId))) {
+    if (ann.source === "mine") {
+      observations.push({
+        section: "user_note", source: "user-note", kind: "note",
+        chunkId, quote: ann.quote || "", note: ann.text, text: ann.text,
+      });
+    } else if (String(ann.source).startsWith("nova")) {
+      observations.push({
+        section: "nova_reply", source: "nova-reply-current", kind: "nova-reply",
+        chunkId, quote: ann.quote || "", note: ann.text, text: ann.text,
+      });
+    }
+  }
+  return observations.slice(0, 6);
+}
+
+function skillReview() {
+  const bookId = state.bookId;
+  const chunkId = state.activeChunkId;
+  if (!bookId || !chunkId) return;
+  void withSkillPending("review", async () => {
+    setSkillStatus("生成本段评价中…");
+    try {
+      const chunk = chunkById(chunkId) || {};
+      // 刚打开书时 activeChunkId 先于正文渲染就位：DOM 取不到就回退原文，避免生成空摘录评价。
+      const source = renderedChunkText(chunkId) || await chunkRawText(chunkId).catch(() => "");
+      const excerpt = compactText(source, 200);
+      if (!excerpt.trim()) throw new Error("这一段还没有可读正文");
+      await query({
+        command: "review_create",
+        bookId,
+        startChunkId: chunkId,
+        endChunkId: chunkId,
+        summary: `本段评价：${state.bookTitle} · ${chunkId}`,
+        observations: [
+          {
+            section: "source_quote",
+            source: "current-chunk",
+            chunkId,
+            title: chunkTitle(chunk) || chunkId,
+            quote: excerpt,
+            text: excerpt,
+            quoteOffset: null,
+          },
+          ...chunkCommentObservations(chunkId),
+        ],
+        tags: ["co-reading", "reader-shell", "skill-review"],
+        sinkPolicy: { requireApproval: true },
+        createdBy: "CoReadingReader",
+      });
+      setSkillStatus("已生成本段评价。");
+    } catch (error) {
+      setSkillStatus(`评价失败：${compactText(error.message || error, 80)}`);
+    }
+  });
+}
+
+/* 计划本章：复用计划小节的 createPlanForCurrentSection 链路，状态在计划小节反馈。 */
+function skillPlanSection() {
+  if (!state.bookId || state.planBusy || !currentSectionRange()) return;
+  if (!state.planOpen) togglePlanSection();
+  setSkillStatus("创建本章计划中…进度见下方计划小节。");
+  void withSkillPending("plan", async () => {
+    await planCurrentSection();
+    setSkillStatus("");
+  });
+}
+
+/* 导出本段：复用 C2 导出链（选目标 → review_create → sink_preview_create，待批准进导出箱）。 */
+function skillSinkCurrent() {
+  const chunkId = state.activeChunkId;
+  if (!state.bookId || !chunkId) return;
+  const comments = uniqueComments(annotationsForChunk(chunkId))
+    .filter((ann) => ann.source === "mine" || String(ann.source).startsWith("nova"));
+  const text = comments.length
+    ? comments.slice(0, 4).map((ann) => `${ann.speaker}：${compactText(ann.text, 120)}`).join("\n")
+    : compactText(renderedChunkText(chunkId), 200);
+  if (!text.trim()) {
+    setSkillStatus("这一段还没有可导出的内容。");
+    return;
+  }
+  setSkillStatus("");
+  openSinkTargetPop({
+    text,
+    quote: "",
+    bookId: state.bookId,
+    bookTitle: state.bookTitle,
+    chunkId,
+    sourceLabel: "本段",
+    section: "user_note",
+    source: "user-note",
+    kind: "note",
+  }, $("skillSinkBtn"));
+}
+
 /* ---------- 选区工具条 ---------- */
 
 function hideSelTool() {
@@ -2856,6 +3637,40 @@ function setupEvents() {
   $("planReadStepBtn").addEventListener("click", readPlanStep);
   $("planDoneStepBtn").addEventListener("click", () => void completePlanStep());
   $("planSectionBtn").addEventListener("click", () => void planCurrentSection());
+  $("skillToggleBtn").addEventListener("click", toggleSkillSection);
+  $("skillPreReadBtn").addEventListener("click", skillPreRead);
+  $("skillScoutBtn").addEventListener("click", skillBookScout);
+  $("skillTrailBtn").addEventListener("click", skillTrail);
+  $("skillReviewBtn").addEventListener("click", skillReview);
+  $("skillPlanBtn").addEventListener("click", skillPlanSection);
+  $("skillSinkBtn").addEventListener("click", skillSinkCurrent);
+  $("shelfSettingsBtn").addEventListener("click", showSettings);
+  $("settingsBackBtn").addEventListener("click", closeSettings);
+  $("settingsView").addEventListener("click", onSettingButtonClick);
+  document.addEventListener("input", (event) => {
+    // 滑杆即时生效即时存（Aa 弹层与设置页共用 .setting-range）。
+    const input = event.target.closest?.("input.setting-range");
+    if (input) applySettingChange(input.dataset.field, input.value);
+  });
+  $("fontImportBtn").addEventListener("click", () => $("fontImportInput").click());
+  $("fontImportInput").addEventListener("change", () => {
+    const file = $("fontImportInput").files?.[0];
+    $("fontImportInput").value = "";
+    void importFontFile(file);
+  });
+  document.querySelectorAll("input.sink-default").forEach((input) => {
+    input.addEventListener("change", () => onSinkDefaultChange(input));
+  });
+  setupClearButton("clearPositionsBtn", () => removeLocalKeys(DATA_GROUPS.positions));
+  setupClearButton("clearBookmarksBtn", () => removeLocalKeys(DATA_GROUPS.bookmarks));
+  setupClearButton("clearSettingsBtn", () => clearSettingsData());
+  setupClearButton("clearFontsBtn", () => clearFontData());
+  setupClearButton("clearAllBtn", async () => {
+    removeLocalKeys(DATA_GROUPS.positions);
+    removeLocalKeys(DATA_GROUPS.bookmarks);
+    await clearFontData();
+    clearSettingsData();
+  });
   document.addEventListener("fullscreenchange", onFullscreenChange);
   document.addEventListener("mousemove", onImmersiveMouseMove, { passive: true });
   document.addEventListener("keydown", (event) => {
@@ -2916,6 +3731,11 @@ async function init() {
   setupEvents();
   setupCompanionObserver();
   void loadCompanionHealth();
+  void loadCustomFontsAtStartup(); // 异步重载导入字体；就绪前用回退栈，不阻塞首屏
+  if (location.hash === "#settings") {
+    showSettings();
+    return;
+  }
   const match = location.hash.match(/^#book=(.+)$/);
   if (match) {
     // 刷新后直接回到正在读的书和保存位置。

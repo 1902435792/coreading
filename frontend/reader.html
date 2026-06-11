@@ -6,7 +6,7 @@
   <title>共读</title>
   <link rel="stylesheet" href="./reader.css">
 </head>
-<body data-theme="white" data-font="m" data-width="normal" data-line="loose" data-face="serif" data-para="indent" data-companions="on">
+<body data-theme="white" data-face="serif" data-para="indent" data-companions="on" data-letter="0" data-para-gap="normal" data-margin="normal">
 
   <!-- 书架视图 -->
   <main id="shelfView" class="shelf">
@@ -14,6 +14,7 @@
       <h1>书库</h1>
       <nav class="shelf-actions">
         <button id="scanLocalBtn" class="text-btn" type="button">扫描本地书库</button>
+        <button id="shelfSettingsBtn" class="text-btn" type="button">设置</button>
         <a class="text-btn" href="/classic">完整模式</a>
       </nav>
     </header>
@@ -26,6 +27,151 @@
     </section>
   </main>
 
+  <!-- 设置视图（#settings 全页路由） -->
+  <main id="settingsView" class="settings" hidden>
+    <header class="settings-head">
+      <button id="settingsBackBtn" class="text-btn" type="button">‹ 返回</button>
+      <h1>设置</h1>
+      <span class="settings-head-spacer" aria-hidden="true"></span>
+    </header>
+
+    <section class="settings-group">
+      <h2>阅读</h2>
+      <div class="setting-row" data-setting="face">
+        <span class="setting-label">字体</span>
+        <span class="setting-options">
+          <button class="text-btn" type="button" data-value="serif">衬线</button>
+          <button class="text-btn" type="button" data-value="sans">黑体</button>
+          <button class="text-btn" type="button" data-value="kai">楷体</button>
+          <button class="text-btn" type="button" data-value="fang">仿宋</button>
+          <span id="customFaceList" class="custom-face-list"></span>
+        </span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label"></span>
+        <span class="setting-options">
+          <button id="fontImportBtn" class="text-btn" type="button">导入字体…</button>
+          <input id="fontImportInput" type="file" accept=".ttf,.otf,.woff,.woff2" hidden>
+          <span id="fontImportStatus" class="muted"></span>
+        </span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">字号</span>
+        <input class="setting-range" data-field="fontPx" type="range" min="14" max="22" step="1" aria-label="字号">
+        <span class="range-value" data-range-value="fontPx"></span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">行距</span>
+        <input class="setting-range" data-field="lineH" type="range" min="1.5" max="2.4" step="0.05" aria-label="行距">
+        <span class="range-value" data-range-value="lineH"></span>
+      </div>
+      <div class="setting-row" data-setting="letter">
+        <span class="setting-label">字间距</span>
+        <span class="setting-options">
+          <button class="text-btn" type="button" data-value="0">标准</button>
+          <button class="text-btn" type="button" data-value="1">微宽</button>
+          <button class="text-btn" type="button" data-value="2">宽</button>
+        </span>
+      </div>
+      <div class="setting-row" data-setting="paraGap">
+        <span class="setting-label">段间距</span>
+        <span class="setting-options">
+          <button class="text-btn" type="button" data-value="tight">紧</button>
+          <button class="text-btn" type="button" data-value="normal">常规</button>
+          <button class="text-btn" type="button" data-value="loose">松</button>
+        </span>
+      </div>
+      <div class="setting-row" data-setting="margin">
+        <span class="setting-label">页边距</span>
+        <span class="setting-options">
+          <button class="text-btn" type="button" data-value="narrow">窄</button>
+          <button class="text-btn" type="button" data-value="normal">常规</button>
+          <button class="text-btn" type="button" data-value="wide">宽</button>
+        </span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">页宽</span>
+        <input class="setting-range" data-field="measureEm" type="range" min="32" max="48" step="1" aria-label="页宽">
+        <span class="range-value" data-range-value="measureEm"></span>
+      </div>
+      <div class="setting-row" data-setting="para">
+        <span class="setting-label">段落</span>
+        <span class="setting-options">
+          <button class="text-btn" type="button" data-value="indent">缩进式</button>
+          <button class="text-btn" type="button" data-value="space">段距式</button>
+        </span>
+      </div>
+    </section>
+
+    <section class="settings-group">
+      <h2>主题</h2>
+      <div class="setting-row" data-setting="theme">
+        <span class="setting-label">色板</span>
+        <span class="setting-options">
+          <button class="theme-swatch" type="button" data-value="white" title="白" aria-label="白色主题"></button>
+          <button class="theme-swatch" type="button" data-value="paper" title="纸" aria-label="纸色主题"></button>
+          <button class="theme-swatch" type="button" data-value="dark" title="暗" aria-label="暗色主题"></button>
+        </span>
+      </div>
+    </section>
+
+    <section class="settings-group">
+      <h2>Nova</h2>
+      <div class="setting-row" data-setting="autoPreRead">
+        <span class="setting-label">自动预读</span>
+        <span class="setting-options">
+          <button class="text-btn" type="button" data-value="on">开</button>
+          <button class="text-btn" type="button" data-value="off">关</button>
+        </span>
+      </div>
+      <p id="novaHealthLine" class="muted setting-note">读取服务状态中…</p>
+    </section>
+
+    <section class="settings-group">
+      <h2>书友圈</h2>
+      <div class="setting-row" data-setting="companions" id="companionRow">
+        <span class="setting-label">书友评论</span>
+        <span class="setting-options">
+          <button class="text-btn" type="button" data-value="on">开</button>
+          <button class="text-btn" type="button" data-value="off">关</button>
+          <span id="companionHint" class="muted" hidden>未配置书友接口</span>
+        </span>
+      </div>
+      <p id="companionRoster" class="muted setting-note"></p>
+    </section>
+
+    <section class="settings-group">
+      <h2>导出</h2>
+      <p class="muted setting-note">默认导出目标：生成预览时按这里的选择预选。</p>
+      <div class="setting-row">
+        <span class="setting-label">目标</span>
+        <span class="setting-options">
+          <label class="sink-target-option"><input type="checkbox" class="sink-default" value="obsidian">Obsidian</label>
+          <label class="sink-target-option"><input type="checkbox" class="sink-default" value="dailyNote">DailyNote</label>
+          <label class="sink-target-option"><input type="checkbox" class="sink-default" value="vcpMemory">VCPMemory</label>
+        </span>
+      </div>
+      <p id="sinkDefaultStatus" class="muted setting-note"></p>
+    </section>
+
+    <section class="settings-group">
+      <h2>数据</h2>
+      <div class="data-row"><span>阅读位置</span><span id="usagePositions" class="data-usage"></span><button id="clearPositionsBtn" class="text-btn" type="button">清除</button></div>
+      <div class="data-row"><span>书签</span><span id="usageBookmarks" class="data-usage"></span><button id="clearBookmarksBtn" class="text-btn" type="button">清除</button></div>
+      <div class="data-row"><span>设置</span><span id="usageSettings" class="data-usage"></span><button id="clearSettingsBtn" class="text-btn" type="button">清除</button></div>
+      <div class="data-row"><span>字体缓存</span><span id="usageFonts" class="data-usage"></span><button id="clearFontsBtn" class="text-btn" type="button">清除</button></div>
+      <div class="data-row"><span>全部本地数据</span><span class="data-usage"></span><button id="clearAllBtn" class="text-btn" type="button">清除</button></div>
+      <p id="dataStatus" class="muted setting-note"></p>
+    </section>
+
+    <section class="settings-group">
+      <h2>关于</h2>
+      <p class="muted setting-note">CoReading 阅读器 · 版本 0.1.0</p>
+      <p id="aboutHealth" class="muted setting-note">读取服务状态中…</p>
+      <p class="muted setting-note">本地共读阅读器：书、笔记与导出预览都保存在本机 sidecar，不经过第三方。</p>
+    </section>
+  </main>
+
   <!-- 阅读视图 -->
   <div id="readView" hidden>
     <header id="topbar">
@@ -33,7 +179,7 @@
       <div id="topbarTitle" class="topbar-title"></div>
       <nav class="topbar-right">
         <span id="topbarProgress" class="muted"></span>
-        <button id="sinkBtn" class="text-btn" type="button">沉淀<span id="sinkBadge" class="sink-badge" hidden></span></button>
+        <button id="sinkBtn" class="text-btn" type="button">导出<span id="sinkBadge" class="sink-badge" hidden></span></button>
         <button id="bookmarkBtn" class="text-btn" type="button">书签</button>
         <button id="fullscreenBtn" class="text-btn" type="button">全屏</button>
         <button id="tocBtn" class="text-btn" type="button">目录</button>
@@ -72,7 +218,7 @@
       <ul id="tocList" class="toc-list"></ul>
     </aside>
 
-    <!-- 排版设置弹层 -->
+    <!-- 排版设置弹层（精简：字号 + 主题，其余进设置页） -->
     <div id="typoPop" class="typo-pop" hidden>
       <div class="typo-row" data-setting="theme">
         <span class="typo-label">主题</span>
@@ -80,47 +226,21 @@
         <button class="theme-swatch" type="button" data-value="paper" title="纸" aria-label="纸色主题"></button>
         <button class="theme-swatch" type="button" data-value="dark" title="暗" aria-label="暗色主题"></button>
       </div>
-      <div class="typo-row" data-setting="face">
-        <span class="typo-label">字体</span>
-        <button class="text-btn" type="button" data-value="serif">衬线</button>
-        <button class="text-btn" type="button" data-value="sans">无衬线</button>
-      </div>
-      <div class="typo-row" data-setting="font">
+      <div class="typo-row typo-row-range">
         <span class="typo-label">字号</span>
-        <button class="text-btn" type="button" data-value="s">小</button>
-        <button class="text-btn" type="button" data-value="m">中</button>
-        <button class="text-btn" type="button" data-value="l">大</button>
+        <input class="setting-range" data-field="fontPx" type="range" min="14" max="22" step="1" aria-label="字号">
+        <span class="range-value" data-range-value="fontPx"></span>
       </div>
-      <div class="typo-row" data-setting="width">
-        <span class="typo-label">页宽</span>
-        <button class="text-btn" type="button" data-value="narrow">窄</button>
-        <button class="text-btn" type="button" data-value="normal">适中</button>
-        <button class="text-btn" type="button" data-value="wide">宽</button>
+      <div class="typo-row typo-row-more">
+        <button id="typoAllSettingsBtn" class="text-btn" type="button">全部设置 →</button>
       </div>
-      <div class="typo-row" data-setting="line">
-        <span class="typo-label">行距</span>
-        <button class="text-btn" type="button" data-value="normal">紧凑</button>
-        <button class="text-btn" type="button" data-value="loose">舒朗</button>
-      </div>
-      <div class="typo-row" data-setting="para">
-        <span class="typo-label">段落</span>
-        <button class="text-btn" type="button" data-value="indent">缩进式</button>
-        <button class="text-btn" type="button" data-value="space">段距式</button>
-      </div>
-      <div class="typo-row typo-row-companions" data-setting="companions" id="companionRow">
-        <span class="typo-label">书友评论</span>
-        <button class="text-btn" type="button" data-value="on">开</button>
-        <button class="text-btn" type="button" data-value="off">关</button>
-      </div>
-      <p id="companionHint" class="typo-hint" hidden>未配置书友接口</p>
-      <p class="typo-hint typo-hint-find">书内查找：Ctrl + F</p>
     </div>
 
     <!-- 选区工具条 -->
     <div id="selTool" class="sel-tool" hidden>
       <button id="selAskBtn" class="text-btn" type="button">问 Nova</button>
       <button id="selNoteBtn" class="text-btn" type="button">写想法</button>
-      <button id="selTrailBtn" class="text-btn" type="button">追线索</button>
+      <button id="selTrailBtn" class="text-btn" type="button">相关段落</button>
       <span id="selToolStatus" class="sel-tool-status" hidden></span>
     </div>
 
@@ -138,9 +258,9 @@
     <!-- 统一评论卡片（Nova / Phase 3 书友共用） -->
     <div id="commentCard" class="comment-card" hidden></div>
 
-    <!-- 沉淀目标选择小弹层 -->
+    <!-- 导出目标选择小弹层 -->
     <div id="sinkTargetPop" class="sink-target-pop" hidden>
-      <p class="sink-target-title">沉淀到</p>
+      <p class="sink-target-title">导出到</p>
       <label class="sink-target-option"><input type="checkbox" value="obsidian">Obsidian</label>
       <label class="sink-target-option"><input type="checkbox" value="dailyNote">DailyNote</label>
       <label class="sink-target-option"><input type="checkbox" value="vcpMemory">VCPMemory</label>
@@ -150,22 +270,22 @@
       </div>
     </div>
 
-    <!-- 待沉淀箱抽屉 -->
+    <!-- 导出箱抽屉 -->
     <div id="sinkBackdrop" class="backdrop" hidden></div>
     <aside id="sinkDrawer" class="sink-drawer" hidden>
       <header class="sink-head">
-        <span>待沉淀</span>
+        <span>导出箱</span>
         <button id="sinkCloseBtn" class="text-btn" type="button">关闭</button>
       </header>
       <p id="sinkDrawerStatus" class="muted sink-drawer-status"></p>
       <ul id="sinkList" class="sink-list"></ul>
     </aside>
 
-    <!-- 选区追线索抽屉（复用待沉淀箱抽屉风格） -->
+    <!-- 选区相关段落抽屉（复用导出箱抽屉风格） -->
     <div id="trailBackdrop" class="backdrop" hidden></div>
     <aside id="trailDrawer" class="sink-drawer" hidden>
       <header class="sink-head">
-        <span>线索</span>
+        <span>相关段落</span>
         <button id="trailCloseBtn" class="text-btn" type="button">关闭</button>
       </header>
       <p id="trailSummary" class="muted trail-summary"></p>
@@ -192,9 +312,27 @@
           <div id="novaReplyActions" class="nova-reply-actions" hidden>
             <button id="novaSaveNoteBtn" class="text-btn" type="button">存为笔记</button>
             <span class="muted">·</span>
-            <button id="novaSinkBtn" class="text-btn sink-trigger" type="button">沉淀</button>
+            <button id="novaSinkBtn" class="text-btn sink-trigger" type="button">导出</button>
             <span id="novaActionStatus" class="muted"></span>
           </div>
+        </div>
+      </section>
+      <!-- 技能卡折叠区：每张卡执行一条已有链路，结果走状态行 / Nova 面板 / 导出箱 -->
+      <section id="skillSection" class="nova-plan">
+        <button id="skillToggleBtn" class="nova-plan-toggle" type="button" aria-expanded="false">
+          <span>技能</span>
+          <span class="nova-plan-caret" aria-hidden="true">▾</span>
+        </button>
+        <div id="skillBody" class="nova-plan-body" hidden>
+          <div class="skill-grid">
+            <button id="skillPreReadBtn" class="skill-card" type="button">预读本段</button>
+            <button id="skillScoutBtn" class="skill-card" type="button">先看全书</button>
+            <button id="skillTrailBtn" class="skill-card" type="button">相关段落</button>
+            <button id="skillReviewBtn" class="skill-card" type="button">评价本段</button>
+            <button id="skillPlanBtn" class="skill-card" type="button">计划本章</button>
+            <button id="skillSinkBtn" class="skill-card sink-trigger" type="button">导出本段</button>
+          </div>
+          <p id="skillStatus" class="muted nova-plan-status"></p>
         </div>
       </section>
       <!-- 可折叠阅读计划小节：只做“下一步”导向，不做计划管理列表 -->
