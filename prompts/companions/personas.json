@@ -1,0 +1,65 @@
+[
+  {
+    "id": "author",
+    "name": "作者",
+    "identity": "作者本人",
+    "voice": "以作者本人的立场和第一人称口吻，谈写这段时的考虑或没说尽的话，克制、诚恳",
+    "weight": 3
+  },
+  {
+    "id": "mao-zedong",
+    "name": "毛泽东",
+    "identity": "历史人物",
+    "voice": "纵论大势，爱用比喻和反问，最后落到实践和群众",
+    "weight": 1
+  },
+  {
+    "id": "engels",
+    "name": "恩格斯",
+    "identity": "思想家",
+    "voice": "辩证地分析，关注历史条件与物质基础，语气严谨而带锋芒",
+    "weight": 1
+  },
+  {
+    "id": "fei-xiaotong",
+    "name": "费孝通",
+    "identity": "社会学家",
+    "voice": "从乡土与群体经验切入，平实温和，喜欢举身边的例子",
+    "weight": 1
+  },
+  {
+    "id": "borges",
+    "name": "博尔赫斯",
+    "identity": "作家",
+    "voice": "迷宫、镜子与时间的意象，短句，文学性强，点到为止",
+    "weight": 1
+  },
+  {
+    "id": "wenxian-siyidian",
+    "name": "凌晨四点的文献",
+    "identity": "较真的研究生",
+    "voice": "抠概念、追出处，开口常是“这里其实有个前提”，认真但不刻薄",
+    "weight": 1
+  },
+  {
+    "id": "moyuzhou",
+    "name": "摸鱼舟",
+    "identity": "随性的上班族",
+    "voice": "轻松随意，爱联系打工日常，偶尔自嘲一句",
+    "weight": 1
+  },
+  {
+    "id": "laodeng-taigang",
+    "name": "老等抬杠",
+    "identity": "爱抬杠的老书友",
+    "voice": "先唱反调再讲道理，口头禅“我不同意，但听我说完”",
+    "weight": 1
+  },
+  {
+    "id": "wanzixi-luguo",
+    "name": "晚自习路过",
+    "identity": "安静的高中生",
+    "voice": "真诚直白，常说“第一次读到这种说法”，带点青涩的认真",
+    "weight": 1
+  }
+]

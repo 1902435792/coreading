@@ -36,6 +36,12 @@ const state = {
   noteSaving: false,
   sinkDraft: null,        // 沉淀目标弹层的待沉淀内容
   sinkCreating: false,
+  companions: new Map(),        // `${bookId}:${chunkId}` -> 书友评论数组（GET 结果缓存）
+  companionsPending: new Map(), // key -> 在飞 GET Promise
+  companionTried: new Set(),    // key：本会话已自动生成过一次（成败都不再试）
+  companionSeen: new Set(),     // key：chunk 已首次进入过视口
+  companionConfigured: null,    // null=未知；false 时开关置灰、不自动生成
+  companionQueue: Promise.resolve(), // 自动生成按序串行，避免撞后端同书在飞锁
   lastScrollY: 0,
   savePositionTimer: 0,
 };
@@ -145,7 +151,7 @@ function writeJson(key, value) {
 
 /* ---------- 排版设置 ---------- */
 
-const SETTING_FIELDS = ["theme", "face", "font", "width", "line", "para"];
+const SETTING_FIELDS = ["theme", "face", "font", "width", "line", "para", "companions"];
 
 function applySettings() {
   const saved = readJson(SETTINGS_KEY) || {};
@@ -179,6 +185,8 @@ function setupTypoPop() {
     saved[field] = button.dataset.value;
     writeJson(SETTINGS_KEY, saved);
     syncTypoButtons();
+    // 重新打开书友评论时，给本会话已进过视口的 chunk 一次补生成机会。
+    if (field === "companions" && button.dataset.value === "on") retryCompanionsForSeen();
   });
   document.addEventListener("click", () => {
     $("typoPop").hidden = true;
@@ -417,6 +425,7 @@ async function anchorFlowAt(index, { restoreOffset = 0 } = {}) {
   state.anchorIndex = Math.max(0, Math.min(index, state.chunks.length - 1));
   state.loadedTo = state.anchorIndex;
   state.activeChunkId = getChunkId(state.chunks[state.anchorIndex]);
+  companionObserver?.disconnect();
   $("flow").textContent = "";
   window.scrollTo(0, 0);
   // 等上一批在飞请求结束再开载：旧批次占用加载锁时直接调用会被静默吞掉，首批永远到不了。
@@ -531,6 +540,7 @@ function appendFlowChunk(chunk, text) {
     section.append(paragraph);
   }
   $("flow").append(section);
+  companionObserver?.observe(section);
   decorateSection(section);
 }
 
@@ -813,11 +823,13 @@ function findNormalizedRange(haystack, needle) {
 
 /* ---------- 评注层：数据模型 ---------- */
 
-function annotationsFromComment({ sourceId, source, chunkId, text, speaker = "Nova", role = "AI 共读" }) {
+function annotationsFromComment({ sourceId, source, chunkId, text, speaker = "Nova", role = "AI 共读", quote = "" }) {
   const base = { speaker, role, text, chunkId, source, sourceId };
+  // 书友评论自带服务端逐字校验过的 quote，直接绑句子；其余来源从评论文本里提取引用。
+  if (quote) return [{ ...base, id: `${sourceId}#0`, quote }];
   const quotes = extractQuotes(text);
   if (!quotes.length) return [{ ...base, id: `${sourceId}#0`, quote: "" }];
-  return quotes.map((quote, index) => ({ ...base, id: `${sourceId}#${index}`, quote }));
+  return quotes.map((extracted, index) => ({ ...base, id: `${sourceId}#${index}`, quote: extracted }));
 }
 
 function rebuildAnnotations() {
@@ -837,6 +849,20 @@ function rebuildAnnotations() {
   for (const entries of state.myNotes.values()) {
     for (const entry of entries) {
       if (entry.bookId === state.bookId) items.push(entry);
+    }
+  }
+  for (const comments of state.companions.values()) {
+    for (const comment of comments) {
+      if (comment.bookId !== state.bookId) continue;
+      items.push(...annotationsFromComment({
+        sourceId: comment.id,
+        source: "persona",
+        chunkId: comment.chunkId,
+        text: comment.text,
+        speaker: comment.name,
+        role: comment.role, // 服务端已强制 "AI 演绎 · 身份"
+        quote: comment.quote,
+      }));
     }
   }
   state.annotations = items;
@@ -898,6 +924,7 @@ function renderParagraph(paragraph, ranges, flashRange = null) {
 function decorateSection(section) {
   const chunkId = section.dataset.chunkId;
   ensureChunkNotes(chunkId);
+  ensureChunkCompanions(chunkId);
   for (const paragraph of section.querySelectorAll(":scope > p")) {
     renderParagraph(paragraph, underlineRangesFor(paragraph));
   }
@@ -1005,18 +1032,28 @@ function openCommentCard(annotations, anchorEl) {
     speaker.className = "comment-speaker";
     if (ann.source === "mine") speaker.classList.add("mine");
     speaker.textContent = ann.speaker;
+    head.append(speaker);
+    if (ann.source === "persona") {
+      // 书友评论：名字旁细边小 chip 标注 AI 演绎；role 位只留身份，避免与 chip 重复。
+      const chip = document.createElement("span");
+      chip.className = "ai-chip";
+      chip.textContent = "AI 演绎";
+      head.append(chip);
+    }
     const role = document.createElement("span");
     role.className = "comment-role";
-    role.textContent = ann.role;
-    head.append(speaker, role);
+    role.textContent = ann.source === "persona"
+      ? String(ann.role || "").replace(/^AI 演绎\s*·\s*/u, "")
+      : ann.role;
+    head.append(role);
     const body = document.createElement("p");
     body.className = "comment-text";
     body.textContent = ann.text;
     item.append(head, body);
     const actions = document.createElement("p");
     actions.className = "comment-actions";
-    // 我的笔记全文已在卡片里，无需再去 Nova 面板。
-    if (ann.source !== "mine") {
+    // 我的笔记全文已在卡片里；书友评论是独立人格短评，都不进 Nova 面板。
+    if (ann.source !== "mine" && ann.source !== "persona") {
       const open = document.createElement("button");
       open.type = "button";
       open.className = "text-btn comment-open";
@@ -1261,6 +1298,129 @@ async function deleteMyNote(ann) {
   redecorateChunk(ann.chunkId);
 }
 
+/* ---------- 模拟书友圈（personas 评论：GET 缓存展示 + 视口自动生成） ---------- */
+
+let companionObserver = null;
+
+function companionsOn() {
+  return document.body.dataset.companions !== "off";
+}
+
+function companionKey(bookId, chunkId) {
+  return `${bookId}:${chunkId}`;
+}
+
+function setCompanionConfigured(configured) {
+  if (state.companionConfigured === configured) return;
+  state.companionConfigured = configured;
+  syncCompanionToggle();
+}
+
+function syncCompanionToggle() {
+  const disabled = state.companionConfigured === false;
+  $("companionRow").querySelectorAll("button").forEach((button) => {
+    button.disabled = disabled;
+  });
+  $("companionHint").hidden = !disabled;
+}
+
+async function loadCompanionHealth() {
+  try {
+    const health = await api("/api/health");
+    setCompanionConfigured(Boolean(health.companionConfigured));
+  } catch {
+    // 健康检查失败保持未知；GET 评论的响应里还会带回 configured。
+  }
+}
+
+/* 与 ensureChunkNotes 同一时机：chunk 懒加载进正文流时拉一次缓存评论（展示不受开关影响）。 */
+function ensureChunkCompanions(chunkId) {
+  const key = companionKey(state.bookId, chunkId);
+  if (!state.bookId || state.companions.has(key) || state.companionsPending.has(key)) return;
+  state.companionsPending.set(key, loadChunkCompanions(state.bookId, chunkId, key));
+}
+
+async function loadChunkCompanions(bookId, chunkId, key) {
+  try {
+    const params = new URLSearchParams({ bookId, chunkId });
+    const data = await api(`/api/companions?${params}`);
+    if (typeof data.configured === "boolean") setCompanionConfigured(data.configured);
+    state.companions.set(key, Array.isArray(data.comments) ? data.comments : []);
+  } catch {
+    // 拉取失败按空处理，避免对同一 chunk 反复请求；后端生成端点自身幂等，不会因此重复生成。
+    state.companions.set(key, []);
+  } finally {
+    state.companionsPending.delete(key);
+  }
+  if (bookId !== state.bookId) return;
+  if ((state.companions.get(key) || []).length) {
+    rebuildAnnotations();
+    redecorateChunk(chunkId);
+  }
+}
+
+/* chunk 首次进入视口：开关开 + 接口已配置（或未知）+ 本会话没试过 → 排队自动生成一次。 */
+function maybeAutoGenerateCompanions(chunkId) {
+  if (!state.bookId || !companionsOn() || state.companionConfigured === false) return;
+  const key = companionKey(state.bookId, chunkId);
+  if (state.companionTried.has(key)) return;
+  state.companionTried.add(key);
+  const bookId = state.bookId;
+  state.companionQueue = state.companionQueue
+    .then(() => autoGenerateCompanions(bookId, chunkId, key))
+    .catch(() => {});
+}
+
+async function autoGenerateCompanions(bookId, chunkId, key) {
+  await (state.companionsPending.get(key) || Promise.resolve());
+  if ((state.companions.get(key) || []).length) return; // GET 已带回缓存，无需生成
+  if (!companionsOn() || state.companionConfigured === false) {
+    // 排队期间被关掉/确认未配置：还没发请求，归还“本会话一次”的机会，
+    // 否则重新打开开关时 retryCompanionsForSeen 会因 tried 已占用而永远跳过这个 chunk。
+    state.companionTried.delete(key);
+    return;
+  }
+  try {
+    const data = await api("/api/companions/generate", {
+      method: "POST",
+      body: JSON.stringify({ bookId, chunkId }),
+    });
+    if (data.status === "not_configured") {
+      setCompanionConfigured(false);
+      return;
+    }
+    if (!Array.isArray(data.comments) || !data.comments.length) return;
+    state.companions.set(key, data.comments);
+    if (bookId !== state.bookId) return;
+    rebuildAnnotations();
+    redecorateChunk(chunkId);
+  } catch {
+    // 失败静默：本会话不再为这个 chunk 重试，阅读不被打扰。
+  }
+}
+
+function retryCompanionsForSeen() {
+  for (const section of $("flow").querySelectorAll(".flow-chunk")) {
+    const chunkId = section.dataset.chunkId;
+    if (state.companionSeen.has(companionKey(state.bookId, chunkId))) {
+      maybeAutoGenerateCompanions(chunkId);
+    }
+  }
+}
+
+function setupCompanionObserver() {
+  if (!("IntersectionObserver" in window)) return;
+  companionObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting || !entry.target.isConnected) continue;
+      const chunkId = entry.target.dataset.chunkId;
+      state.companionSeen.add(companionKey(state.bookId, chunkId));
+      maybeAutoGenerateCompanions(chunkId);
+      companionObserver.unobserve(entry.target); // 首次进入视口只触发一次
+    }
+  });
+}
+
 /* ---------- 沉淀：review_create → sink_preview_create → 批准 → 执行 ---------- */
 
 const SINK_TARGETS_KEY = `${STORE_PREFIX}sinkTargets`;
@@ -1413,7 +1573,7 @@ function sinkDraftFromAnnotation(ann) {
     bookId: ann.bookId || state.bookId,
     bookTitle: state.bookTitle,
     chunkId: ann.chunkId,
-    sourceLabel: fromNova ? "Nova 评注" : "我的笔记",
+    sourceLabel: ann.source === "persona" ? "书友评论" : fromNova ? "Nova 评注" : "我的笔记",
     section: fromNova ? "nova_reply" : "user_note",
     source: fromNova ? "nova-reply-current" : "user-note",
     kind: fromNova ? "nova-reply" : "note",
@@ -1893,6 +2053,8 @@ async function init() {
   applySettings();
   renderNovaReply();
   setupEvents();
+  setupCompanionObserver();
+  void loadCompanionHealth();
   const match = location.hash.match(/^#book=(.+)$/);
   if (match) {
     // 刷新后直接回到正在读的书和保存位置。

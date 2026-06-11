@@ -40,6 +40,15 @@ const NOVA_TIMEOUT_MS = Math.max(3000, Math.min(600000, Number(process.env.CO_RE
 const NOVA_FALLBACK_TIMEOUT_MS = Math.max(800, Math.min(60000, Number(process.env.CO_READING_NOVA_FALLBACK_TIMEOUT_MS || 1500)));
 const LOCAL_LIBRARY_DIR = path.resolve(process.env.CO_READING_LIBRARY_DIR || "D:\\书库");
 
+// 模拟书友圈：独立普通 OpenAI 兼容接口，与 Nova 的 VCP 通道完全分开。
+const COMPANION_API_URL = String(process.env.CO_READING_COMPANION_API_URL || "").trim();
+const COMPANION_API_KEY = String(process.env.CO_READING_COMPANION_API_KEY || "").trim();
+const COMPANION_MODEL = String(process.env.CO_READING_COMPANION_MODEL || "gpt-4o-mini").trim();
+const COMPANION_TIMEOUT_MS = Math.max(5000, Math.min(300000, Number(process.env.CO_READING_COMPANION_TIMEOUT_MS || 60000)));
+const COMPANION_PERSONAS_PATH = process.env.CO_READING_COMPANION_PERSONAS_PATH
+  || path.join(PROMPTS_DIR, "companions", "personas.json");
+const COMPANIONS_DIR = path.join(DATA_DIR, "companions");
+
 process.env.READING_MCP_DATA_DIR = DATA_DIR;
 process.env.READING_IMPORT_MAX_BYTES = process.env.READING_IMPORT_MAX_BYTES || "100000000";
 const IMPORT_MAX_BYTES = Number(process.env.READING_IMPORT_MAX_BYTES || 100_000_000);
@@ -1139,6 +1148,238 @@ async function askNovaViaAgentAssistant(body, prompt, apiKey, timeoutMs) {
   );
   return { raw, classified: classifyNovaResponse("agent-assistant", raw) };
 }
+
+/* ---------- 模拟书友圈（personas 评论生成与缓存） ---------- */
+
+const COMPANION_GENERATING = new Set(); // bookId 在飞锁：同一本书同时只允许一个生成请求。
+
+function companionConfigured() {
+  return Boolean(COMPANION_API_URL);
+}
+
+function loadCompanionPersonas() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(COMPANION_PERSONAS_PATH, "utf8"));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item) => item && typeof item === "object" && item.id && item.name);
+  } catch {
+    return [];
+  }
+}
+
+function companionCachePath(bookId) {
+  const safe = String(bookId || "book").replace(/[^\p{L}\p{N}._-]+/gu, "_").slice(0, 120) || "book";
+  return path.join(COMPANIONS_DIR, `${safe}.json`);
+}
+
+function readCompanionCache(bookId) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(companionCachePath(bookId), "utf8"));
+    if (parsed && typeof parsed === "object" && parsed.chunks && typeof parsed.chunks === "object") return parsed;
+  } catch {
+    // 没有缓存或损坏都按空处理。
+  }
+  return { version: 1, bookId, chunks: {} };
+}
+
+function writeCompanionCache(bookId, cache) {
+  fs.mkdirSync(COMPANIONS_DIR, { recursive: true });
+  const file = companionCachePath(bookId);
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(cache, null, 2)}\n`, "utf8");
+  fs.renameSync(tmp, file);
+}
+
+function getCompanionComments(bookId, chunkId) {
+  const book = String(bookId || "").trim();
+  const chunk = String(chunkId || "").trim();
+  if (!book || !chunk) {
+    const error = new Error("bookId 和 chunkId 是必需参数。");
+    error.statusCode = 400;
+    throw error;
+  }
+  const cached = readCompanionCache(book).chunks[chunk];
+  return {
+    status: "success",
+    configured: companionConfigured(),
+    bookId: book,
+    chunkId: chunk,
+    comments: cached?.comments || [],
+  };
+}
+
+function pickCompanionPersonas(personas, authorName) {
+  const author = personas.find((item) => item.id === "author");
+  const pool = personas.filter((item) => item.id !== "author");
+  const target = 4 + Math.floor(Math.random() * 3); // 每段抽 4-6 人
+  const picked = [];
+  if (author) {
+    picked.push({ ...author, name: String(authorName || "").trim() || author.name });
+  }
+  while (picked.length < target && pool.length) {
+    const total = pool.reduce((sum, item) => sum + (Number(item.weight) || 1), 0);
+    let roll = Math.random() * total;
+    let index = 0;
+    for (let i = 0; i < pool.length; i += 1) {
+      roll -= Number(pool[i].weight) || 1;
+      if (roll <= 0) {
+        index = i;
+        break;
+      }
+    }
+    picked.push(pool.splice(index, 1)[0]);
+  }
+  return picked;
+}
+
+function buildCompanionPrompt(personas, { bookTitle, author, chunkTitle, text }) {
+  const roster = personas
+    .map((item) => `- personaId: ${item.id} | 名字: ${item.name} | 身份: ${item.identity || "书友"} | 口吻: ${item.voice || "自然"}`)
+    .join("\n");
+  const system = [
+    "你在为一本书的某个段落生成“模拟书友评论”，这些评论最终都会向读者明确标注为 AI 演绎，不得冒充真实发言。",
+    "规则：",
+    "1. 只输出一个 JSON 数组，不要任何解释文字，不要 Markdown 代码块标记。",
+    '2. 每个元素形如 {"personaId":"...","quote":"...","text":"..."}。',
+    "3. quote 必须是下面正文的逐字连续子串（建议 15-60 字，不要跨段、不要自行改字或加省略号），text 是该人物针对这句话的短评，不超过 120 字。",
+    `4. 每个人物最多 1 条，总共 3-${personas.length} 条；对这段没话可说的人物就不要出现。`,
+    "5. 评论要贴合人物身份与口吻，但只能基于正文内容，禁止编造正文之外的情节或事实。",
+    "可选人物名单：",
+    roster,
+  ].join("\n");
+  const user = [
+    `书名：${bookTitle || "未知"}`,
+    `作者：${author || "未知"}`,
+    `章节：${chunkTitle || ""}`,
+    "正文：",
+    String(text || "").slice(0, 6000),
+  ].join("\n");
+  return { system, user };
+}
+
+function parseCompanionArray(content) {
+  const raw = String(content || "").trim();
+  if (!raw) return null;
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidate = fenced ? fenced[1] : raw;
+  const start = candidate.indexOf("[");
+  const end = candidate.lastIndexOf("]");
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(candidate.slice(start, end + 1));
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function validateCompanionComments(content, personas, chunkText, { bookId, chunkId }) {
+  const parsed = parseCompanionArray(content);
+  if (!parsed) return [];
+  const byId = new Map(personas.map((item) => [String(item.id), item]));
+  const seen = new Set();
+  const comments = [];
+  for (const item of parsed) {
+    const persona = byId.get(String(item?.personaId || ""));
+    const quote = String(item?.quote || "").trim();
+    const text = String(item?.text || "").trim();
+    if (!persona || !quote || !text) continue;
+    if (seen.has(persona.id)) continue; // 每人最多 1 条
+    if (chunkText.indexOf(quote) < 0) continue; // 服务端逐字子串校验，不合格直接丢弃
+    seen.add(persona.id);
+    comments.push({
+      id: `companion-${chunkId}-${persona.id}-${crypto.randomBytes(3).toString("hex")}`,
+      personaId: String(persona.id),
+      name: String(persona.name),
+      // 数据层强制拼 AI 演绎，持久化后不可去除。
+      role: `AI 演绎 · ${persona.identity || "书友"}`,
+      quote,
+      text: text.slice(0, 120),
+      bookId,
+      chunkId,
+    });
+    if (comments.length >= 6) break;
+  }
+  return comments;
+}
+
+async function generateCompanionComments(body) {
+  const bookId = String(body?.bookId || "").trim();
+  const chunkId = String(body?.chunkId || "").trim();
+  if (!bookId || !chunkId) {
+    const error = new Error("bookId 和 chunkId 是必需参数。");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!companionConfigured()) {
+    return { status: "not_configured", configured: false, bookId, chunkId, comments: [] };
+  }
+  const existing = readCompanionCache(bookId).chunks[chunkId];
+  if (existing) {
+    return { status: "success", cached: true, bookId, chunkId, comments: existing.comments || [] };
+  }
+  if (COMPANION_GENERATING.has(bookId)) {
+    return { status: "generating", bookId, chunkId, comments: [] };
+  }
+  COMPANION_GENERATING.add(bookId);
+  try {
+    const read = await runCommand({ command: "read_chunk", bookId, chunkId });
+    const chunkText = String(read?.data?.text || read?.data?.chunk?.text || "");
+    if (!chunkText.trim()) {
+      const error = new Error(`无法读取 ${bookId}/${chunkId} 的原文。`);
+      error.statusCode = 502;
+      throw error;
+    }
+    const allPersonas = loadCompanionPersonas();
+    if (!allPersonas.length) {
+      const error = new Error(`personas 配置为空或不可读：${COMPANION_PERSONAS_PATH}`);
+      error.statusCode = 502;
+      throw error;
+    }
+    const personas = pickCompanionPersonas(allPersonas, read?.data?.author);
+    const prompt = buildCompanionPrompt(personas, {
+      bookTitle: read?.data?.title,
+      author: read?.data?.author,
+      chunkTitle: read?.data?.chunk?.title || read?.data?.chunk?.sectionTitle || chunkId,
+      text: chunkText,
+    });
+    // 单次请求、不重试、不级联；超时由 postJson 销毁请求。
+    const response = await postJson(
+      COMPANION_API_URL,
+      {
+        model: COMPANION_MODEL,
+        messages: [
+          { role: "system", content: prompt.system },
+          { role: "user", content: prompt.user },
+        ],
+        temperature: 0.9,
+        stream: false,
+      },
+      COMPANION_API_KEY ? { authorization: `Bearer ${COMPANION_API_KEY}` } : {},
+      { timeoutMs: COMPANION_TIMEOUT_MS, label: "companion request" }
+    );
+    const content = response?.choices?.[0]?.message?.content || "";
+    const comments = validateCompanionComments(content, personas, chunkText, { bookId, chunkId });
+    if (!comments.length) {
+      const error = new Error("书友评论生成结果没有任何条目通过校验（JSON 解析失败或 quote 不在原文里），本次不缓存。");
+      error.statusCode = 502;
+      throw error;
+    }
+    // 写前重读缓存，避免覆盖同书其它 chunk 刚写入的数据。
+    const cache = readCompanionCache(bookId);
+    cache.bookId = bookId;
+    cache.chunks[chunkId] = {
+      generatedAt: new Date().toISOString(),
+      model: COMPANION_MODEL,
+      comments,
+    };
+    writeCompanionCache(bookId, cache);
+    return { status: "success", cached: false, bookId, chunkId, comments };
+  } finally {
+    COMPANION_GENERATING.delete(bookId);
+  }
+}
+
 
 async function askNova(body) {
   const apiKey = novaApiKey();
@@ -2732,6 +2973,10 @@ async function handleApi(req, res, url) {
       novaTimeoutMs: NOVA_TIMEOUT_MS,
       novaFallbackTimeoutMs: NOVA_FALLBACK_TIMEOUT_MS,
       novaAuthSource: novaApiKeySource(),
+      companionConfigured: companionConfigured(),
+      companionModel: companionConfigured() ? COMPANION_MODEL : "",
+      companionTimeoutMs: COMPANION_TIMEOUT_MS,
+      companionPersonasPath: COMPANION_PERSONAS_PATH,
       novaGuidePath: NOVA_GUIDE_PATH,
       novaSkillPromptDir: NOVA_SKILL_PROMPTS_DIR,
       novaSkillGuideCount: readNovaSkillGuides().count,
@@ -2793,6 +3038,14 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/nova/ask") {
     return sendJson(res, 200, await askNova(await readJsonBody(req)));
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/companions") {
+    return sendJson(res, 200, getCompanionComments(url.searchParams.get("bookId"), url.searchParams.get("chunkId")));
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/companions/generate") {
+    return sendJson(res, 200, await generateCompanionComments(await readJsonBody(req)));
   }
 
   if (req.method === "GET" && url.pathname === "/api/agent/tools") {

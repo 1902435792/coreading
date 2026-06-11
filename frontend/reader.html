@@ -6,7 +6,7 @@
   <title>共读</title>
   <link rel="stylesheet" href="./reader.css">
 </head>
-<body data-theme="white" data-font="m" data-width="normal" data-line="loose" data-face="serif" data-para="indent">
+<body data-theme="white" data-font="m" data-width="normal" data-line="loose" data-face="serif" data-para="indent" data-companions="on">
 
   <!-- 书架视图 -->
   <main id="shelfView" class="shelf">
@@ -88,6 +88,12 @@
         <button class="text-btn" type="button" data-value="indent">缩进式</button>
         <button class="text-btn" type="button" data-value="space">段距式</button>
       </div>
+      <div class="typo-row typo-row-companions" data-setting="companions" id="companionRow">
+        <span class="typo-label">书友评论</span>
+        <button class="text-btn" type="button" data-value="on">开</button>
+        <button class="text-btn" type="button" data-value="off">关</button>
+      </div>
+      <p id="companionHint" class="typo-hint" hidden>未配置书友接口</p>
     </div>
 
     <!-- 选区工具条 -->
