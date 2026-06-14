@@ -6,6 +6,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
+const wereadLink = require("./weread-link.js");
 
 process.stdin.setEncoding("utf8");
 if (process.stdout.setDefaultEncoding) process.stdout.setDefaultEncoding("utf8");
@@ -98,6 +99,11 @@ const COMMAND_ALIASES = {
   card_digest_sink_preview_create: "sink_preview_create_from_cards",
   sink_preview_create_from_backtrack: "sink_preview_create_from_backtrack",
   backtrack_sink_preview_create: "sink_preview_create_from_backtrack",
+  // 微信读书联动
+  link_weread_book: "reading_link_weread_book",
+  reading_link_weread_book: "reading_link_weread_book",
+  find_weread_context: "reading_find_weread_context",
+  reading_find_weread_context: "reading_find_weread_context",
   sink_preview_list: "sink_preview_list",
   list_sink_previews: "sink_preview_list",
   sink_previews: "sink_preview_list",
@@ -1084,6 +1090,40 @@ const LOCAL_IMPORT_TOOLS = [
   }
 ];
 
+const LOCAL_WEREAD_TOOLS = [
+  {
+    name: "reading_link_weread_book",
+    description: "Link a WeRead book to a local reading book for context lookup.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        wereadTitle: { type: "string", description: "WeRead book title" },
+        wereadBookId: { type: "string", description: "Optional WeRead book ID" },
+        wereadAuthor: { type: "string", description: "Optional WeRead book author" },
+        localBookId: { type: "string", description: "Local book ID to link (required if confirm=true)" },
+        confirm: { type: "boolean", description: "Manually confirm the link" }
+      },
+      additionalProperties: false
+    },
+    annotations: { title: "Link WeRead Book" }
+  },
+  {
+    name: "reading_find_weread_context",
+    description: "Find local chunk context from WeRead highlight text.",
+    inputSchema: {
+      type: "object",
+      required: ["wereadTitle", "markText"],
+      properties: {
+        wereadTitle: { type: "string", description: "WeRead book title" },
+        markText: { type: "string", description: "WeRead highlight text to search" },
+        includeChunk: { type: "boolean", description: "Include full chunk text in result" }
+      },
+      additionalProperties: false
+    },
+    annotations: { title: "Find WeRead Context", readOnlyHint: true }
+  }
+];
+
 const LOCAL_USER_NOTE_TOOLS = [
   {
     name: "user_note_create",
@@ -1143,6 +1183,7 @@ const LOCAL_TOOLS = [
   ...LOCAL_REVIEW_TOOLS,
   ...LOCAL_SINK_TOOLS,
   ...LOCAL_ILLUSTRATION_TOOLS,
+  ...LOCAL_WEREAD_TOOLS,
   ...LOCAL_USER_NOTE_TOOLS
 ];
 const LOCAL_COMMANDS = new Set(LOCAL_TOOLS.map((tool) => tool.name));
@@ -2344,6 +2385,19 @@ async function handleUserNoteList(args, dataDir, serverModule) {
     count: normalized.length,
     annotationsPath: path.join(dataDir, "annotations.jsonl")
   };
+}
+
+function handleWereadLinkBook(args, dataDir) {
+  if (!args.wereadTitle && !args.wereadBookId) {
+    throw new Error("wereadTitle or wereadBookId is required");
+  }
+  return wereadLink.linkWereadBook(dataDir, args);
+}
+
+function handleWereadFindContext(args, dataDir) {
+  if (!args.wereadTitle) throw new Error("wereadTitle is required");
+  if (!args.markText) throw new Error("markText is required");
+  return wereadLink.findWereadContext(dataDir, args);
 }
 
 async function handleImportFile(args, serverModule) {
@@ -5561,6 +5615,8 @@ async function callLocalCommand(command, args, dataDir, serverModule, vendorDir)
   if (command === "user_note_create") return handleUserNoteCreate(args, dataDir, vendorDir);
   if (command === "user_note_list") return handleUserNoteList(args, dataDir, serverModule);
   if (command === "user_note_delete") return handleUserNoteDelete(args, dataDir, vendorDir);
+  if (command === "reading_link_weread_book") return handleWereadLinkBook(args, dataDir);
+  if (command === "reading_find_weread_context") return handleWereadFindContext(args, dataDir);
   fail(`未知本地命令: ${command}`);
 }
 

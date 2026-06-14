@@ -154,9 +154,45 @@ D:\VCP\VCPToolBox\data\co-reading-mcp
 - `illustration_update`
 - `illustration_suggest`
 
-也可以直接用上游 MCP 工具名，例如 `reading_list_books`、`reading_import_book`。
+## 微信读书联动
 
-## 独立共读 Sidecar
+从 co-reading-kit 移植的微信读书联动功能，支持通过微信读书划线定位本地 chunk 上下文：
+
+### `reading_link_weread_book`
+
+链接微信读书书籍和本地书籍：
+
+```powershell
+'{"command":"reading_link_weread_book","wereadTitle":"薄雾[无限]","localBookId":"薄雾","confirm":true}' | node .\CoReadingMCP.cjs
+```
+
+参数：
+- `wereadTitle`：微信读书书名（必需，除非提供 wereadBookId）
+- `wereadBookId`：微信读书书籍 ID（可选）
+- `wereadAuthor`：微信读书作者（可选，用于提高匹配准确度）
+- `localBookId`：本地书籍 ID（手动确认链接时必需）
+- `confirm`：是否手动确认链接（默认 false，自动匹配）
+
+自动匹配会根据书名和作者相似度评分，高于阈值（0.88）时自动链接。短书名（≤2字）使用更高阈值（0.93）。
+
+### `reading_find_weread_context`
+
+根据微信读书划线文本查找本地 chunk 上下文：
+
+```powershell
+'{"command":"reading_find_weread_context","wereadTitle":"薄雾[无限]","markText":"一种深刻的孤独","includeChunk":true}' | node .\CoReadingMCP.cjs
+```
+
+参数：
+- `wereadTitle`：微信读书书名（必需）
+- `markText`：微信读书划线文本（必需）
+- `includeChunk`：是否返回完整 chunk 正文（默认 false）
+
+返回结果包含匹配的 chunk ID、标题、偏移量和上下文（前后各 100 字符）。
+
+链接映射保存在 `data/co-reading-mcp/weread-book-map.json`。
+
+## 阅读器提示词
 
 前端不接入 AdminPanel-Vue；Nova 模型请求默认走 6005，阅读驾驶舱作为插件自带 sidecar 运行：
 
