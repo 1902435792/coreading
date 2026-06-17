@@ -167,13 +167,14 @@ D:\VCP\VCPToolBox\data\co-reading-mcp
 ```
 
 参数：
+
 - `wereadTitle`：微信读书书名（必需，除非提供 wereadBookId）
 - `wereadBookId`：微信读书书籍 ID（可选）
 - `wereadAuthor`：微信读书作者（可选，用于提高匹配准确度）
 - `localBookId`：本地书籍 ID（手动确认链接时必需）
 - `confirm`：是否手动确认链接（默认 false，自动匹配）
 
-自动匹配会根据书名和作者相似度评分，高于阈值（0.88）时自动链接。短书名（≤2字）使用更高阈值（0.93）。
+自动匹配会根据书名和作者相似度评分，高于阈值（0.88）时自动链接。短书名（≤2 字）使用更高阈值（0.93）。
 
 ### `reading_find_weread_context`
 
@@ -184,6 +185,7 @@ D:\VCP\VCPToolBox\data\co-reading-mcp
 ```
 
 参数：
+
 - `wereadTitle`：微信读书书名（必需）
 - `markText`：微信读书划线文本（必需）
 - `includeChunk`：是否返回完整 chunk 正文（默认 false）
@@ -191,6 +193,29 @@ D:\VCP\VCPToolBox\data\co-reading-mcp
 返回结果包含匹配的 chunk ID、标题、偏移量和上下文（前后各 100 字符）。
 
 链接映射保存在 `data/co-reading-mcp/weread-book-map.json`。
+
+## co-reading-kit 兼容性边界
+
+当前兼容状态按真实调用结果区分为：上游原生支持、wrapper 兼容、不需要。不要把“工具名出现在 `list_tools`”等同于完整兼容；wrapper 需要实际调用返回兼容结构才算可用。
+
+| co-reading-kit 工具           | 当前状态     | 说明                                                            |
+| ----------------------------- | ------------ | --------------------------------------------------------------- |
+| `reading_import_book`         | 原生支持     | 由上游 co-reading-mcp 提供，按本项目参数和返回结构使用。        |
+| `reading_list_books`          | 原生支持     | 由上游 co-reading-mcp 提供。                                    |
+| `reading_get_manifest`        | wrapper 兼容 | 返回书籍元数据与 chunk 列表，可选预览字段；用于原版兼容调用。   |
+| `reading_search`              | wrapper 兼容 | 扫描本地 chunk，返回 `bookId/chunkId/offset/snippet` 兼容结构。 |
+| `reading_search_exact`        | wrapper 兼容 | 兼容精确划线定位，并容忍轻微空白/换行差异。                     |
+| `reading_get_chunk`           | wrapper 兼容 | 返回 chunk 正文、`prevId/nextId` 与原版可跳转字段。             |
+| `reading_get_progress`        | 原生支持     | 由上游 co-reading-mcp 提供。                                    |
+| `reading_build_index`         | wrapper 兼容 | 不建立持久索引；仅验证 chunk 可读性并返回统计。                 |
+| `reading_update_progress`     | wrapper 兼容 | 写入本地进度记录并同步上游 `reading_mark_read`。                |
+| `reading_update_note`         | wrapper 兼容 | 追加写入本地 notes Markdown 文件。                              |
+| `reading_read_note`           | wrapper 兼容 | 读取本地 notes Markdown，并支持 section 截取。                  |
+| `reading_resume_book`         | wrapper 兼容 | 基于上游 `reading_continue` 补齐兼容字段。                      |
+| `reading_link_weread_book`    | wrapper 兼容 | 本项目新增 WeRead 联动工具，用于建立微信读书与本地书籍映射。    |
+| `reading_find_weread_context` | wrapper 兼容 | 本项目新增 WeRead 联动工具，用微信读书划线文本定位本地 chunk。  |
+
+验证建议：先运行 `npm run check`，再用 `'{"command":"list_tools"}' | node .\CoReadingMCP.cjs` 确认工具注册；对 wrapper 兼容项还必须用临时书库或测试书实际调用，确认不是仅出现在工具列表中。
 
 ## 阅读器提示词
 

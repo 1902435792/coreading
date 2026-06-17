@@ -104,6 +104,24 @@ const COMMAND_ALIASES = {
   reading_link_weread_book: "reading_link_weread_book",
   find_weread_context: "reading_find_weread_context",
   reading_find_weread_context: "reading_find_weread_context",
+  // co-reading-kit compatibility wrappers
+  reading_get_manifest: "reading_get_manifest",
+  reading_get_chunk: "reading_get_chunk",
+  reading_search: "reading_search",
+  reading_search_exact: "reading_search_exact",
+  reading_resume_book: "reading_resume_book",
+  reading_update_progress: "reading_update_progress",
+  reading_update_note: "reading_update_note",
+  reading_read_note: "reading_read_note",
+  reading_build_index: "reading_build_index",
+  get_manifest: "reading_get_manifest",
+  get_chunk: "reading_get_chunk",
+  search_exact: "reading_search_exact",
+  resume_book: "reading_resume_book",
+  update_progress: "reading_update_progress",
+  update_note: "reading_update_note",
+  read_note: "reading_read_note",
+  build_index: "reading_build_index",
   sink_preview_list: "sink_preview_list",
   list_sink_previews: "sink_preview_list",
   sink_previews: "sink_preview_list",
@@ -1124,6 +1142,129 @@ const LOCAL_WEREAD_TOOLS = [
   }
 ];
 
+const LOCAL_COMPAT_TOOLS = [
+  {
+    name: "reading_get_manifest",
+    description: "co-reading-kit compatible manifest view. Reads manifest metadata and optional chunk map only, not chunk bodies.",
+    inputSchema: {
+      type: "object",
+      required: ["bookId"],
+      properties: {
+        bookId: { type: "string" },
+        includeChunks: { type: "boolean" },
+        includeChunkPreview: { type: "boolean" },
+        maxChunks: { type: "number" }
+      },
+      additionalProperties: false
+    },
+    annotations: { title: "Get Manifest", readOnlyHint: true }
+  },
+  {
+    name: "reading_get_chunk",
+    description: "co-reading-kit compatible chunk reader. Returns the original chunk body plus prev/next navigation fields.",
+    inputSchema: {
+      type: "object",
+      required: ["bookId", "chunkId"],
+      properties: { bookId: { type: "string" }, chunkId: { type: "string" } },
+      additionalProperties: false
+    },
+    annotations: { title: "Get Chunk", readOnlyHint: true }
+  },
+  {
+    name: "reading_search",
+    description: "co-reading-kit compatible keyword search over chunks.",
+    inputSchema: {
+      type: "object",
+      required: ["query"],
+      properties: { bookId: { type: "string" }, query: { type: "string" }, limit: { type: "number" } },
+      additionalProperties: false
+    },
+    annotations: { title: "Search", readOnlyHint: true }
+  },
+  {
+    name: "reading_search_exact",
+    description: "co-reading-kit compatible exact quote/highlight search. Scans chunks and also tolerates whitespace/newline differences.",
+    inputSchema: {
+      type: "object",
+      required: ["query"],
+      properties: { bookId: { type: "string" }, query: { type: "string" }, limit: { type: "number" } },
+      additionalProperties: false
+    },
+    annotations: { title: "Search Exact", readOnlyHint: true }
+  },
+  {
+    name: "reading_resume_book",
+    description: "co-reading-kit compatible resume wrapper over current reading progress.",
+    inputSchema: {
+      type: "object",
+      properties: { bookId: { type: "string" }, readChunk: { type: "boolean" } },
+      additionalProperties: false
+    },
+    annotations: { title: "Resume Book", readOnlyHint: true }
+  },
+  {
+    name: "reading_update_progress",
+    description: "co-reading-kit compatible progress writer. Stores progress metadata and marks the last chunk as read.",
+    inputSchema: {
+      type: "object",
+      required: ["bookId"],
+      properties: {
+        bookId: { type: "string" },
+        title: { type: "string" },
+        lastChunkId: { type: "string" },
+        chunkId: { type: "string" },
+        nextChunkId: { type: "string" },
+        lastPath: { type: "string" },
+        nextPath: { type: "string" },
+        lastSectionTitle: { type: "string" },
+        currentThemes: { type: "array", items: { type: "string" } },
+        status: { type: "string" }
+      },
+      additionalProperties: true
+    },
+    annotations: { title: "Update Progress" }
+  },
+  {
+    name: "reading_update_note",
+    description: "co-reading-kit compatible long-term note appender under data/notes.",
+    inputSchema: {
+      type: "object",
+      required: ["bookId", "appendContent"],
+      properties: {
+        bookId: { type: "string" },
+        title: { type: "string" },
+        appendSection: { type: "string" },
+        appendHeading: { type: "string" },
+        appendContent: { type: "string" }
+      },
+      additionalProperties: false
+    },
+    annotations: { title: "Update Note" }
+  },
+  {
+    name: "reading_read_note",
+    description: "co-reading-kit compatible long-term note reader under data/notes.",
+    inputSchema: {
+      type: "object",
+      required: ["bookId"],
+      properties: { bookId: { type: "string" }, section: { type: "string" } },
+      additionalProperties: false
+    },
+    annotations: { title: "Read Note", readOnlyHint: true }
+  },
+  {
+    name: "reading_build_index",
+    description: "co-reading-kit compatible no-op index builder. Upstream search scans chunks automatically; this validates chunk readability.",
+    inputSchema: {
+      type: "object",
+      required: ["bookId"],
+      properties: { bookId: { type: "string" }, force: { type: "boolean" } },
+      additionalProperties: false
+    },
+    annotations: { title: "Build Index" }
+  }
+];
+
 const LOCAL_USER_NOTE_TOOLS = [
   {
     name: "user_note_create",
@@ -1184,6 +1325,7 @@ const LOCAL_TOOLS = [
   ...LOCAL_SINK_TOOLS,
   ...LOCAL_ILLUSTRATION_TOOLS,
   ...LOCAL_WEREAD_TOOLS,
+  ...LOCAL_COMPAT_TOOLS,
   ...LOCAL_USER_NOTE_TOOLS
 ];
 const LOCAL_COMMANDS = new Set(LOCAL_TOOLS.map((tool) => tool.name));
@@ -1227,8 +1369,12 @@ function normalizeCommand(payload) {
   const raw = String(payload.command || payload.tool || payload.action || "list_books").trim();
   if (!raw) return "reading_list_books";
   const normalized = raw.replace(/-/g, "_");
+  // 先查找别名表（包括 reading_ 开头的命令）
+  const aliased = COMMAND_ALIASES[normalized.toLowerCase()];
+  if (aliased) return aliased;
+  // 如果没有别名，以 reading_ 开头的命令直接返回
   if (normalized.startsWith("reading_")) return normalized;
-  return COMMAND_ALIASES[normalized.toLowerCase()] || normalized;
+  return normalized;
 }
 
 function compactTimestamp(date = new Date()) {
@@ -1254,7 +1400,10 @@ const BOOLEAN_KEYS = new Set([
   "createPlan",
   "force",
   "confirmApply",
-  "confirmRefresh"
+  "confirmRefresh",
+  "includeChunks",
+  "includeChunkPreview",
+  "readChunk"
 ]);
 const NUMBER_KEYS = new Set([
   "limit",
@@ -1269,7 +1418,8 @@ const NUMBER_KEYS = new Set([
   "after",
   "maxRanges",
   "mergeGap",
-  "maxSnapshots"
+  "maxSnapshots",
+  "maxChunks"
 ]);
 const JSON_KEYS = new Set([
   "tags",
@@ -1530,6 +1680,115 @@ function compactChunk(chunk) {
     charCount: Number(chunk.charCount || 0),
     wordCount: Number(chunk.wordCount || 0)
   };
+}
+
+function readChunkText(dataDir, manifest, chunk) {
+  const chunkPath = resolveInside(dataDir, "books", manifest.bookId, chunk.path || "");
+  if (!fs.existsSync(chunkPath)) fail(`未找到 chunk 文件: ${chunk.path || chunk.id}`);
+  return fs.readFileSync(chunkPath, "utf8");
+}
+
+function normalizeWhitespaceText(value) {
+  return String(value || "").normalize("NFKC").replace(/\s+/gu, "").toLocaleLowerCase();
+}
+
+function mapNormalizedOffset(text, normalizedOffset) {
+  let normalizedIndex = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if (/\s/u.test(text[index])) continue;
+    if (normalizedIndex === normalizedOffset) return index;
+    normalizedIndex += 1;
+  }
+  return -1;
+}
+
+function snippetAround(text, offset, length, before = 80, after = 120) {
+  const start = Math.max(0, offset - before);
+  const end = Math.min(text.length, offset + length + after);
+  return text.slice(start, end).replace(/\s+/gu, " ").trim();
+}
+
+function findTextMatch(text, query, { exact = false } = {}) {
+  const haystack = exact ? text : text.toLocaleLowerCase();
+  const needle = exact ? String(query || "") : String(query || "").toLocaleLowerCase();
+  let offset = haystack.indexOf(needle);
+  if (offset >= 0) return { offset, length: String(query || "").length, matchType: exact ? "exact" : "keyword" };
+
+  const normalizedQuery = normalizeWhitespaceText(query);
+  if (!normalizedQuery) return null;
+  const normalizedText = normalizeWhitespaceText(text);
+  const normalizedOffset = normalizedText.indexOf(normalizedQuery);
+  if (normalizedOffset < 0) return null;
+  offset = mapNormalizedOffset(text, normalizedOffset);
+  return {
+    offset,
+    length: Math.max(1, String(query || "").length),
+    matchType: exact ? "normalized_exact" : "normalized_keyword"
+  };
+}
+
+function notesPath(dataDir, bookId) {
+  const safeName = String(bookId || "book").replace(/[\\/:*?"<>|\0]+/g, "_").slice(0, 120) || "book";
+  return resolveInside(dataDir, "notes", `${safeName}.md`);
+}
+
+function progressPath(dataDir) {
+  return resolveInside(dataDir, "progress.json");
+}
+
+function resolveBookIds(dataDir, requestedBookId) {
+  if (requestedBookId) return [requestedBookId];
+  const booksDir = resolveInside(dataDir, "books");
+  if (!fs.existsSync(booksDir)) return [];
+  return fs.readdirSync(booksDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+}
+
+function resolveChunkWithIndex(manifest, chunkId) {
+  const index = manifest.chunks.findIndex((item) => item.id === chunkId);
+  if (index < 0) fail(`未知 chunkId: ${chunkId}`);
+  const chunk = manifest.chunks[index];
+  return {
+    chunk,
+    index,
+    prevId: chunk.prevId || manifest.chunks[index - 1]?.id || null,
+    nextId: chunk.nextId || manifest.chunks[index + 1]?.id || null
+  };
+}
+
+function compatSearchMatch({ manifest, chunk, text, query, exact, includeFullText }) {
+  const match = findTextMatch(text, query, { exact });
+  if (!match) return null;
+  const context = snippetAround(text, match.offset, match.length);
+  return {
+    bookId: manifest.bookId,
+    bookTitle: manifest.title || manifest.bookId,
+    chunkId: chunk.id,
+    chunkTitle: chunk.title || chunk.id,
+    title: chunk.title || chunk.id,
+    quote: String(query || ""),
+    quoteOffset: match.offset,
+    offset: match.offset,
+    length: match.length,
+    matchType: match.matchType,
+    context,
+    snippet: context,
+    fullText: includeFullText ? text : undefined,
+    navigation: { prevId: chunk.prevId || null, nextId: chunk.nextId || null }
+  };
+}
+
+function extractMarkdownSection(content, section) {
+  if (!section) return String(content || "");
+  const escaped = escapeRegExp(section);
+  const heading = new RegExp(`^(#{1,6})\\s+${escaped}\\s*$`, "m").exec(String(content || ""));
+  if (!heading) return "";
+  const level = heading[1].length;
+  const rest = String(content || "").slice(heading.index + heading[0].length);
+  const next = new RegExp(`^#{1,${level}}\\s+`, "m").exec(rest);
+  return rest.slice(0, next ? next.index : undefined).trim();
 }
 
 function normalizeArray(value) {
@@ -2415,6 +2674,162 @@ async function handleImportFile(args, serverModule) {
     minSectionChars: args.minSectionChars,
     overwrite: args.overwrite
   });
+}
+
+function handleCompatGetManifest(args, dataDir) {
+  const manifest = loadManifest(dataDir, args.bookId);
+  const maxChunks = Number.isFinite(Number(args.maxChunks)) && Number(args.maxChunks) > 0
+    ? Math.min(Number(args.maxChunks), manifest.chunks.length)
+    : manifest.chunks.length;
+  const chunks = manifest.chunks.slice(0, maxChunks).map((chunk) => {
+    const compact = compactChunk(chunk);
+    if (!args.includeChunkPreview) return compact;
+    const text = readChunkText(dataDir, manifest, chunk);
+    return { ...compact, preview: normalizeExcerpt(text, 320) };
+  });
+  return {
+    bookId: manifest.bookId,
+    title: manifest.title || manifest.bookId,
+    author: manifest.author || null,
+    chunkCount: manifest.chunks.length,
+    chunksReturned: args.includeChunks === false ? 0 : chunks.length,
+    chunks: args.includeChunks === false ? undefined : chunks,
+    manifest: args.includeChunks === false ? { ...manifest, chunks: undefined } : undefined
+  };
+}
+
+function handleCompatGetChunk(args, dataDir) {
+  const manifest = loadManifest(dataDir, args.bookId);
+  const { chunk, prevId, nextId } = resolveChunkWithIndex(manifest, args.chunkId);
+  const text = readChunkText(dataDir, manifest, chunk);
+  return {
+    bookId: manifest.bookId,
+    bookTitle: manifest.title || manifest.bookId,
+    title: manifest.title || manifest.bookId,
+    author: manifest.author || null,
+    chunkId: chunk.id,
+    chunk: { ...chunk, prevId, nextId },
+    prevId,
+    nextId,
+    text,
+    fullText: text,
+    charCount: text.length
+  };
+}
+
+function handleCompatSearch(args, dataDir, { exact = false } = {}) {
+  if (!args.query) fail("query 是必需参数。");
+  const limit = Number.isFinite(Number(args.limit)) && Number(args.limit) > 0 ? Math.min(Number(args.limit), 100) : 10;
+  const matches = [];
+  for (const bookId of resolveBookIds(dataDir, args.bookId)) {
+    const manifest = loadManifest(dataDir, bookId);
+    for (const chunk of manifest.chunks) {
+      const text = readChunkText(dataDir, manifest, chunk);
+      const match = compatSearchMatch({
+        manifest,
+        chunk,
+        text,
+        query: args.query,
+        exact,
+        includeFullText: args.includeFullText || args.includeChunk
+      });
+      if (!match) continue;
+      matches.push(match);
+      if (matches.length >= limit) {
+        return { query: args.query, exact, count: matches.length, matches };
+      }
+    }
+  }
+  return { query: args.query, exact, count: matches.length, matches };
+}
+
+async function handleCompatResumeBook(args, serverModule) {
+  const resumed = await callVendorToolJson(serverModule, "reading_continue", { bookId: args.bookId });
+  const chunk = resumed?.chunk || null;
+  const text = args.readChunk === false ? undefined : resumed?.text;
+  return {
+    ...resumed,
+    chunkId: chunk?.id || null,
+    chunkTitle: chunk?.title || null,
+    prevId: resumed?.prevId ?? chunk?.prevId ?? null,
+    nextId: resumed?.nextId ?? chunk?.nextId ?? null,
+    text,
+    fullText: text
+  };
+}
+
+async function handleCompatUpdateProgress(args, dataDir, serverModule) {
+  if (!args.bookId) fail("bookId 是必需参数。");
+  const manifest = loadManifest(dataDir, args.bookId);
+  const chunkId = args.lastChunkId || args.chunkId;
+  let markResult = null;
+  if (chunkId) {
+    markResult = await callVendorToolJson(serverModule, "reading_mark_read", { bookId: args.bookId, chunkId });
+  }
+  const progress = readJsonFile(progressPath(dataDir), {});
+  const previous = progress[args.bookId] || {};
+  const next = {
+    ...previous,
+    ...(markResult || {}),
+    bookId: args.bookId,
+    title: args.title || manifest.title || args.bookId,
+    lastChunkId: chunkId || previous.lastChunkId || null,
+    nextChunkId: args.nextChunkId || previous.nextChunkId || null,
+    lastPath: args.lastPath || previous.lastPath || null,
+    nextPath: args.nextPath || previous.nextPath || null,
+    lastSectionTitle: args.lastSectionTitle || previous.lastSectionTitle || null,
+    currentThemes: normalizeArray(args.currentThemes).length ? normalizeArray(args.currentThemes) : previous.currentThemes || [],
+    status: args.status || previous.status || "reading",
+    updatedAt: new Date().toISOString()
+  };
+  progress[args.bookId] = next;
+  writeJsonFile(progressPath(dataDir), progress);
+  return { progress: next, markResult, progressPath: progressPath(dataDir) };
+}
+
+function handleCompatUpdateNote(args, dataDir) {
+  if (!args.bookId) fail("bookId 是必需参数。");
+  if (!args.appendContent) fail("appendContent 是必需参数。");
+  const filePath = notesPath(dataDir, args.bookId);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const now = new Date().toISOString();
+  const heading = args.appendHeading || args.appendSection || "Notes";
+  const prefix = fs.existsSync(filePath) && fs.readFileSync(filePath, "utf8").trim() ? "\n\n" : "";
+  const entry = `${prefix}## ${heading}\n\n- ${now}${args.title ? ` · ${args.title}` : ""}\n\n${String(args.appendContent).trim()}\n`;
+  fs.appendFileSync(filePath, entry, "utf8");
+  return { bookId: args.bookId, notePath: filePath, section: heading, appendedAt: now };
+}
+
+function handleCompatReadNote(args, dataDir) {
+  if (!args.bookId) fail("bookId 是必需参数。");
+  const filePath = notesPath(dataDir, args.bookId);
+  const content = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
+  return {
+    bookId: args.bookId,
+    notePath: filePath,
+    section: args.section || null,
+    exists: fs.existsSync(filePath),
+    content: extractMarkdownSection(content, args.section)
+  };
+}
+
+function handleCompatBuildIndex(args, dataDir) {
+  const manifest = loadManifest(dataDir, args.bookId);
+  let readableChunks = 0;
+  let totalChars = 0;
+  for (const chunk of manifest.chunks) {
+    const text = readChunkText(dataDir, manifest, chunk);
+    readableChunks += 1;
+    totalChars += text.length;
+  }
+  return {
+    bookId: manifest.bookId,
+    status: "noop_validated",
+    message: "本项目搜索直接扫描 chunk；reading_build_index 兼容 wrapper 仅验证 chunk 可读性。",
+    chunkCount: manifest.chunks.length,
+    readableChunks,
+    totalChars
+  };
 }
 
 function normalizeExcerpt(text, maxChars = 220) {
@@ -5617,6 +6032,15 @@ async function callLocalCommand(command, args, dataDir, serverModule, vendorDir)
   if (command === "user_note_delete") return handleUserNoteDelete(args, dataDir, vendorDir);
   if (command === "reading_link_weread_book") return handleWereadLinkBook(args, dataDir);
   if (command === "reading_find_weread_context") return handleWereadFindContext(args, dataDir);
+  if (command === "reading_get_manifest") return handleCompatGetManifest(args, dataDir);
+  if (command === "reading_get_chunk") return handleCompatGetChunk(args, dataDir);
+  if (command === "reading_search") return handleCompatSearch(args, dataDir);
+  if (command === "reading_search_exact") return handleCompatSearch(args, dataDir, { exact: true });
+  if (command === "reading_resume_book") return handleCompatResumeBook(args, serverModule);
+  if (command === "reading_update_progress") return handleCompatUpdateProgress(args, dataDir, serverModule);
+  if (command === "reading_update_note") return handleCompatUpdateNote(args, dataDir);
+  if (command === "reading_read_note") return handleCompatReadNote(args, dataDir);
+  if (command === "reading_build_index") return handleCompatBuildIndex(args, dataDir);
   fail(`未知本地命令: ${command}`);
 }
 

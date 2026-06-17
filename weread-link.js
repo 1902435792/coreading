@@ -21,7 +21,10 @@ function normalizeBookTitle(title) {
     .replace(/[《》]/gu, " ")
     .replace(/\.(?:epub|txt|md)\b/giu, " ")
     .replace(/\b(?:epub|txt|md)\b/giu, " ")
-    .replace(/\b(?:全集|完本|校对版|校對版|出版版|番外|精校版|精修版|实体书版|實體書版)\b/gu, " ");
+    .replace(
+      /\b(?:全集|完本|校对版|校對版|出版版|番外|精校版|精修版|实体书版|實體書版)\b/gu,
+      " "
+    );
 
   value = value.replace(/[\[(（【][^\])）】]{0,30}[\])）】]/gu, (segment) => {
     const inner = segment.slice(1, -1);
@@ -44,7 +47,12 @@ function isDisposableBookTitleShell(value) {
     .toLowerCase();
 
   if (!inner) return true;
-  if (/^(?:无限|完本|全集|校对版|校對版|出版版|epub|txt|md|番外|精校版|精修版)+$/u.test(inner)) return true;
+  if (
+    /^(?:无限|完本|全集|校对版|校對版|出版版|epub|txt|md|番外|精校版|精修版)+$/u.test(
+      inner
+    )
+  )
+    return true;
   return false;
 }
 
@@ -63,7 +71,8 @@ function loadLocalBooks(dataDir) {
     throw new Error(`books directory not found: ${booksDir}`);
   }
 
-  const entries = fs.readdirSync(booksDir, { withFileTypes: true })
+  const entries = fs
+    .readdirSync(booksDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
@@ -123,7 +132,11 @@ function saveBookMap(dataDir, bookMap) {
     links: Array.isArray(bookMap.links) ? bookMap.links : [],
     pending: Array.isArray(bookMap.pending) ? bookMap.pending : [],
   };
-  fs.writeFileSync(mapPath, JSON.stringify(nextBookMap, null, 2) + "\n", "utf8");
+  fs.writeFileSync(
+    mapPath,
+    JSON.stringify(nextBookMap, null, 2) + "\n",
+    "utf8"
+  );
   return mapPath;
 }
 
@@ -136,18 +149,31 @@ function scoreBookMatch(input, localBook) {
   let score = 0;
 
   if (!normalizedWereadTitle) {
-    return { localBookId: localBook.bookId, localTitle: localBook.title, localAuthor: localBook.author, score: 0, matchedBy };
+    return {
+      localBookId: localBook.bookId,
+      localTitle: localBook.title,
+      localAuthor: localBook.author,
+      score: 0,
+      matchedBy,
+    };
   }
 
   if (normalizedWereadTitle === localBook.normalizedTitle) {
     score = Math.max(score, 0.9);
     matchedBy.push("normalizedTitle");
-  } else if (normalizedWereadTitle.includes(localBook.normalizedTitle) || localBook.normalizedTitle.includes(normalizedWereadTitle)) {
+  } else if (
+    normalizedWereadTitle.includes(localBook.normalizedTitle) ||
+    localBook.normalizedTitle.includes(normalizedWereadTitle)
+  ) {
     score = Math.max(score, 0.75);
     matchedBy.push("titleIncludes");
   }
 
-  if (normalizedWereadAuthor && localBook.normalizedAuthor && normalizedWereadAuthor === localBook.normalizedAuthor) {
+  if (
+    normalizedWereadAuthor &&
+    localBook.normalizedAuthor &&
+    normalizedWereadAuthor === localBook.normalizedAuthor
+  ) {
     score += 0.08;
     matchedBy.push("normalizedAuthor");
   }
@@ -159,7 +185,13 @@ function scoreBookMatch(input, localBook) {
 
   score = Number(Math.min(0.99, score).toFixed(2));
 
-  return { localBookId: localBook.bookId, localTitle: localBook.title, localAuthor: localBook.author, score, matchedBy };
+  return {
+    localBookId: localBook.bookId,
+    localTitle: localBook.title,
+    localAuthor: localBook.author,
+    score,
+    matchedBy,
+  };
 }
 
 function buildPendingKey(input) {
@@ -173,17 +205,24 @@ function buildPendingKey(input) {
 
 function findExistingLink(links, query) {
   if (query.wereadBookId) {
-    const exact = links.find((link) => String(link.wereadBookId || "") === String(query.wereadBookId));
+    const exact = links.find(
+      (link) => String(link.wereadBookId || "") === String(query.wereadBookId)
+    );
     if (exact) return exact;
   }
 
-  return links.find((link) => {
-    return buildPendingKey(link) === buildPendingKey({
-      wereadBookId: query.wereadBookId,
-      wereadTitle: query.normalizedWereadTitle,
-      wereadAuthor: query.normalizedWereadAuthor,
-    });
-  }) || null;
+  return (
+    links.find((link) => {
+      return (
+        buildPendingKey(link) ===
+        buildPendingKey({
+          wereadBookId: query.wereadBookId,
+          wereadTitle: query.normalizedWereadTitle,
+          wereadAuthor: query.normalizedWereadAuthor,
+        })
+      );
+    }) || null
+  );
 }
 
 function upsertLink(bookMap, link) {
@@ -205,8 +244,9 @@ function upsertLink(bookMap, link) {
 }
 
 function removePendingByKey(bookMap, key) {
-  bookMap.pending = (Array.isArray(bookMap.pending) ? bookMap.pending : [])
-    .filter((item) => buildPendingKey(item) !== key);
+  bookMap.pending = (
+    Array.isArray(bookMap.pending) ? bookMap.pending : []
+  ).filter((item) => buildPendingKey(item) !== key);
 }
 
 function dedupeLinks(links) {
@@ -228,7 +268,11 @@ function linkWereadBook(dataDir, args) {
   const wereadAuthor = String(args.wereadAuthor || "").trim();
   const normalizedWereadTitle = normalizeBookTitle(wereadTitle);
   const normalizedWereadAuthor = normalizeAuthorName(wereadAuthor);
-  const dedupeKey = buildPendingKey({ wereadBookId: args.wereadBookId, wereadTitle, wereadAuthor });
+  const dedupeKey = buildPendingKey({
+    wereadBookId: args.wereadBookId,
+    wereadTitle,
+    wereadAuthor,
+  });
 
   // 检查已链接
   const existingLinked = findExistingLink(bookMap.links, {
@@ -243,11 +287,21 @@ function linkWereadBook(dataDir, args) {
   // 手动确认链接
   if (args.confirm) {
     const targetBook = books.find((book) => book.bookId === args.localBookId);
-    if (!targetBook) throw new Error(`localBookId not found: ${args.localBookId}`);
+    if (!targetBook)
+      throw new Error(`localBookId not found: ${args.localBookId}`);
 
     const matchedBy = ["manualConfirm"];
-    if (normalizedWereadTitle && normalizedWereadTitle === targetBook.normalizedTitle) matchedBy.push("normalizedTitle");
-    if (normalizedWereadAuthor && targetBook.normalizedAuthor && normalizedWereadAuthor === targetBook.normalizedAuthor) matchedBy.push("normalizedAuthor");
+    if (
+      normalizedWereadTitle &&
+      normalizedWereadTitle === targetBook.normalizedTitle
+    )
+      matchedBy.push("normalizedTitle");
+    if (
+      normalizedWereadAuthor &&
+      targetBook.normalizedAuthor &&
+      normalizedWereadAuthor === targetBook.normalizedAuthor
+    )
+      matchedBy.push("normalizedAuthor");
 
     const link = {
       wereadBookId: String(args.wereadBookId || ""),
@@ -276,7 +330,10 @@ function linkWereadBook(dataDir, args) {
     .sort((a, b) => b.score - a.score);
 
   const best = scoredCandidates[0] || null;
-  const linkThreshold = normalizedWereadTitle.length <= 2 ? SHORT_TITLE_LINK_THRESHOLD : DEFAULT_LINK_THRESHOLD;
+  const linkThreshold =
+    normalizedWereadTitle.length <= 2
+      ? SHORT_TITLE_LINK_THRESHOLD
+      : DEFAULT_LINK_THRESHOLD;
 
   if (best && best.score >= linkThreshold) {
     const targetBook = books.find((book) => book.bookId === best.localBookId);
@@ -297,13 +354,69 @@ function linkWereadBook(dataDir, args) {
     removePendingByKey(bookMap, dedupeKey);
     saveBookMap(dataDir, bookMap);
 
-    return { action: "linked", link, candidates: scoredCandidates, reused: false };
+    return {
+      action: "linked",
+      link,
+      candidates: scoredCandidates,
+      reused: false,
+    };
   }
 
   // 无匹配
   removePendingByKey(bookMap, dedupeKey);
   saveBookMap(dataDir, bookMap);
-  return { action: "no-match", candidates: scoredCandidates.slice(0, 5), weread: { wereadBookId: args.wereadBookId || "", wereadTitle, wereadAuthor } };
+  return {
+    action: "no-match",
+    candidates: scoredCandidates.slice(0, 5),
+    weread: {
+      wereadBookId: args.wereadBookId || "",
+      wereadTitle,
+      wereadAuthor,
+    },
+  };
+}
+
+function normalizeMarkText(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/\s+/gu, "")
+    .toLocaleLowerCase();
+}
+
+function mapNormalizedOffset(text, normalizedOffset) {
+  let normalizedIndex = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if (/\s/u.test(text[index])) continue;
+    if (normalizedIndex === normalizedOffset) return index;
+    normalizedIndex += 1;
+  }
+  return -1;
+}
+
+function findMarkTextMatch(content, markText) {
+  const exactOffset = content.indexOf(markText);
+  if (exactOffset >= 0)
+    return { offset: exactOffset, matchType: "exact", length: markText.length };
+
+  const normalizedMark = normalizeMarkText(markText);
+  if (!normalizedMark) return null;
+  const normalizedOffset = normalizeMarkText(content).indexOf(normalizedMark);
+  if (normalizedOffset < 0) return null;
+  const offset = mapNormalizedOffset(content, normalizedOffset);
+  return {
+    offset,
+    matchType: "normalized_exact",
+    length: Math.max(1, markText.length),
+  };
+}
+
+function snippetAround(content, offset, length, before = 100, after = 100) {
+  const contextStart = Math.max(0, offset - before);
+  const contextEnd = Math.min(content.length, offset + length + after);
+  return content
+    .substring(contextStart, contextEnd)
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 /**
@@ -324,7 +437,12 @@ function findWereadContext(dataDir, args) {
   });
 
   if (!link) {
-    return { found: false, reason: "no_link", wereadTitle, suggestion: "请先使用 reading_link_weread_book 链接微信读书和本地书籍" };
+    return {
+      found: false,
+      reason: "no_link",
+      wereadTitle,
+      suggestion: "请先使用 reading_link_weread_book 链接微信读书和本地书籍",
+    };
   }
 
   const localBookId = link.localBookId;
@@ -347,15 +465,18 @@ function findWereadContext(dataDir, args) {
 
     try {
       const content = fs.readFileSync(chunkPath, "utf8");
-      const index = content.indexOf(markText);
-      if (index !== -1) {
-        const contextStart = Math.max(0, index - 100);
-        const contextEnd = Math.min(content.length, index + markText.length + 100);
+      const match = findMarkTextMatch(content, markText);
+      if (match) {
         matches.push({
+          bookId: localBookId,
+          localBookId,
           chunkId: chunk.id,
           chunkTitle: chunk.title || "",
-          offset: index,
-          context: content.substring(contextStart, contextEnd),
+          quote: markText,
+          quoteOffset: match.offset,
+          offset: match.offset,
+          matchType: match.matchType,
+          context: snippetAround(content, match.offset, match.length),
           fullText: args.includeChunk ? content : undefined,
         });
       }
@@ -370,10 +491,12 @@ function findWereadContext(dataDir, args) {
 
   return {
     found: true,
+    bookId: localBookId,
     localBookId,
     localTitle: link.localTitle,
     wereadTitle,
     markText,
+    candidates: matches,
     matches,
   };
 }
