@@ -1,0 +1,78 @@
+- generic [active] [ref=e1]:
+  - link "跳到主内容" [ref=e2] [cursor=pointer]:
+    - /url: "#mainContent"
+  - generic [ref=e3]: 同步中
+  - main [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - paragraph [ref=e7]: CoReadingMCP Sidecar
+        - heading "Nova 共读驾驶舱" [level=1] [ref=e8]
+      - generic [ref=e9]:
+        - generic [ref=e10]: 同步中
+        - button "技能" [ref=e11] [cursor=pointer]
+        - button "刷新" [ref=e12] [cursor=pointer]
+    - region "共读统计" [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: 书籍
+        - strong [ref=e16]: "0"
+      - generic [ref=e17]:
+        - generic [ref=e18]: 计划
+        - strong [ref=e19]: "0"
+      - generic [ref=e20]:
+        - generic [ref=e21]: 评价
+        - strong [ref=e22]: "0"
+      - generic [ref=e23]:
+        - generic [ref=e24]: 插图
+        - strong [ref=e25]: "0"
+      - generic [ref=e26]:
+        - generic [ref=e27]: 卡片
+        - strong [ref=e28]: "0"
+      - generic [ref=e29]:
+        - generic [ref=e30]: 待沉淀
+        - strong [ref=e31]: "0"
+    - generic [ref=e32]:
+      - region "阅读区域" [ref=e33]:
+        - generic [ref=e34]:
+          - generic [ref=e35]:
+            - combobox "切换书籍" [ref=e36]
+            - button "上一段" [ref=e37] [cursor=pointer]
+            - combobox "选择正文位置" [ref=e38]
+            - button "继续读" [ref=e39] [cursor=pointer]
+            - button "下一段" [ref=e40] [cursor=pointer]
+          - article [ref=e41]:
+            - generic [ref=e42]:
+              - strong [ref=e44]: 未选择 chunk
+              - generic [ref=e45]:
+                - generic "阅读方式" [ref=e46]:
+                  - button "滚动" [pressed] [ref=e47] [cursor=pointer]
+                  - button "翻页" [ref=e48] [cursor=pointer]
+                - button "沉浸" [ref=e49] [cursor=pointer]
+                - button "沉浸" [ref=e50] [cursor=pointer]
+            - generic [ref=e52]: 选择一本书后开始阅读。
+          - region "阅读进度" [ref=e53]:
+            - generic [ref=e54]:
+              - generic [ref=e55]: 阅读进度
+              - strong [ref=e56]: 未开始
+              - generic [ref=e57]: 选择书籍后显示当前断点。
+      - complementary "Nova 与共读工具" [ref=e59]:
+        - region "问 Nova" [ref=e61]:
+          - generic [ref=e62]:
+            - heading "问 Nova" [level=2] [ref=e63]
+            - generic [ref=e64]: 待提问
+          - generic "Nova 面板布局" [ref=e65]:
+            - button "收起 Nova" [ref=e66] [cursor=pointer]
+            - button "窄" [ref=e67] [cursor=pointer]
+            - button "宽" [ref=e68] [cursor=pointer]
+            - generic [ref=e69]:
+              - checkbox "自动预读" [checked] [ref=e70]
+              - text: 自动预读
+          - textbox "写下你想问 Nova 的问题，或选中原文后请她解释、追问、陪你继续读。" [ref=e71]
+          - generic [ref=e72]:
+            - button "Nova 自主读" [ref=e73] [cursor=pointer]
+            - button "先看本书" [ref=e74] [cursor=pointer]
+            - button "发送给 Nova" [ref=e75] [cursor=pointer]
+            - button "用选区提问" [ref=e76] [cursor=pointer]
+            - button "复制回复" [disabled] [ref=e77]
+            - button "存成笔记" [disabled] [ref=e78]
+            - button "沉淀回复" [disabled] [ref=e79]
+          - generic [ref=e80]: Nova 的回应会出现在这里。

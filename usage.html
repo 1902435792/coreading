@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Co-Reading 共同阅读插件 - VCP 插件使用说明</title>
+  <style>
+    :root { color-scheme: light; --text:#1f2937; --muted:#6b7280; --line:#d1d5db; --bg:#f8fafc; --panel:#ffffff; --accent:#0f766e; }
+    body { margin:0; font:14px/1.65 "Segoe UI", "Microsoft YaHei", Arial, sans-serif; color:var(--text); background:var(--bg); }
+    main { max-width:1080px; margin:0 auto; padding:32px 20px 56px; }
+    header { border-bottom:2px solid var(--accent); margin-bottom:24px; padding-bottom:16px; }
+    h1 { font-size:30px; line-height:1.2; margin:0 0 8px; }
+    h2 { font-size:20px; margin:28px 0 10px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+    h3 { font-size:16px; margin:18px 0 8px; }
+    .muted { color:var(--muted); }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; margin:14px 0; }
+    table { width:100%; border-collapse:collapse; margin:10px 0; background:var(--panel); }
+    th, td { border:1px solid var(--line); padding:8px 10px; vertical-align:top; }
+    th { width:180px; background:#eef2f7; text-align:left; }
+    code { background:#eef2f7; padding:1px 4px; border-radius:4px; }
+    pre { white-space:pre-wrap; word-break:break-word; background:#111827; color:#e5e7eb; border-radius:8px; padding:12px; overflow:auto; }
+    details { border:1px solid var(--line); border-radius:8px; padding:10px 12px; background:var(--panel); margin:10px 0; }
+    summary { cursor:pointer; font-weight:600; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Co-Reading 共同阅读插件</h1>
+    <div class="muted">插件目录：<code>D:\VCP\VCPToolBox\Plugin\CoReadingMCP</code></div>
+    <div class="muted">生成时间：2026-06-09 16:17:10</div>
+  </header>
+
+  <section class="panel">
+    <h2>用途</h2>
+    <p>把 idleprocesscc/co-reading-mcp 包装为 VCP 同步插件，用于导入 EPUB/TXT/Markdown、分块阅读、搜索、批注、提交用户笔记、回复边注、管理阅读进度、维护并执行 Nova 共读计划、生成章节/范围评价和沉淀预览。</p>
+  </section>
+
+  <section>
+    <h2>快速调用</h2>
+    <pre>&lt;&lt;&lt;[TOOL_REQUEST]&gt;&gt;&gt;
+tool_name:「始」CoReadingMCP「末」,
+command:「始」list_tools「末」
+&lt;&lt;&lt;[END_TOOL_REQUEST]&gt;&gt;&gt;</pre>
+  </section>
+
+  <section>
+    <h2>插件元数据</h2>
+    <table><tr><th>插件名</th><td>CoReadingMCP</td></tr><tr><th>显示名</th><td>Co-Reading 共同阅读插件</td></tr><tr><th>版本</th><td>0.1.0</td></tr><tr><th>类型</th><td>synchronous</td></tr><tr><th>作者</th><td>idleprocesscc / VCP local wrapper</td></tr><tr><th>入口</th><td>{&quot;type&quot;: &quot;nodejs&quot;, &quot;command&quot;: &quot;node CoReadingMCP.cjs&quot;}</td></tr><tr><th>通信</th><td>{&quot;protocol&quot;: &quot;stdio&quot;, &quot;timeout&quot;: 180000}</td></tr></table>
+  </section>
+
+  <section>
+    <h2>配置项</h2>
+    <table><tr><th>配置项</th><th>说明</th><th>默认值/示例</th></tr><tr><td><code>CO_READING_DATA_DIR</code></td><td>阅读数据目录。留空时默认使用 D:\VCP\VCPToolBox\data\co-reading-mcp。</td><td></td></tr><tr><td><code>CO_READING_VENDOR_DIR</code></td><td>co-reading-mcp 源码目录。留空时使用本插件 vendor\co-reading-mcp。</td><td></td></tr><tr><td><code>CO_READING_MAX_RESULT_CHARS</code></td><td>单次 VCP 返回文本最大字符数，默认 80000。</td><td></td></tr><tr><td><code>CO_READING_OBSIDIAN_VAULT_DIR</code></td><td>执行 obsidian 沉淀预览时的本地 vault 根目录。未配置时 sink_execute 需显式传 vaultPath。</td><td></td></tr><tr><td><code>CO_READING_DAILY_NOTE_ROOT</code></td><td>执行 dailyNote 沉淀预览时的日记根目录。未配置时可使用 KNOWLEDGEBASE_ROOT_PATH 或显式传 dailyNoteRoot。</td><td></td></tr><tr><td><code>CO_READING_VCP_MEMORY_ROOT</code></td><td>执行 vcpMemory 沉淀预览时的 VCPMemory 提案目录。未配置时使用 VCPMemory 默认 data/vcp-memory。</td><td></td></tr><tr><td><code>CO_READING_SIDECAR_HOST</code></td><td>独立共读 sidecar 监听地址，默认 127.0.0.1。</td><td></td></tr><tr><td><code>CO_READING_SIDECAR_PORT</code></td><td>独立共读 sidecar 监听端口，默认 8791。</td><td></td></tr><tr><td><code>CO_READING_NOVA_GUIDE_PATH</code></td><td>读书 Nova 操作手册路径。留空时使用 prompts\CoReadingNovaGuide.txt；用于 /api/nova/ask 给 Nova 注入 CoReading 操作、记忆和沉淀边界。</td><td></td></tr><tr><td><code>CO_READING_LIBRARY_DIR</code></td><td>前端本地书库扫描目录。留空时默认 D:\书库；sidecar 只允许从该目录内的相对路径导入 EPUB/TXT/Markdown。</td><td></td></tr></table><details><summary>config.env.example</summary><pre># CoReadingMCP 配置模板
+# 复制为 config.env 后可覆盖默认值。没有私密信息时可以不创建 config.env。
+
+# 阅读数据目录。留空时默认使用 D:\VCP\VCPToolBox\data\co-reading-mcp
+CO_READING_DATA_DIR=
+
+# 上游 co-reading-mcp 源码目录。留空时使用本插件 vendor\co-reading-mcp
+CO_READING_VENDOR_DIR=
+
+# VCP 单次返回最大字符数
+CO_READING_MAX_RESULT_CHARS=80000
+
+# 独立共读 Sidecar。仅在手动运行 node CoReadingSidecar.cjs / npm run sidecar 时使用。
+CO_READING_SIDECAR_HOST=127.0.0.1
+CO_READING_SIDECAR_PORT=8791
+</pre></details>
+  </section>
+
+  <section>
+    <h2>依赖与运行环境</h2>
+    <ul><li>运行环境：需要 Node.js；依赖以 package.json 或锁文件为准。</li><li>依赖文件：package.json</li><li>配置样例：config.env.example</li><li>通信协议：stdio，超时 180000 ms。</li></ul>
+  </section>
+
+  <section>
+    <h2>命令与参数</h2>
+    <h3>list_tools</h3><pre>列出 CoReadingMCP 当前包装的全部 reading_* 工具及参数 schema。适合首次接入或忘记参数时调用。</pre>
+<h3>list_books</h3><pre>列出已导入书籍、阅读进度和批注数量。等价 MCP 工具 reading_list_books。无需参数。</pre>
+<h3>continue</h3><pre>继续阅读下一段。参数：bookId 可选；不传时使用最近阅读的书。等价 MCP 工具 reading_continue。</pre>
+<h3>read_chunk</h3><pre>读取指定书籍分块。参数：bookId 必需，chunkId 必需。等价 MCP 工具 reading_read_chunk。</pre>
+<h3>search</h3><pre>在书籍分块中搜索关键词。参数：query 必需，bookId 可选，limit 可选。等价 MCP 工具 reading_search_chunks。</pre>
+<h3>annotate</h3><pre>写入 Nova/AI 边注。参数：bookId、chunkId、quote、note 必需；quoteOffset、kind、mood、tags 可选。等价 MCP 工具 reading_annotate_passage。</pre>
+<h3>user_note_create</h3><pre>创建用户私有/open 笔记。参数：bookId、chunkId、quote、note 必需；quoteOffset、kind、mood、tags、status(open/private/draft) 可选。该命令不会发布为 Nova 边注。</pre>
+<h3>user_note_list</h3><pre>列出可信本地 sidecar 可见的用户笔记。参数：bookId、chunkId、kind、status、limit 可选；包含 open/private/draft/submitted 用户笔记。</pre>
+<h3>submit_notes</h3><pre>提交 user_note_create 创建的用户笔记供 Nova 回复。参数：bookId 可选，chunkId 可选，sessionId 建议传当前会话 id，contextMode 可选。等价 MCP 工具 reading_submit_user_notes。</pre>
+<h3>list_submissions</h3><pre>列出用户笔记提交批次。参数：bookId、chunkId、sessionId、limit 可选。等价 MCP 工具 reading_list_submissions。</pre>
+<h3>read_submission</h3><pre>读取一个用户笔记提交批次及其上下文。参数：submissionId 必需。等价 MCP 工具 reading_read_submission。</pre>
+<h3>reply</h3><pre>在某条边注下回复。参数：parentId、note 必需；kind、mood、tags 可选。等价 MCP 工具 reading_reply_to_annotation。</pre>
+<h3>mark_read</h3><pre>标记分块已读并更新进度。参数：bookId、chunkId 必需。读完最后一段时会返回收束仪式提示。</pre>
+<h3>card_inbox</h3><pre>查看未移出的阅读卡片收件箱。参数：bookId、limit 可选。等价 MCP 工具 reading_card_inbox。</pre>
+<h3>card_collection</h3><pre>分页浏览已收集阅读卡片。参数：bookId、limit、offset 可选。等价 MCP 工具 reading_card_collection。</pre>
+<h3>open_card</h3><pre>打开指定阅读卡片并返回图片内容。参数：cardId 必需。等价 MCP 工具 reading_open_card。</pre>
+<h3>save_card</h3><pre>把指定阅读卡片渲染为本地图片文件。参数：cardId 必需。等价 MCP 工具 reading_save_card。</pre>
+<h3>dismiss_card</h3><pre>把指定阅读卡片移出收件箱但不删除。参数：cardId 必需。等价 MCP 工具 reading_dismiss_card。</pre>
+<h3>list_cards</h3><pre>列出已收集阅读卡片原始摘要。参数：bookId、chunkId、source、scope、limit 可选。等价 MCP 工具 reading_list_cards。</pre>
+<h3>collect_card</h3><pre>把当前段落、共享边注或阶段收束收为轻量阅读卡片。参数：bookId、chunkId、title、quote、note、kicker、art 可选。等价 MCP 工具 reading_collect_card。</pre>
+<h3>progress</h3><pre>查看一本书或全部书的阅读进度。参数：bookId 可选。等价 MCP 工具 reading_get_progress。</pre>
+<h3>plan_create</h3><pre>创建 Nova 共读计划。参数：bookId 必需；mode 可为 full_book/range/interest_trail/free；scope、startChunkId、endChunkId、chunkIds、query、budget、annotationDensity、sinkPolicy 可选。</pre>
+<h3>interest_backtrack</h3><pre>围绕兴趣点或当前 chunk 回溯前后文范围。参数：bookId 必需；query 或 anchorChunkId 至少一个；before、after、limit、maxRanges、mergeGap、includeEvidence 可选；默认返回 evidence/evidenceMarkdown，createPlan=true 时直接生成可执行共读计划。</pre>
+<h3>plan_list</h3><pre>列出本地阅读计划。参数：bookId、status 可选。计划默认保存在阅读数据目录的 reading_plans.json。</pre>
+<h3>plan_get</h3><pre>读取指定阅读计划详情。参数：planId 必需。返回计划、下一步和建议调用。</pre>
+<h3>plan_update</h3><pre>更新阅读计划元信息。参数：planId 必需；patch 或 title/status/budget/scope/annotationDensity/sinkPolicy 可选。</pre>
+<h3>plan_next_step</h3><pre>获取计划的下一步阅读动作。参数：planId 必需；claim=true 时会把 pending 步骤标记为 in_progress。</pre>
+<h3>plan_execute_step</h3><pre>自动执行计划中的一个 bounded step。参数：planId 必需；stepId/index 可选；read_range 会读取 chunk、标记进度、生成保守 review 草稿和沉淀预览；review_range 会生成 review/previews；search_interest 会记录命中和候选 chunk，但不自动扩展计划。</pre>
+<h3>plan_run</h3><pre>按 ledger 连续推进多个 bounded step，适合长篇阅读的可恢复批量执行。参数：planId 必需；maxSteps 默认 3；遇到 paused/completed/error 会停止；内置 runner lock，必要时可传 forceLock 或 lockTtlMs。</pre>
+<h3>plan_record_step</h3><pre>记录某个计划步骤的执行结果并推进计划。参数：planId 必需；stepId 或 index 必需；status、note、result、artifacts 可选。</pre>
+<h3>review_create</h3><pre>创建章节/范围评价 artifact。参数：bookId、summary 必需；planId、stepId、scope、startChunkId、endChunkId、chunkIds、observations、questions、quotes、nextActions、tags 可选。</pre>
+<h3>review_list</h3><pre>列出章节/范围评价。参数：bookId、planId、status 可选。评价默认保存在阅读数据目录的 reading_reviews.json。</pre>
+<h3>review_get</h3><pre>读取指定章节/范围评价。参数：reviewId 必需。返回结构化评价和可用于 Obsidian 的 Markdown。</pre>
+<h3>sink_preview_create</h3><pre>基于 curated review 创建沉淀预览，不直接写外部系统。参数：reviewId 必需；targets 可选 obsidian/dailyNote/vcpMemory；requireApproval 默认 true；illustrationIds 可指定要嵌入的插图。</pre>
+<h3>sink_preview_create_from_cards</h3><pre>基于已收集阅读卡片创建 Obsidian digest 沉淀预览，不直接写 vault。参数：bookId 必需；cardIds 可选，用于只沉淀指定卡片；chunkId/source/scope/limit/offset/title/requireApproval/vaultPath/notePath/createdBy 可选。</pre>
+<h3>sink_preview_create_from_backtrack</h3><pre>基于兴趣点回溯 evidenceMarkdown 创建 Obsidian 沉淀预览，不直接写外部系统。参数：bookId 必需；query 或 anchorChunkId 至少一个；before、after、limit、maxRanges、mergeGap、requireApproval、vaultPath、notePath、createdBy 可选。预览仍需批准后执行。</pre>
+<h3>sink_preview_list</h3><pre>列出沉淀预览。参数：reviewId、target、status 可选。预览默认保存在阅读数据目录的 sink_previews.json。</pre>
+<h3>sink_preview_get</h3><pre>读取指定沉淀预览。参数：previewId 必需。</pre>
+<h3>sink_preview_update</h3><pre>更新沉淀预览状态或正文但不执行外部写入。参数：previewId、status 必需；status 可为 pending/approved/rejected/exported；content、note、updatedBy 可选。</pre>
+<h3>sink_execute</h3><pre>执行已 approved 的沉淀预览。参数：previewId 必需；force、overwrite、overwriteAssets、vaultPath、assetFolder、dailyNoteRoot、vcpMemoryRoot、targetFolder、reviewer 可选。obsidian 写入 Markdown 文件并可复制本地插图附件，dailyNote 调用 DailyNoteWrite，vcpMemory 调用 ProposeMemory。</pre>
+<h3>obsidian_note_read</h3><pre>回读 vault 内 Obsidian 笔记。参数：previewId 或 notePath；vaultPath 可选；includeContent=false 时只返回元信息。</pre>
+<h3>obsidian_note_diff</h3><pre>比较当前 Obsidian 笔记和沉淀预览正文，不写入文件。参数：previewId 或 notePath/content；vaultPath 可选。返回新增/移除行摘要。</pre>
+<h3>obsidian_note_merge</h3><pre>保守合并沉淀预览到 Obsidian 笔记。参数：previewId 或 notePath/content；vaultPath 可选。默认在文件末尾追加 CoReading proposed update 区块，不自动覆盖原文。</pre>
+<h3>obsidian_note_suggest_integration</h3><pre>只读分析当前 Obsidian 笔记与 CoReading proposed update，返回保守整合建议、结构化分支、理由、证据和可审阅草稿。参数：previewId 或 notePath；vaultPath、blockPreviewId、content、includeDraft 可选。不写入文件。</pre>
+<h3>obsidian_note_preview_replace_range</h3><pre>只读预览 Obsidian 笔记中适合用整合草稿替换的段落范围。参数：previewId 或 notePath；vaultPath、blockPreviewId、content、draft、maxCandidates 可选。返回候选行号、评分、原文预览和草稿预览；不写入文件，不允许自动替换。</pre>
+<h3>obsidian_note_confirm_replace_range</h3><pre>人工确认后替换 Obsidian 笔记指定行范围。参数：confirmReplace=true、expectedDraftHash 必需；startLine/endLine 或 selectedRanges 必需；previewId 或 notePath、vaultPath、blockPreviewId、draft、content、replacedBy、resolutionNote 可选。写入前校验草稿哈希和候选范围，多个 selectedRanges 会按非重叠行段分别替换，返回 replacementMode 与写入后 appliedRanges，并把关联 proposed update 标记 resolved。</pre>
+<h3>obsidian_note_apply_integration_choice</h3><pre>安全执行整合建议分支。参数：choiceId 必需；previewId 或 notePath、vaultPath、blockPreviewId 可选。只允许 append_integrated_update 自动追加；keep_current 仅标记 resolved；replace_with_draft/manual_review 不写入并返回人工处理原因。</pre>
+<h3>obsidian_note_integrate</h3><pre>把整理后的正文追加为 CoReading integrated update，并把关联 proposed update 标记为已整理。参数：previewId 或 notePath；vaultPath、blockPreviewId、integratedContent/content、integratedBy、resolutionNote 可选。不覆盖用户原文。</pre>
+<h3>obsidian_note_status</h3><pre>只读汇总目标 Obsidian 笔记中的 CoReading proposed update 状态。参数：previewId 或 notePath；vaultPath、includeContentPreview 可选。返回 proposed/resolved 数量、marker 和行号。</pre>
+<h3>obsidian_vault_status</h3><pre>只读扫描 Obsidian vault 中的 Markdown 笔记，汇总 CoReading proposed update 待整理/已整理状态。参数：vaultPath 必需；folder、status、limit/offset、maxFiles、maxBytesPerFile、includeContentPreview 可选。返回 hasMore、nextOffset 和 skippedFiles。</pre>
+<h3>obsidian_vault_snapshot</h3><pre>保存一次 Obsidian vault proposed/resolved 状态快照到 CoReadingMCP 数据目录，不写入 vault。参数：vaultPath 必需；folder、status、limit/offset、maxFiles、maxBytesPerFile、includeContentPreview、label、createdBy、maxSnapshots 可选。</pre>
+<h3>obsidian_vault_snapshot_list</h3><pre>回看 CoReadingMCP 保存的 Obsidian vault 状态快照。参数：vaultPath、folder、limit、offset、includeNotes 可选。</pre>
+<h3>obsidian_vault_snapshot_diff</h3><pre>比较两次 Obsidian vault 状态快照，不读写 vault。参数：beforeSnapshotId、afterSnapshotId、changeStatus(all/proposed/resolved)、includeBlocks 可选；不传 id 时默认比较最近两次快照。</pre>
+<h3>obsidian_vault_index_build</h3><pre>扫描 Obsidian vault 并保存一份本地 proposed/resolved block 索引，不写入 vault。参数：vaultPath 必需；folder、limit/maxFiles、maxBytesPerFile、label、createdBy、maxIndexes 可选。</pre>
+<h3>obsidian_vault_index_list</h3><pre>列出已保存的 Obsidian vault 本地索引摘要。参数：vaultPath、folder、limit、offset 可选。</pre>
+<h3>obsidian_vault_index_get</h3><pre>分页读取已保存的 Obsidian vault block 索引。参数：indexId 可选；status(all/proposed/resolved)、previewId/blockPreviewId、notePath、limit、offset 可选。</pre>
+<h3>obsidian_vault_index_refresh_check</h3><pre>只读比较已保存索引与当前 Obsidian vault 扫描，判断索引是否过期。参数：indexId、vaultPath、folder、limit/maxFiles、maxBytesPerFile、includeBlocks 可选；不写入 vault。</pre>
+<h3>obsidian_vault_index_refresh</h3><pre>经用户确认后重建 Obsidian vault 本地索引，只写 CoReadingMCP 索引数据，不写 vault。参数：confirmRefresh=true 必需；indexId、vaultPath、folder、limit/maxFiles、maxBytesPerFile、label、createdBy、force 可选。</pre>
+<h3>obsidian_vault_sync_plan_create</h3><pre>基于本地索引与当前 vault 扫描差异生成只读同步审阅计划，不写 vault、不重建索引。参数：indexId、vaultPath、folder、limit/maxFiles、maxBytesPerFile、includeBlocks、reviewer 可选。</pre>
+<h3>obsidian_vault_sync_action_apply</h3><pre>执行一个已确认的 Obsidian 同步审阅动作。参数：action、confirmApply=true 必需；支持把 proposed block 标记 resolved，或在 confirmRefresh=true 时重建本地索引；不做自动语义合并。</pre>
+<h3>obsidian_note_resolve</h3><pre>把目标 Obsidian 笔记中的某个 CoReading proposed update 标记为已整理。参数：previewId 或 notePath；vaultPath、blockPreviewId、resolvedBy、resolutionNote 可选。不删除正文内容。</pre>
+<h3>illustration_create</h3><pre>创建共读插图请求或图库资产占位，不直接调用生图接口。参数：bookId 必需；prompt、sourceType、stylePreset、assetUri、placement、chunkId、position、layer 可选。</pre>
+<h3>illustration_list</h3><pre>列出插图请求/资产。参数：bookId、status、sourceType、layer 可选。默认保存在 illustrations.json。</pre>
+<h3>illustration_get</h3><pre>读取指定插图请求/资产。参数：illustrationId 必需。</pre>
+<h3>illustration_update</h3><pre>更新插图请求状态、prompt、插入锚点或生成/图库图片 URI。参数：illustrationId 必需；status、assetUri、thumbnailUri、placement、note 可选。</pre>
+<h3>illustration_suggest</h3><pre>基于书籍 chunk/range 元数据生成无剧透插图提示词建议，不调用生图接口。参数：bookId 必需；chunkId 或范围可选；stylePreset、aspectRatio、position、layer 可选。</pre>
+  </section>
+
+  <section>
+    <h2>使用注意</h2>
+    <p class="muted">未在本地证据中发现。</p>
+  </section>
+
+  <section>
+    <h2>源码线索</h2>
+    <table><tr><th>源码文件</th><th>命令线索</th><th>函数线索</th></tr><tr><td><code>CoReadingMCP.cjs</code></td><td>-</td><td>acquirePlanRunLock, appendPlanHistory, assertCriticalRemovalsMatch, buildArguments, buildScope, chunkGroups, chunkIndexById, coerceValue, compactChunk, compactTimestamp, computeCriticalSinkRemovals, createArtifactId, createPlanId, emit, ensureRuntimeEnv, escapeRegExp, expandChunkRange, fail, illustrationsPath, lineMultisetDiff</td></tr><tr><td><code>CoReadingSidecar.cjs</code></td><td>card_collection, card_inbox, illustration_list, import_begin, import_cancel, import_file, import_finish, import_local_book, import_part, list_books, plan_list, plan_run, review_list, sink_preview_list</td><td>appendSidecarImportPart, askNova, beginSidecarImport, bookIdFromLocalPath, buildRunnerFromPayload, cancelSidecarImport, compactText, configuredSinkDefaults, dataBase64, finishBackgroundRunner, finishSidecarImport, getRunnerState, handleApi, handleCardImage, importLocalLibraryBook, importOptionPayload, isPathInside, listLocalLibraryBooks, listRunnerStates, loadRunnerJobs</td></tr><tr><td><code>ecosystem.config.cjs</code></td><td>-</td><td>-</td></tr><tr><td><code>frontend\script.js</code></td><td>-</td><td>activeBook, activePlan, adjustReaderFont, announce, api, applyPreviewVaultPath, applyReaderSettings, applySinkSettings, askNova, bookmarkForChunk, bookmarkMeta, bookmarksForBook, books, cardsForCurrentChunk, chooseInitialBook, chunkReadableSize, chunkTitleById, clampPercent, clearFormError, clearSavedReadingSessionForBook</td></tr><tr><td><code>scripts\windows-autostart.ps1</code></td><td>Set-Location -LiteralPath</td><td>-</td></tr></table>
+  </section>
+
+  <section>
+    <h2>README 摘录</h2>
+    <details open><summary>README.md</summary><pre># CoReadingMCP
+
+`CoReadingMCP` 把 `idleprocesscc/co-reading-mcp` 包装为 VCP 同步插件。
+
+## 快速启动
+
+```powershell
+cd D:\VCP\VCPToolBox\Plugin\CoReadingMCP
+Set-Item Env:VCP_API_KEY (Read-Host &quot;VCP key&quot;)
+npm run sidecar
+```
+
+打开：
+
+```text
+http://127.0.0.1:8791
+```
+
+最小验证：
+
+```powershell
+npm run check
+Invoke-RestMethod http://127.0.0.1:8791/api/health
+Invoke-RestMethod http://127.0.0.1:8791/api/snapshot
+```
+
+前端第一屏是阅读区：当前书、当前 chunk 原文、阅读地图、阅读足迹、选区、笔记、问 Nova。开发阶段可以让 Nova 通过 VCP 陪 Codex 审阅方向；最终使用时只有一个读书伙伴 Nova。
+
+## Nova 接入
+
+Sidecar 默认调用：
+
+```text
+http://127.0.0.1:3100/v1/chat/completions
+```
+
+可用环境变量覆盖：
+
+- `VCP_API_KEY` 或 `CO_READING_NOVA_API_KEY`：Nova/VCP 访问 key。
+- `CO_READING_NOVA_BRIDGE_URL`：OpenAI 兼容 chat completions 地址。
+- `CO_READING_NOVA_MODEL`：默认 `gpt-5.5`。
+- `CO_READING_NOVA_GUIDE_PATH`：读书 Nova 操作手册路径；默认 `prompts\CoReadingNovaGuide.txt`。
+
+不要把 key 写入 `config.env`、README、日志或 git 历史。仓库只提交源码、前端、脚本、prompt 和 vendor 必要源码；真实阅读数据默认写到 `D:\VCP\VCPToolBox\data\co-reading-mcp`，不提交。
+
+## 用途
+
+- 导入 EPUB、TXT、Markdown 到本地阅读库。
+- 按 chunk 阅读、继续阅读、搜索段落。
+- 用阅读地图查看全书位置、段内位置、目录节点和本地书签。
+- 把已有边注和我的笔记回投到原文，形成可点击定位的阅读足迹。
+- 写边注、提交用户笔记、在边注下回复。
+- 标记已读、查看进度、收集阅读卡片。
+- 浏览阅读卡片收件箱、预览/保存/移出卡片。
+- 维护并执行 Nova 共读计划，支持全书、范围和兴趣线索阅读。
+- 生成章节/范围评价，并创建 Obsidian、DailyNote、VCPMemory 的沉淀预览。
+
+## 目录
+
+```text
+Plugin/CoReadingMCP/
+|- CoReadingMCP.cjs
+|- CoReadingSidecar.cjs
+|- frontend/
+|- plugin-manifest.json
+|- config.env.example
+|- prompts/nova-co-reading-reader.txt
+`- vendor/co-reading-mcp/
+```
+
+默认数据目录：
+
+```text
+D:\VCP\VCPToolBox\data\co-reading-mcp
+```
+
+## 调用
+
+常用命令：
+
+- `list_tools`
+- `list_books`
+- `continue`
+- `read_chunk`
+- `search`
+- `import_file`
+- `annotate`
+- `user_note_create`
+- `user_note_list`
+- `submit_notes`
+- `list_submissions`
+- `read_submission`
+- `reply`
+- `mark_read`
+- `card_inbox`
+- `card_collection`
+- `open_card`
+- `save_card`
+- `dismiss_card`
+- `list_cards`
+- `collect_card`
+- `progress`
+- `plan_create`
+- `interest_backtrack`
+- `plan_list`
+- `plan_get`
+- `plan_update`
+- `plan_next_step`
+- `plan_execute_step`
+- `plan_run`
+- `plan_record_step`
+- `review_create`
+- `review_list`
+- `review_get`
+- `sink_preview_create`
+- `sink_preview_create_from_cards`
+- `sink_preview_list`
+- `sink_preview_get`
+- `sink_preview_update`
+- `sink_execute`
+- `obsidian_note_read`
+- `obsidian_note_diff`
+- `obsidian_note_merge`
+- `obsidian_note_suggest_integration`
+- `obsidian_note_preview_replace_range`
+- `obsidian_note_confirm_replace_range`
+- `obsidian_note_apply_integration_choice`
+- `obsidian_note_integrate`
+- `obsidian_note_status`
+- `obsidian_vault_status`
+- `obsidian_vault_index_build`
+- `obsidian_vault_index_list`
+- `obsidian_vault_index_get`
+- `obsidian_vault_index_refresh_check`
+- `obsidian_vault_index_refresh`
+- `obsidian_vault_sync_plan_create`
+- `obsidian_note_resolve`
+- `illustration_create`
+- `illustration_list`
+- `illustration_get`
+- `illustration_update`
+- `illustration_suggest`
+
+也可以直接用上游 MCP 工具名，例如 `reading_list_books`、`reading_import_book`。
+
+## 独立共读 Sidecar
+
+不接入 6005/AdminPanel-Vue。共读驾驶舱作为插件自带 sidecar 运行：
+
+```powershell
+cd D:\VCP\VCPToolBox\Plugin\CoReadingMCP
+npm run sidecar
+```
+
+默认打开：
+
+```text
+http://127.0.0.1:8791
+```
+
+健康检查：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8791/api/health
+```
+
+PM2 守护运行：
+
+```powershell
+cd D:\VCP\VCPToolBox\Plugin\CoReadingMCP
+npm run sidecar:pm2:start
+pm2 status vcp-coreading-sidecar
+Invoke-RestMethod http://127.0.0.1:8791/api/health
+```
+
+更新或停止：
+
+```powershell
+npm run sidecar:pm2:restart
+npm run sidecar:pm2:stop
+npm run sidecar:pm2:delete
+```
+
+Windows 用户级开机自启：
+
+```powershell
+cd D:\VCP\VCPToolBox\Plugin\CoReadingMCP
+npm run sidecar:autostart:status
+npm run sidecar:autostart:enable
+npm run sidecar:autostart:disable
+```
+
+自启脚本写入 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，只影响当前 Windows 用户，不需要管理员权限；登录后会执行 `npm run sidecar:pm2:start`。手动预览可运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-autostart.ps1 -Enable -WhatIf
+```
+
+可用环境变量：
+
+- `CO_READING_SIDECAR_HOST`：监听地址，默认 `127.0.0.1`。
+- `CO_READING_SIDECAR_PORT`：监听端口，默认 `8791`。
+- `CO_READING_SIDECAR_MAX_BODY_BYTES`：sidecar 单次请求体上限，默认约 2MB。
+- `READING_IMPORT_MAX_BYTES`：导入文件大小上限，wrapper 默认约 100MB。
+- `CO_READING_DATA_DIR`：阅读数据目录；可指向临时目录做无污染测试。
+- `PYTHON`：导入器使用的 Python 命令；Windows 默认 `python`，其它平台默认 `python3`。
+
+Sidecar 页面支持：
+
+- 查看书库、计划、评价、沉淀预览。
+- 从浏览器选择 TXT/Markdown/EPUB 文件导入书库；超过单次请求体上限的大书会自动走分片导入。
+- 创建范围/全书/兴趣线索/自由共读计划。
+- 读取 chunk 原文、搜索兴趣点、按选区/偏移写入和查看 Nova/AI 边注。
+- 用阅读地图查看全书 chunk 节点、当前全书/段内进度；本地插书签并返回最近书签。
+- 围绕选区、搜索结果或当前 chunk 回溯前后文，并直接打开范围、生成后续共读计划或沉淀预览。
+- 将已命中的边注/我的笔记高亮回原文，右侧阅读足迹卡片可点击定位。
+- 保存用户私有笔记，按当前 chunk 提交给 Nova，并回看提交批次。
+- 把当前选区或段落沉淀为阅读卡片，查看卡片收件箱/收藏，并预览或保存卡片图片。
+- 为当前 chunk/range 创建范围评价，并生成 Obsidian/DailyNote/VCPMemory 沉淀预览。
+- 领取下一步、执行一个 `plan_execute_step`，或用 `plan_run` 连续推进 3 步。
+- 启动/停止 sidecar durable 后台 runner，自动按间隔推进计划，并在失败时显示错误与重试入口。
+- 暂停/恢复计划；暂停状态会阻止 runner 继续执行。
+- 查看沉淀预览正文，再批准并执行 `sink_execute`。
+- 保存 Obsidian 全库 proposed/resolved 快照，回看快照列表，比较整理前后的快照差异，并从差异项定位到对应笔记 block；这些操作只写 CoReadingMCP 数据，不写 Obsidian vault。
+- 建立 Obsidian 本地 block 索引、回看索引列表、按待整理状态读取索引、检查索引是否过期、生成只读同步审阅计划、确认后重建索引，并从索引项定位到对应笔记 block；索引只写 CoReadingMCP 数据，不写 Obsidian vault。
+- 沉淀路径输入框会优先使用浏览器本地记住的 `Vault`、`DailyNote`、`MemoryRoot`；若本地没有保存值，会从 sidecar 环境变量 `CO_READING_OBSIDIAN_VAULT_DIR`、`CO_READING_DAILY_NOTE_ROOT`、`CO_READING_VCP_MEMORY_ROOT` 自动带入。可用“清空路径”移除浏览器本地设置。
+- 基于当前 chunk 生成无剧透插图提示词建议，创建插图请求，登记图库/已生成图片 URI，并在插图库中预览。
+
+## 共读计划
+
+计划数据默认写入：
+
+```text
+D:\VCP\VCPToolBox\data\co-reading-mcp\reading_plans.json
+```
+
+创建一个范围共读计划：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;plan_create&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;mode&quot;:&quot;range&quot;,&quot;startChunkId&quot;:&quot;ch00&quot;,&quot;endChunkId&quot;:&quot;ch05&quot;,&quot;budget&quot;:{&quot;maxChunksPerStep&quot;:2,&quot;maxAnnotationsPerChunk&quot;:2},&quot;annotationDensity&quot;:&quot;medium&quot;,&quot;sinkPolicy&quot;:{&quot;requireApproval&quot;:true,&quot;obsidian&quot;:true}}&#x27; | node .\CoReadingMCP.cjs
+```
+
+查看下一步：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;plan_next_step&quot;,&quot;planId&quot;:&quot;&lt;planId&gt;&quot;}&#x27; | node .\CoReadingMCP.cjs
+```
+
+执行一个 bounded step：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;plan_execute_step&quot;,&quot;planId&quot;:&quot;&lt;planId&gt;&quot;}&#x27; | node .\CoReadingMCP.cjs
+```
+
+连续推进多个 bounded step：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;plan_run&quot;,&quot;planId&quot;:&quot;&lt;planId&gt;&quot;,&quot;maxSteps&quot;:3}&#x27; | node .\CoReadingMCP.cjs
+```
+
+`plan_run` 会写入 plan history，并使用 `data\co-reading-mcp\locks\&lt;planId&gt;.run.lock` 防止同一计划被两个 runner 同时推进。异常退出留下的旧 lock 可等待默认 TTL 过期，或显式传 `forceLock:true` 覆盖。
+
+Sidecar 后台 runner：
+
+```powershell
+$body = &#x27;{&quot;planId&quot;:&quot;&lt;planId&gt;&quot;,&quot;intervalMs&quot;:2000,&quot;maxStepsPerTick&quot;:1,&quot;maxRetries&quot;:1,&quot;retryDelayMs&quot;:2000}&#x27;
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8791/api/runner/start -Body $body -ContentType &#x27;application/json&#x27;
+Invoke-RestMethod -Uri &#x27;http://127.0.0.1:8791/api/runner/status?planId=&lt;planId&gt;&#x27;
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8791/api/runner/retry -Body $body -ContentType &#x27;application/json&#x27;
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8791/api/runner/stop -Body &#x27;{&quot;planId&quot;:&quot;&lt;planId&gt;&quot;}&#x27; -ContentType &#x27;application/json&#x27;
+```
+
+后台 runner job 写入 `runner_jobs.json`；sidecar 重启时会恢复 `running/waiting` job。它每轮调用一次 `plan_run`，尊重 plan pause/completed/error 状态，支持有限自动重试，并把最近结果、错误、tick、retry 和执行数暴露给 UI 的“后台跑 / 停止后台 / 重试”按钮。它仍依赖 sidecar 进程本身运行，不是系统服务级常驻 worker。
+
+暂停和恢复：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;plan_update&quot;,&quot;planId&quot;:&quot;&lt;planId&gt;&quot;,&quot;status&quot;:&quot;paused&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;plan_update&quot;,&quot;planId&quot;:&quot;&lt;planId&gt;&quot;,&quot;status&quot;:&quot;active&quot;}&#x27; | node .\CoReadingMCP.cjs
+```
+
+`plan_execute_step` 的边界：
+
+- `read_range`：读取本步 chunk、按默认设置标记已读、生成保守 `draft` review，并按计划策略生成沉淀预览。
+- `review_range`：读取来源范围后生成 `draft` review 和沉淀预览，但不重复标记进度。
+- `search_interest`：搜索兴趣线索，记录命中和候选 `chosenChunkIds`，不自动扩展计划。
+- 默认不把完整原文写入 review 或沉淀内容；沉淀预览仍需 `approved` 后才能 `sink_execute`。
+
+写入当前 chunk 边注：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;annotate&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;chunkId&quot;:&quot;ch00&quot;,&quot;quote&quot;:&quot;short anchored quote&quot;,&quot;quoteOffset&quot;:120,&quot;note&quot;:&quot;这句值得停留。&quot;,&quot;kind&quot;:&quot;resonance&quot;}&#x27; | node .\CoReadingMCP.cjs
+```
+
+`annotate` 走上游 `reading_annotate_passage`，会作为 AI/Nova 边注发布；用户私有笔记先走 `user_note_create`，再按需走 `submit_notes`。
+
+保存并提交用户笔记：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;user_note_create&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;chunkId&quot;:&quot;ch00&quot;,&quot;quote&quot;:&quot;short anchored quote&quot;,&quot;quoteOffset&quot;:120,&quot;note&quot;:&quot;这里我想问 Nova。&quot;,&quot;status&quot;:&quot;open&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;submit_notes&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;chunkId&quot;:&quot;ch00&quot;,&quot;sessionId&quot;:&quot;sidecar-anthropic-guidelines&quot;}&#x27; | node .\CoReadingMCP.cjs
+```
+
+`quoteOffset` 可选；sidecar 从原文选区自动计算。`user_note_create` 直接写入 `author=user,status=open/private/draft`，不会发布成 Nova 边注；`submit_notes` 会把可提交用户笔记标记为 `submitted`，并生成提交批次供 Nova 回应。
+
+收集和回访阅读卡片：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;collect_card&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;chunkId&quot;:&quot;ch00&quot;,&quot;quote&quot;:&quot;short anchored quote&quot;,&quot;note&quot;:&quot;这段值得后面再回来。&quot;,&quot;kicker&quot;:&quot;收获了一枚回声书签&quot;,&quot;art&quot;:&quot;fold&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;card_inbox&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;limit&quot;:10}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;card_collection&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;limit&quot;:12}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;sink_preview_create_from_cards&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;limit&quot;:12,&quot;title&quot;:&quot;本章阅读卡片 digest&quot;,&quot;requireApproval&quot;:true}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;sink_preview_create_from_cards&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;cardIds&quot;:[&quot;&lt;cardId&gt;&quot;],&quot;title&quot;:&quot;单张卡片沉淀&quot;,&quot;requireApproval&quot;:true}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;save_card&quot;,&quot;cardId&quot;:&quot;&lt;cardId&gt;&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;dismiss_card&quot;,&quot;cardId&quot;:&quot;&lt;cardId&gt;&quot;}&#x27; | node .\CoReadingMCP.cjs
+```
+
+阅读卡片保存在 `cards.jsonl`，适合作为 digest/书签层；`sink_preview_create_from_cards` 会把卡片整理成 Obsidian Markdown 预览，但仍不直接写 vault，后续继续走 `sink_preview_update(approved) -&gt; sink_execute` 的审批链路。传 `cardIds` 时只沉淀指定卡片，适合从 sidecar 的单张卡片入口生成待审批 preview。
+
+记录步骤完成：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;plan_record_step&quot;,&quot;planId&quot;:&quot;&lt;planId&gt;&quot;,&quot;stepId&quot;:&quot;step-001&quot;,&quot;status&quot;:&quot;done&quot;,&quot;result&quot;:{&quot;summary&quot;:&quot;本步读完并完成边注。&quot;}}&#x27; | node .\CoReadingMCP.cjs
+```
+
+兴趣线索计划可以传 `mode:&quot;interest_trail&quot;` 和 `query`，Nova 会先得到搜索步骤，再围绕命中的 chunk 继续阅读或评价。
+
+围绕兴趣点回溯前后文并创建计划：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;interest_backtrack&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;query&quot;:&quot;helpfulness&quot;,&quot;before&quot;:1,&quot;after&quot;:2,&quot;createPlan&quot;:true,&quot;budget&quot;:{&quot;maxChunksPerStep&quot;:2},&quot;sinkPolicy&quot;:{&quot;requireApproval&quot;:true,&quot;obsidian&quot;:true}}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;sink_preview_create_from_backtrack&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;query&quot;:&quot;helpfulness&quot;,&quot;anchorChunkId&quot;:&quot;ch00&quot;,&quot;before&quot;:1,&quot;after&quot;:2,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;requireApproval&quot;:true}&#x27; | node .\CoReadingMCP.cjs
+```
+
+`interest_backtrack` 不会把整本书塞进上下文；它只返回命中锚点附近的 bounded ranges，默认附带 `evidence/evidenceMarkdown` 证据包，包含命中摘录、范围摘要和 Nova 复读提示，方便作为 Obsidian proposed update 沉淀；在 `createPlan=true` 时会把这些 chunk 变成后续可执行阅读计划。`sink_preview_create_from_backtrack` 会把同一 evidenceMarkdown 包成 Obsidian sink preview，仍需批准后再执行写入。
+
+## 评价与沉淀预览
+
+评价与沉淀预览默认写入：
+
+```text
+D:\VCP\VCPToolBox\data\co-reading-mcp\reading_reviews.json
+D:\VCP\VCPToolBox\data\co-reading-mcp\sink_previews.json
+```
+
+创建章节/范围评价：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;review_create&quot;,&quot;bookId&quot;:&quot;anthropic-guidelines&quot;,&quot;planId&quot;:&quot;&lt;planId&gt;&quot;,&quot;stepId&quot;:&quot;step-003&quot;,&quot;summary&quot;:&quot;这一段把诚实从态度推进到可执行约束。&quot;,&quot;observations&quot;:[{&quot;text&quot;:&quot;核心张力是帮助用户与保持透明之间的平衡。&quot;}],&quot;questions&quot;:[{&quot;text&quot;:&quot;后续章节如何处理冲突场景？&quot;}],&quot;quotes&quot;:[{&quot;chunkId&quot;:&quot;ch14&quot;,&quot;quote&quot;:&quot;short anchored quote&quot;,&quot;note&quot;:&quot;可作为边注回链&quot;}],&quot;tags&quot;:[&quot;co-reading&quot;,&quot;review&quot;]}&#x27; | node .\CoReadingMCP.cjs
+```
+
+创建沉淀预览：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;sink_preview_create&quot;,&quot;reviewId&quot;:&quot;&lt;reviewId&gt;&quot;,&quot;targets&quot;:[&quot;obsidian&quot;,&quot;dailyNote&quot;,&quot;vcpMemory&quot;],&quot;requireApproval&quot;:true}&#x27; | node .\CoReadingMCP.cjs
+```
+
+Obsidian 预览会自动嵌入同书同范围内 `generated/inserted` 状态的插图；也可显式指定：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;sink_preview_create&quot;,&quot;reviewId&quot;:&quot;&lt;reviewId&gt;&quot;,&quot;targets&quot;:[&quot;obsidian&quot;],&quot;illustrationIds&quot;:[&quot;&lt;illustrationId&gt;&quot;],&quot;requireApproval&quot;:true}&#x27; | node .\CoReadingMCP.cjs
+```
+
+审批或驳回预览：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;sink_preview_update&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;status&quot;:&quot;approved&quot;,&quot;note&quot;:&quot;确认写入 Obsidian 前的内容。&quot;}&#x27; | node .\CoReadingMCP.cjs
+```
+
+写入前修正文案：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;sink_preview_update&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;status&quot;:&quot;pending&quot;,&quot;content&quot;:&quot;# Edited preview&quot;,&quot;note&quot;:&quot;写入前修订&quot;}&#x27; | node .\CoReadingMCP.cjs
+```
+
+执行已审批的预览：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;sink_execute&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;overwrite&quot;:false}&#x27; | node .\CoReadingMCP.cjs
+```
+
+执行规则：
+
+- `obsidian`：写入 `vaultPath` 或 `CO_READING_OBSIDIAN_VAULT_DIR` 下的 Markdown 文件。
+- Obsidian 执行时会把 Markdown 中的本地插图链接（`file:///...` 或 Windows 本地路径）复制到 `CoReading/_assets/&lt;reviewId&gt;/`，并改写为 vault 相对链接；远程 URL 保持原样。可用 `assetFolder` 和 `overwriteAssets` 覆盖。
+- `dailyNote`：调用 `DailyNoteWrite`，需要 `dailyNoteRoot`、`CO_READING_DAILY_NOTE_ROOT` 或 `KNOWLEDGEBASE_ROOT_PATH`。
+- `vcpMemory`：调用 `VCPMemory ProposeMemory`，可用 `vcpMemoryRoot` 或 `CO_READING_VCP_MEMORY_ROOT` 指定提案目录。
+- 只有 `approved` 状态会执行；`pending`、`rejected` 默认拒绝执行，除非显式传 `force:true`。
+- 执行成功后预览状态变为 `exported`，并在 `sink_previews.json` 中记录执行结果。
+
+Obsidian 回读、差异和保守合并：
+
+```powershell
+&#x27;{&quot;command&quot;:&quot;obsidian_note_read&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_note_diff&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_note_merge&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;updatedBy&quot;:&quot;Nova&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_note_suggest_integration&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_note_preview_replace_range&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;maxCandidates&quot;:3}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_note_confirm_replace_range&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;confirmReplace&quot;:true,&quot;startLine&quot;:1,&quot;endLine&quot;:4,&quot;expectedDraftHash&quot;:&quot;&lt;draftHash&gt;&quot;,&quot;replacedBy&quot;:&quot;Nova&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_note_confirm_replace_range&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;confirmReplace&quot;:true,&quot;selectedRanges&quot;:[{&quot;startLine&quot;:1,&quot;endLine&quot;:1},{&quot;startLine&quot;:5,&quot;endLine&quot;:6}],&quot;expectedDraftHash&quot;:&quot;&lt;draftHash&gt;&quot;,&quot;replacedBy&quot;:&quot;Nova&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_note_apply_integration_choice&quot;,&quot;choiceId&quot;:&quot;append_integrated_update&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;integratedBy&quot;:&quot;Nova&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_note_integrate&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;integratedContent&quot;:&quot;整理进主笔记的最终段落。&quot;,&quot;integratedBy&quot;:&quot;Nova&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_note_status&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_status&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;folder&quot;:&quot;CoReading&quot;,&quot;status&quot;:&quot;proposed&quot;,&quot;limit&quot;:50,&quot;offset&quot;:0}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_snapshot&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;folder&quot;:&quot;CoReading&quot;,&quot;status&quot;:&quot;all&quot;,&quot;label&quot;:&quot;before整理&quot;,&quot;createdBy&quot;:&quot;Nova&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_snapshot_list&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;folder&quot;:&quot;CoReading&quot;,&quot;limit&quot;:10}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_snapshot_diff&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_snapshot_diff&quot;,&quot;changeStatus&quot;:&quot;proposed&quot;,&quot;includeBlocks&quot;:true}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_index_build&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;folder&quot;:&quot;CoReading&quot;,&quot;label&quot;:&quot;整理队列索引&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_index_list&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;folder&quot;:&quot;CoReading&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_index_get&quot;,&quot;status&quot;:&quot;proposed&quot;,&quot;limit&quot;:50}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_index_refresh_check&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;folder&quot;:&quot;CoReading&quot;,&quot;includeBlocks&quot;:true}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_sync_plan_create&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;folder&quot;:&quot;CoReading&quot;,&quot;includeBlocks&quot;:true}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_sync_action_apply&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;action&quot;:{&quot;actionId&quot;:&quot;&lt;actionId&gt;&quot;,&quot;recommendation&quot;:&quot;mark_local_index_resolved_or_rebuild&quot;,&quot;notePath&quot;:&quot;CoReading/example.md&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;afterStatus&quot;:&quot;resolved&quot;},&quot;confirmApply&quot;:true,&quot;appliedBy&quot;:&quot;Nova&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_vault_index_refresh&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;folder&quot;:&quot;CoReading&quot;,&quot;confirmRefresh&quot;:true,&quot;label&quot;:&quot;用户确认重建&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_note_resolve&quot;,&quot;previewId&quot;:&quot;&lt;previewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;resolvedBy&quot;:&quot;Nova&quot;,&quot;resolutionNote&quot;:&quot;已整理进主笔记的人物线索段落。&quot;}&#x27; | node .\CoReadingMCP.cjs
+&#x27;{&quot;command&quot;:&quot;obsidian_note_resolve&quot;,&quot;notePath&quot;:&quot;CoReading/notes/example.md&quot;,&quot;blockPreviewId&quot;:&quot;&lt;blockPreviewId&gt;&quot;,&quot;vaultPath&quot;:&quot;D:\\ObsidianVault&quot;,&quot;resolvedBy&quot;:&quot;Nova&quot;,&quot;resolutionNote&quot;:&quot;已核对，无需再处理。&quot;}&#x27; | node .\CoReadingMCP.cjs
+```
+
+`obsidian_note_status` 只读汇总目标笔记里的 CoReading proposed update，返回待整理/已整理数量、marker 和行号。`obsidian_vault_status` 只读扫描 vault/folder 内 Markdown 笔记，汇总所有 CoReading proposed update，适合回看整个沉淀队列；支持 `limit/offset` 文件级分页，返回 `hasMore/nextOffset`，并用 `skippedFiles` 标出因 `maxBytesPerFile` 跳过的 Markdown 文件。`obsidian_vault_snapshot` 会把这次扫描结果保存到 CoReadingMCP 数据目录的 `obsidian_vault_snapshots.json`，作为后续同步/冲突 UI 的基线；它不写入 Obsidian vault。`obsidian_vault_snapshot_list` 可分页回看这些快照，默认只返回摘要，传 `includeNotes:true` 才带完整 note/block 列表。`obsidian_vault_snapshot_diff` 比较两次已保存快照，默认比较最近两次，返回 counts delta、added/removed/statusChanged blocks；传 `changeStatus:&quot;proposed&quot;` 可只看仍待整理的变化，传 `includeBlocks:true` 可返回完整变化列表。`obsidian_vault_index_build` 会把一次 vault 扫描保存为本地 block 索引 `obsidian_vault_indexes.json`，便于大 vault 后续分页查询；`obsidian_vault_index_get` 可按 proposed/resolved、previewId 或 notePath 过滤，不写入 vault；`obsidian_vault_index_refresh_check` 会只读比较最新索引和当前 vault 扫描，提示索引是否过期；`obsidian_vault_sync_plan_create` 会把这些差异转成只读审阅动作；`obsidian_vault_sync_action_apply` 只执行已确认的安全动作：把指定 proposed block 标记 resolved，或在 `confirmRefresh:true` 时重建本地索引；它不会自动语义合并。`obsidian_vault_index_refresh` 需要 `confirmRefresh:true` 才会重建索引，只写 CoReadingMCP 数据。`obsidian_note_diff` 会在同一 `previewId` 已经追加过时返回 `alreadyMerged=true`，已整理后返回 `resolved=true`、`resolvedMarker`。`obsidian_note_merge` 默认不覆盖原文；它在目标笔记末尾追加 `CoReading propos
+
+[内容过长，已截断]</pre></details>
+  </section>
+
+  <section>
+    <h2>证据文件</h2>
+    <ul><li>config.env.example</li><li>CoReadingMCP.cjs</li><li>CoReadingSidecar.cjs</li><li>ecosystem.config.cjs</li><li>frontend\script.js</li><li>package.json</li><li>plugin-manifest.json</li><li>README.md</li><li>scripts\windows-autostart.ps1</li></ul>
+  </section>
+</main>
+</body>
+</html>
