@@ -141,7 +141,8 @@ const ALLOWED_COMMANDS = new Set([
   "illustration_list",
   "illustration_get",
   "illustration_update",
-  "illustration_suggest"
+  "illustration_suggest",
+  "reading_find_weread_context"
 ]);
 
 const CONTENT_TYPES = {

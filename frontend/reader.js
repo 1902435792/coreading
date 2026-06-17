@@ -10,7 +10,8 @@ const AUTO_PREREAD_DEBOUNCE_MS = 3000;
 const FLOW_BATCH_SIZE = 3;
 const LOAD_MORE_MARGIN = 1600;
 const TEST_BOOK_RE = /(^codex-|codex\s|smoke|验证|return-shape|sidecar-chunk)/i;
-const FRONT_MATTER_RE = /^(cover|封面|封底|扉页|版权|题献|目录|插图目录|更新记录)$/i;
+const FRONT_MATTER_RE =
+  /^(cover|封面|封底|扉页|版权|题献|目录|插图目录|更新记录)$/i;
 
 const state = {
   snapshot: null,
@@ -19,47 +20,47 @@ const state = {
   bookTitle: "",
   chunks: [],
   anchorIndex: 0,
-  loadedTo: 0,            // chunks[anchorIndex .. loadedTo) 已渲染
+  loadedTo: 0, // chunks[anchorIndex .. loadedTo) 已渲染
   flowLoading: false,
   flowLoadPromise: null,
   flowRequestId: 0,
   activeChunkId: "",
   preReadHistory: [],
-  sessionPreReads: [],    // 本会话自动预读结果（/api/nova/ask 不产生 agentRun，快照里没有）
+  sessionPreReads: [], // 本会话自动预读结果（/api/nova/ask 不产生 agentRun，快照里没有）
   autoPreReadTimer: 0,
-  autoPreReadInFlight: false,   // 全局同时只允许一个在飞自动预读
-  autoPreReadTried: new Set(),  // `${bookId}:${chunkId}`：本会话已真正发过一次（成败都不再试）
+  autoPreReadInFlight: false, // 全局同时只允许一个在飞自动预读
+  autoPreReadTried: new Set(), // `${bookId}:${chunkId}`：本会话已真正发过一次（成败都不再试）
   novaActiveHistoryId: "",
   novaPending: false,
-  novaReply: null,        // { meta, text, chunkId }
-  selection: null,        // { text, chunkId, rect }
+  novaReply: null, // { meta, text, chunkId }
+  selection: null, // { text, chunkId, rect }
   trailPending: false,
-  sessionReplies: [],     // 本次会话 Nova 回复: { id, bookId, chunkId, text }
-  annotations: [],        // 评注模型: { id, speaker, role, text, quote, chunkId, source, sourceId }
+  sessionReplies: [], // 本次会话 Nova 回复: { id, bookId, chunkId, text }
+  annotations: [], // 评注模型: { id, speaker, role, text, quote, chunkId, source, sourceId }
   chunkTextCache: new Map(),
-  myNotes: new Map(),     // `${bookId}:${chunkId}` -> 已存笔记/边注的评注条目（懒加载缓存）
+  myNotes: new Map(), // `${bookId}:${chunkId}` -> 已存笔记/边注的评注条目（懒加载缓存）
   myNotesPending: new Set(),
-  noteDraft: null,        // { quote, chunkId }
+  noteDraft: null, // { quote, chunkId }
   noteSaving: false,
-  sinkDraft: null,        // 沉淀目标弹层的待沉淀内容
+  sinkDraft: null, // 沉淀目标弹层的待沉淀内容
   sinkCreating: false,
-  companions: new Map(),        // `${bookId}:${chunkId}` -> 书友评论数组（GET 结果缓存）
+  companions: new Map(), // `${bookId}:${chunkId}` -> 书友评论数组（GET 结果缓存）
   companionsPending: new Map(), // key -> 在飞 GET Promise
-  companionTried: new Set(),    // key：本会话已自动生成过一次（成败都不再试）
-  companionSeen: new Set(),     // key：chunk 已首次进入过视口
-  companionConfigured: null,    // null=未知；false 时开关置灰、不自动生成
+  companionTried: new Set(), // key：本会话已自动生成过一次（成败都不再试）
+  companionSeen: new Set(), // key：chunk 已首次进入过视口
+  companionConfigured: null, // null=未知；false 时开关置灰、不自动生成
   companionQueue: Promise.resolve(), // 自动生成按序串行，避免撞后端同书在飞锁
   find: { open: false, query: "", hits: [], active: -1, capped: false }, // hits: { paragraph, start, end } 文档序
   findInputTimer: 0,
   bookmarkFeedbackTimer: 0,
   novaOpenBeforeImmersive: false, // 进沉浸时 Nova 是否开着：退出时恢复原状
-  plan: null,             // 当前书 active 计划缓存: { planId, title, status, stepCount, doneCount, nextStep, hydrated }
+  plan: null, // 当前书 active 计划缓存: { planId, title, status, stepCount, doneCount, nextStep, hydrated }
   planOpen: false,
   planBusy: false,
   skillOpen: false,
   skillPending: new Set(), // 在飞技能卡: preread / scout / trail / review / plan
-  customFonts: [],        // 已注册导入字体: { name, family, size }（数据在 IndexedDB）
-  settingsReturn: "",     // 设置页来路：bookId = 从阅读页进入，"" = 从书架进入
+  customFonts: [], // 已注册导入字体: { name, family, size }（数据在 IndexedDB）
+  settingsReturn: "", // 设置页来路：bookId = 从阅读页进入，"" = 从书架进入
   lastScrollY: 0,
   savePositionTimer: 0,
 };
@@ -96,12 +97,18 @@ async function askNovaApi(payload) {
   try {
     return await api("/api/nova/ask", {
       method: "POST",
-      body: JSON.stringify({ ...payload, maxAttempts: 1, clientTimeoutMs: NOVA_TIMEOUT_MS }),
+      body: JSON.stringify({
+        ...payload,
+        maxAttempts: 1,
+        clientTimeoutMs: NOVA_TIMEOUT_MS,
+      }),
       signal: controller.signal,
     });
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error(`Nova 请求超过 ${Math.round(NOVA_TIMEOUT_MS / 1000)} 秒仍未返回。`);
+      throw new Error(
+        `Nova 请求超过 ${Math.round(NOVA_TIMEOUT_MS / 1000)} 秒仍未返回。`
+      );
     }
     throw error;
   } finally {
@@ -112,7 +119,9 @@ async function askNovaApi(payload) {
 /* ---------- 小工具 ---------- */
 
 function compactText(value, maxChars = 520) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
   return text.length > maxChars ? `${text.slice(0, maxChars)}...` : text;
 }
 
@@ -124,8 +133,10 @@ function looksLikeEmptySseNovaText(value) {
     .replace(/\[DONE\]/gu, "")
     .trim();
   if (naturalText.length > 24) return false;
-  return /"object"\s*:\s*"chat\.completion\.chunk"/u.test(text)
-    && /"choices"\s*:\s*\[\s*\]/u.test(text);
+  return (
+    /"object"\s*:\s*"chat\.completion\.chunk"/u.test(text) &&
+    /"choices"\s*:\s*\[\s*\]/u.test(text)
+  );
 }
 
 function getChunkId(chunk) {
@@ -137,7 +148,9 @@ function chunkById(chunkId) {
 }
 
 function chunkOrder(chunkId) {
-  const index = state.chunks.findIndex((chunk) => getChunkId(chunk) === chunkId);
+  const index = state.chunks.findIndex(
+    (chunk) => getChunkId(chunk) === chunkId
+  );
   return index >= 0 ? index : null;
 }
 
@@ -179,26 +192,40 @@ const SETTING_DEFAULTS = {
   margin: "normal",
 };
 const SETTING_RANGE_DEFAULTS = { fontPx: 18, lineH: 1.95, measureEm: 38 };
-const SETTING_RANGE_BOUNDS = { fontPx: [14, 22], lineH: [1.5, 2.4], measureEm: [32, 48] };
+const SETTING_RANGE_BOUNDS = {
+  fontPx: [14, 22],
+  lineH: [1.5, 2.4],
+  measureEm: [32, 48],
+};
 
 function clampRange(field, value) {
   const [min, max] = SETTING_RANGE_BOUNDS[field];
   // Number(null/"") 是 0：损坏值会被钳到下限（14px 字号），按缺省处理而不是钳值。
   const num = value === null || value === "" ? NaN : Number(value);
-  return Number.isFinite(num) ? Math.min(max, Math.max(min, num)) : SETTING_RANGE_DEFAULTS[field];
+  return Number.isFinite(num)
+    ? Math.min(max, Math.max(min, num))
+    : SETTING_RANGE_DEFAULTS[field];
 }
 
 function readSettings() {
   const stored = readJson(SETTINGS_KEY);
   // 非对象（手改/旧版本写坏的字符串、数组）按空设置处理，否则严格模式下写属性会抛错。
-  const saved = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  const saved =
+    stored && typeof stored === "object" && !Array.isArray(stored)
+      ? stored
+      : {};
   // 旧档位迁移：font s/m/l、width 窄/中/宽、line 紧凑/舒朗 → 数值存储（fontPx/measureEm/lineH）。
   if (saved.font || saved.width || saved.line) {
-    if (!Number.isFinite(Number(saved.fontPx))) saved.fontPx = { s: 16, m: 18, l: 20 }[saved.font] || 18;
-    if (!Number.isFinite(Number(saved.measureEm))) saved.measureEm = { narrow: 32, normal: 38, wide: 44 }[saved.width] || 38;
+    if (!Number.isFinite(Number(saved.fontPx)))
+      saved.fontPx = { s: 16, m: 18, l: 20 }[saved.font] || 18;
+    if (!Number.isFinite(Number(saved.measureEm)))
+      saved.measureEm = { narrow: 32, normal: 38, wide: 44 }[saved.width] || 38;
     if (!Number.isFinite(Number(saved.lineH))) {
       // 旧“舒朗”行距随字号变化（1.85/1.95/2.0），迁移时保留这层对应关系。
-      saved.lineH = saved.line === "normal" ? 1.7 : { 16: 1.85, 18: 1.95, 20: 2 }[saved.fontPx] || 1.95;
+      saved.lineH =
+        saved.line === "normal"
+          ? 1.7
+          : { 16: 1.85, 18: 1.95, 20: 2 }[saved.fontPx] || 1.95;
     }
     delete saved.font;
     delete saved.width;
@@ -215,13 +242,25 @@ function applySettings() {
   }
   // 导入字体没法写静态 CSS 选择器，--face-font 直接内联到 body；字体未注册完成前回退衬线栈。
   if (saved.face === "custom" && saved.customFamily) {
-    document.body.style.setProperty("--face-font", `"${saved.customFamily}", var(--serif)`);
+    document.body.style.setProperty(
+      "--face-font",
+      `"${saved.customFamily}", var(--serif)`
+    );
   } else {
     document.body.style.removeProperty("--face-font");
   }
-  document.body.style.setProperty("--font-size", `${clampRange("fontPx", saved.fontPx)}px`);
-  document.body.style.setProperty("--line", String(clampRange("lineH", saved.lineH)));
-  document.body.style.setProperty("--measure", `${clampRange("measureEm", saved.measureEm)}em`);
+  document.body.style.setProperty(
+    "--font-size",
+    `${clampRange("fontPx", saved.fontPx)}px`
+  );
+  document.body.style.setProperty(
+    "--line",
+    String(clampRange("lineH", saved.lineH))
+  );
+  document.body.style.setProperty(
+    "--measure",
+    `${clampRange("measureEm", saved.measureEm)}em`
+  );
   syncSettingControls();
 }
 
@@ -259,7 +298,10 @@ function applySettingChange(field, value) {
 
 function settingCurrentValue(field, saved) {
   if (field === "autoPreRead") return autoPreReadOn() ? "on" : "off";
-  if (field === "face") return saved.face === "custom" ? `custom:${saved.customName}` : (saved.face || "serif");
+  if (field === "face")
+    return saved.face === "custom"
+      ? `custom:${saved.customName}`
+      : saved.face || "serif";
   return saved[field] || SETTING_DEFAULTS[field] || "";
 }
 
@@ -268,17 +310,25 @@ function syncSettingControls() {
   document.querySelectorAll("[data-setting]").forEach((row) => {
     const current = settingCurrentValue(row.dataset.setting, saved);
     row.querySelectorAll("button[data-value]").forEach((button) => {
-      button.setAttribute("aria-pressed", String(button.dataset.value === current));
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.value === current)
+      );
     });
   });
   document.querySelectorAll("input.setting-range").forEach((input) => {
-    input.value = String(clampRange(input.dataset.field, saved[input.dataset.field]));
+    input.value = String(
+      clampRange(input.dataset.field, saved[input.dataset.field])
+    );
   });
   document.querySelectorAll("[data-range-value]").forEach((label) => {
     const field = label.dataset.rangeValue;
     const value = clampRange(field, saved[field]);
-    label.textContent = field === "fontPx" ? `${value}px`
-      : field === "measureEm" ? `${value}em`
+    label.textContent =
+      field === "fontPx"
+        ? `${value}px`
+        : field === "measureEm"
+        ? `${value}em`
         : value.toFixed(2);
   });
 }
@@ -328,7 +378,8 @@ function openFontDb() {
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error("IndexedDB 打开失败"));
+    request.onerror = () =>
+      reject(request.error || new Error("IndexedDB 打开失败"));
   });
 }
 
@@ -366,7 +417,12 @@ async function loadCustomFontsAtStartup() {
     const family = record.family || customFontFamily(record.name);
     try {
       const face = await registerCustomFontFace(family, record.data);
-      state.customFonts.push({ name: record.name, family, size: Number(record.size || 0), face });
+      state.customFonts.push({
+        name: record.name,
+        family,
+        size: Number(record.size || 0),
+        face,
+      });
     } catch {
       // 单个字体损坏只影响它自己。
     }
@@ -374,7 +430,10 @@ async function loadCustomFontsAtStartup() {
   // 设置里还指着已不存在的导入字体（浏览器清了 IndexedDB 等）：回退衬线，
   // 否则字体行永远没有选中项、--face-font 永远指向加载不出来的 family。
   const saved = readSettings();
-  if (saved.face === "custom" && !state.customFonts.some((item) => item.name === saved.customName)) {
+  if (
+    saved.face === "custom" &&
+    !state.customFonts.some((item) => item.name === saved.customName)
+  ) {
     saved.face = "serif";
     delete saved.customName;
     delete saved.customFamily;
@@ -405,19 +464,27 @@ async function importFontFile(file) {
     const data = await file.arrayBuffer();
     const family = customFontFamily(file.name);
     const face = await registerCustomFontFace(family, data);
-    await fontStoreRun("readwrite", (store) => store.put({
-      name: file.name,
-      family,
-      size: file.size,
-      addedAt: new Date().toISOString(),
-      data,
-    }, file.name));
+    await fontStoreRun("readwrite", (store) =>
+      store.put(
+        {
+          name: file.name,
+          family,
+          size: file.size,
+          addedAt: new Date().toISOString(),
+          data,
+        },
+        file.name
+      )
+    );
     state.customFonts.push({ name: file.name, family, size: file.size, face });
     renderFaceOptions();
     renderDataUsage();
     status.textContent = `已导入「${file.name}」，在上方字体里选用。`;
   } catch (error) {
-    status.textContent = `导入失败：${compactText(error?.message || error, 80)}`;
+    status.textContent = `导入失败：${compactText(
+      error?.message || error,
+      80
+    )}`;
   }
 }
 
@@ -453,7 +520,10 @@ function renderFaceOptions() {
     pick.type = "button";
     pick.className = "text-btn";
     pick.dataset.value = `custom:${font.name}`;
-    pick.textContent = `我的字体·${compactText(font.name.replace(/\.[^.]+$/, ""), 14)}`;
+    pick.textContent = `我的字体·${compactText(
+      font.name.replace(/\.[^.]+$/, ""),
+      14
+    )}`;
     const del = document.createElement("button");
     del.type = "button";
     del.className = "custom-face-del";
@@ -479,7 +549,8 @@ function renderFaceOptions() {
 
 function showSettings() {
   // 记住来路：从阅读页进入时“返回”继续读原书，否则回书架。
-  state.settingsReturn = !$("readView").hidden && state.bookId ? state.bookId : "";
+  state.settingsReturn =
+    !$("readView").hidden && state.bookId ? state.bookId : "";
   if (!$("readView").hidden) savePositionNow();
   window.clearTimeout(state.autoPreReadTimer);
   hideSelTool();
@@ -506,7 +577,10 @@ function closeSettings() {
   $("settingsView").hidden = true;
   const bookId = state.settingsReturn;
   state.settingsReturn = "";
-  if (bookId && (state.snapshot?.books || []).some((book) => book.bookId === bookId)) {
+  if (
+    bookId &&
+    (state.snapshot?.books || []).some((book) => book.bookId === bookId)
+  ) {
     void openBook(bookId);
     return;
   }
@@ -532,7 +606,9 @@ function renderSinkDefaultControls() {
 }
 
 function onSinkDefaultChange(input) {
-  const targets = Array.from(document.querySelectorAll("input.sink-default:checked")).map((item) => item.value);
+  const targets = Array.from(
+    document.querySelectorAll("input.sink-default:checked")
+  ).map((item) => item.value);
   if (!targets.length) {
     input.checked = true; // 至少保留一个默认目标
     $("sinkDefaultStatus").textContent = "至少保留一个默认导出目标。";
@@ -561,17 +637,27 @@ async function renderSettingsHealth() {
   try {
     const health = await api("/api/health");
     setCompanionConfigured(Boolean(health.companionConfigured));
-    const backends = Array.isArray(health.novaBackends) ? health.novaBackends.filter(Boolean).join(" / ") : "";
+    const backends = Array.isArray(health.novaBackends)
+      ? health.novaBackends.filter(Boolean).join(" / ")
+      : "";
     const timeout = Number(health.novaTimeoutMs);
-    $("novaHealthLine").textContent = [
-      backends ? `后端 ${backends}` : "",
-      health.novaAgentName ? `模型代理 ${health.novaAgentName}` : "",
-      timeout ? `单次请求最长 ${Math.round(timeout / 1000)} 秒` : "",
-    ].filter(Boolean).join(" · ") || "服务未返回 Nova 配置。";
-    $("aboutHealth").textContent = `服务正常 · pid ${health.pid} · 已运行 ${Math.round(Number(health.uptimeSeconds || 0) / 60)} 分钟`;
+    $("novaHealthLine").textContent =
+      [
+        backends ? `后端 ${backends}` : "",
+        health.novaAgentName ? `模型代理 ${health.novaAgentName}` : "",
+        timeout ? `单次请求最长 ${Math.round(timeout / 1000)} 秒` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ") || "服务未返回 Nova 配置。";
+    $("aboutHealth").textContent = `服务正常 · pid ${
+      health.pid
+    } · 已运行 ${Math.round(Number(health.uptimeSeconds || 0) / 60)} 分钟`;
   } catch (error) {
     $("novaHealthLine").textContent = "服务状态读取失败。";
-    $("aboutHealth").textContent = `服务异常：${compactText(error.message || error, 60)}`;
+    $("aboutHealth").textContent = `服务异常：${compactText(
+      error.message || error,
+      60
+    )}`;
   }
 }
 
@@ -580,7 +666,8 @@ async function renderSettingsHealth() {
 const DATA_GROUPS = {
   positions: (key) => key.startsWith(`${STORE_PREFIX}position.`),
   bookmarks: (key) => key.startsWith(`${STORE_PREFIX}bookmarks.`),
-  settings: (key) => [SETTINGS_KEY, AUTO_PREREAD_KEY, SINK_TARGETS_KEY].includes(key),
+  settings: (key) =>
+    [SETTINGS_KEY, AUTO_PREREAD_KEY, SINK_TARGETS_KEY].includes(key),
 };
 
 function localUsage(predicate) {
@@ -605,16 +692,26 @@ function renderDataUsage() {
   const positions = localUsage(DATA_GROUPS.positions);
   const bookmarks = localUsage(DATA_GROUPS.bookmarks);
   const settings = localUsage(DATA_GROUPS.settings);
-  const fontBytes = state.customFonts.reduce((sum, font) => sum + Number(font.size || 0), 0);
-  $("usagePositions").textContent = `${positions.count} 本 · ${formatBytes(positions.bytes)}`;
-  $("usageBookmarks").textContent = `${bookmarks.count} 本 · ${formatBytes(bookmarks.bytes)}`;
+  const fontBytes = state.customFonts.reduce(
+    (sum, font) => sum + Number(font.size || 0),
+    0
+  );
+  $("usagePositions").textContent = `${positions.count} 本 · ${formatBytes(
+    positions.bytes
+  )}`;
+  $("usageBookmarks").textContent = `${bookmarks.count} 本 · ${formatBytes(
+    bookmarks.bytes
+  )}`;
   $("usageSettings").textContent = formatBytes(settings.bytes);
-  $("usageFonts").textContent = `${state.customFonts.length} 个 · ${formatBytes(fontBytes)}`;
+  $("usageFonts").textContent = `${state.customFonts.length} 个 · ${formatBytes(
+    fontBytes
+  )}`;
 }
 
 function removeLocalKeys(predicate) {
   const keys = [];
-  for (let i = 0; i < localStorage.length; i += 1) keys.push(localStorage.key(i));
+  for (let i = 0; i < localStorage.length; i += 1)
+    keys.push(localStorage.key(i));
   for (const key of keys) {
     if (predicate(key)) localStorage.removeItem(key);
   }
@@ -670,7 +767,10 @@ function setupClearButton(id, action) {
       await action();
       $("dataStatus").textContent = "已清除。";
     } catch (error) {
-      $("dataStatus").textContent = `清除失败：${compactText(error.message || error, 60)}`;
+      $("dataStatus").textContent = `清除失败：${compactText(
+        error.message || error,
+        60
+      )}`;
     } finally {
       button.disabled = false;
       button.classList.remove("danger");
@@ -684,16 +784,21 @@ function setupClearButton(id, action) {
 
 function visibleBooks() {
   return (state.snapshot?.books || []).filter((book) => {
-    const text = [book.bookId, book.title, book.author].filter(Boolean).join(" ");
+    const text = [book.bookId, book.title, book.author]
+      .filter(Boolean)
+      .join(" ");
     return !TEST_BOOK_RE.test(text);
   });
 }
 
 function bookProgressPercent(book) {
   const saved = readJson(POSITION_KEY(book.bookId));
-  if (saved && Number.isFinite(Number(saved.percent))) return Math.round(Number(saved.percent));
+  if (saved && Number.isFinite(Number(saved.percent)))
+    return Math.round(Number(saved.percent));
   if (!book.chunkCount) return 0;
-  return Math.round((Number(book.chunksRead || 0) / Number(book.chunkCount)) * 100);
+  return Math.round(
+    (Number(book.chunksRead || 0) / Number(book.chunkCount)) * 100
+  );
 }
 
 function hashCode(text) {
@@ -720,16 +825,25 @@ function coverGlyph(title) {
   if (!text) return "书";
   if (/[一-鿿]/.test(text[0])) return text.slice(0, 2);
   const words = text.split(/[\s_-]+/).filter(Boolean);
-  return words.slice(0, 2).map((word) => word[0].toUpperCase()).join("");
+  return words
+    .slice(0, 2)
+    .map((word) => word[0].toUpperCase())
+    .join("");
 }
 
 function renderShelf() {
   const list = $("bookList");
   list.textContent = "";
-  const books = visibleBooks().slice().sort((a, b) => {
-    return String(b.lastReadAt || "").localeCompare(String(a.lastReadAt || ""));
-  });
-  $("shelfStatus").textContent = books.length ? "" : "书库还是空的，先扫描本地书库导入一本。";
+  const books = visibleBooks()
+    .slice()
+    .sort((a, b) => {
+      return String(b.lastReadAt || "").localeCompare(
+        String(a.lastReadAt || "")
+      );
+    });
+  $("shelfStatus").textContent = books.length
+    ? ""
+    : "书库还是空的，先扫描本地书库导入一本。";
   for (const book of books) {
     const item = document.createElement("li");
     item.className = "book-card";
@@ -751,7 +865,9 @@ function renderShelf() {
     title.textContent = book.title || book.bookId;
     const meta = document.createElement("p");
     meta.className = "book-meta";
-    meta.textContent = [book.author, `${book.chunkCount || 0} 段`].filter(Boolean).join(" · ");
+    meta.textContent = [book.author, `${book.chunkCount || 0} 段`]
+      .filter(Boolean)
+      .join(" · ");
     item.append(cover, title, meta);
     item.addEventListener("click", () => openBook(book.bookId));
     list.append(item);
@@ -827,7 +943,11 @@ async function importLocalBook(book, button) {
     await loadSnapshot();
     renderShelf();
     button.textContent = "已导入";
-    const bookId = imported?.bookId || imported?.data?.bookId || imported?.book?.bookId || "";
+    const bookId =
+      imported?.bookId ||
+      imported?.data?.bookId ||
+      imported?.book?.bookId ||
+      "";
     if (bookId) await openBook(bookId);
   } catch (error) {
     button.disabled = false;
@@ -872,14 +992,19 @@ function showReadView() {
 function preferredAnchorIndex() {
   const index = state.chunks.findIndex((chunk) => {
     const title = sectionLabel(chunk);
-    const size = Math.max(Number(chunk.charCount || 0), Number(chunk.wordCount || 0));
+    const size = Math.max(
+      Number(chunk.charCount || 0),
+      Number(chunk.wordCount || 0)
+    );
     return !FRONT_MATTER_RE.test(title) && size >= 600;
   });
   return index >= 0 ? index : 0;
 }
 
 async function openBook(bookId, targetChunkId = "") {
-  const book = (state.snapshot?.books || []).find((item) => item.bookId === bookId);
+  const book = (state.snapshot?.books || []).find(
+    (item) => item.bookId === bookId
+  );
   if (!book) return false;
   window.clearTimeout(state.savePositionTimer);
   closeFindBar(); // 查找状态不跨书：旧命中引用的段落 DOM 即将被清掉
@@ -906,11 +1031,19 @@ async function openBook(bookId, targetChunkId = "") {
   }
   const saved = readJson(POSITION_KEY(bookId));
   rebuildAnnotations();
-  const anchorId = targetChunkId
-    || (saved?.chunkId && chunkOrder(saved.chunkId) !== null ? saved.chunkId : "")
-    || (book.lastChunkId && chunkOrder(book.lastChunkId) !== null ? book.lastChunkId : "");
+  const anchorId =
+    targetChunkId ||
+    (saved?.chunkId && chunkOrder(saved.chunkId) !== null
+      ? saved.chunkId
+      : "") ||
+    (book.lastChunkId && chunkOrder(book.lastChunkId) !== null
+      ? book.lastChunkId
+      : "");
   await anchorFlowAt(anchorId ? chunkOrder(anchorId) : preferredAnchorIndex(), {
-    restoreOffset: !targetChunkId && saved?.chunkId === anchorId ? Number(saved.offset || 0) : 0,
+    restoreOffset:
+      !targetChunkId && saved?.chunkId === anchorId
+        ? Number(saved.offset || 0)
+        : 0,
   });
   renderToc();
   renderNovaHistory();
@@ -962,25 +1095,35 @@ async function loadMoreChunks(requestId = state.flowRequestId) {
   }
   if (outcome.stale || requestId !== state.flowRequestId) return;
   // 首屏不足一屏时继续补载，否则滚动事件永远不会触发；整批失败时停下，避免连环空请求。
-  if (outcome.failedCount < outcome.batchSize
-    && state.loadedTo < state.chunks.length
-    && document.documentElement.scrollHeight < window.innerHeight + 400) {
+  if (
+    outcome.failedCount < outcome.batchSize &&
+    state.loadedTo < state.chunks.length &&
+    document.documentElement.scrollHeight < window.innerHeight + 400
+  ) {
     await loadMoreChunks(requestId);
   }
 }
 
 async function loadChunkBatch(requestId) {
   const bookId = state.bookId;
-  const batch = state.chunks.slice(state.loadedTo, state.loadedTo + FLOW_BATCH_SIZE);
-  const loaded = await Promise.all(batch.map(async (chunk) => {
-    const chunkId = getChunkId(chunk);
-    try {
-      const result = await query({ command: "read_chunk", bookId, chunkId });
-      return { chunk, text: String(result?.text || result?.chunk?.text || "") };
-    } catch {
-      return { chunk, text: "", failed: true };
-    }
-  }));
+  const batch = state.chunks.slice(
+    state.loadedTo,
+    state.loadedTo + FLOW_BATCH_SIZE
+  );
+  const loaded = await Promise.all(
+    batch.map(async (chunk) => {
+      const chunkId = getChunkId(chunk);
+      try {
+        const result = await query({ command: "read_chunk", bookId, chunkId });
+        return {
+          chunk,
+          text: String(result?.text || result?.chunk?.text || ""),
+        };
+      } catch {
+        return { chunk, text: "", failed: true };
+      }
+    })
+  );
   if (requestId !== state.flowRequestId || bookId !== state.bookId) {
     return { stale: true, failedCount: 0, batchSize: batch.length };
   }
@@ -991,7 +1134,9 @@ async function loadChunkBatch(requestId) {
   const failedCount = loaded.filter((item) => item.failed).length;
   $("flowStatus").textContent = failedCount
     ? `有 ${failedCount} 段加载失败，继续滚动会接着读后面的内容。`
-    : state.loadedTo >= state.chunks.length ? "· 全书完 ·" : "";
+    : state.loadedTo >= state.chunks.length
+    ? "· 全书完 ·"
+    : "";
   return { stale: false, failedCount, batchSize: batch.length };
 }
 
@@ -1019,10 +1164,16 @@ function appendFlowChunk(chunk, text) {
   const chunkId = getChunkId(chunk);
   const section = document.createElement("section");
   section.className = "flow-chunk flow-enter";
-  section.addEventListener("animationend", () => section.classList.remove("flow-enter"), { once: true });
+  section.addEventListener(
+    "animationend",
+    () => section.classList.remove("flow-enter"),
+    { once: true }
+  );
   section.dataset.chunkId = chunkId;
   const previous = $("flow").querySelector(".flow-chunk:last-of-type");
-  const previousLabel = previous ? sectionLabel(chunkById(previous.dataset.chunkId) || {}) : "";
+  const previousLabel = previous
+    ? sectionLabel(chunkById(previous.dataset.chunkId) || {})
+    : "";
   const label = sectionLabel(chunk);
   if (label && label !== previousLabel) {
     const head = document.createElement("header");
@@ -1054,7 +1205,8 @@ function updateTopbarVisibility() {
   const delta = y - state.lastScrollY;
   // 沉浸态顶栏初始隐藏：只有上滚（或鼠标到顶部边缘）才出现，接近页顶不再常驻。
   if (y > 80 && delta > 6) $("topbar").classList.add("hidden");
-  else if (delta < -6 || (y <= 80 && !immersiveOn())) $("topbar").classList.remove("hidden");
+  else if (delta < -6 || (y <= 80 && !immersiveOn()))
+    $("topbar").classList.remove("hidden");
   state.lastScrollY = y;
 }
 
@@ -1071,7 +1223,10 @@ function activeSection() {
 }
 
 function renderProgressLine(percent) {
-  $("topbarProgressLine").style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  $("topbarProgressLine").style.width = `${Math.max(
+    0,
+    Math.min(100, percent)
+  )}%`;
 }
 
 function updateActiveChunk() {
@@ -1082,9 +1237,10 @@ function updateActiveChunk() {
   // 阅读推进到新 chunk：重置自动预读去抖计时（快速滚动时不连发）。
   if (state.activeChunkId !== previousChunkId) scheduleAutoPreRead();
   const order = chunkOrder(state.activeChunkId);
-  const percent = order === null || !state.chunks.length
-    ? 0
-    : Math.round(((order + 1) / state.chunks.length) * 100);
+  const percent =
+    order === null || !state.chunks.length
+      ? 0
+      : Math.round(((order + 1) / state.chunks.length) * 100);
   $("topbarProgress").textContent = `${percent}%`;
   renderProgressLine(percent);
   schedulePositionSave(section, percent);
@@ -1111,7 +1267,10 @@ function savePositionNow() {
   writeJson(POSITION_KEY(state.bookId), {
     chunkId: section.dataset.chunkId,
     offset: Math.max(0, window.scrollY - section.offsetTop + 64),
-    percent: order === null ? 0 : Math.round(((order + 1) / state.chunks.length) * 100),
+    percent:
+      order === null
+        ? 0
+        : Math.round(((order + 1) / state.chunks.length) * 100),
     savedAt: new Date().toISOString(),
   });
 }
@@ -1120,7 +1279,8 @@ function onScroll() {
   if ($("readView").hidden) return;
   updateTopbarVisibility();
   updateActiveChunk();
-  const bottomGap = document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
+  const bottomGap =
+    document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
   if (bottomGap < LOAD_MORE_MARGIN) loadMoreChunks();
 }
 
@@ -1132,7 +1292,11 @@ function tocSections() {
   state.chunks.forEach((chunk, index) => {
     const key = `${chunk.sectionIndex ?? sectionLabel(chunk)}`;
     if (key !== lastKey) {
-      sections.push({ label: sectionLabel(chunk), chunkId: getChunkId(chunk), index });
+      sections.push({
+        label: sectionLabel(chunk),
+        chunkId: getChunkId(chunk),
+        index,
+      });
       lastKey = key;
     }
   });
@@ -1150,7 +1314,10 @@ function appendTocLabel(button, label, query) {
   const mark = document.createElement("mark");
   mark.className = "toc-match";
   mark.textContent = label.slice(index, index + query.length);
-  button.append(mark, document.createTextNode(label.slice(index + query.length)));
+  button.append(
+    mark,
+    document.createTextNode(label.slice(index + query.length))
+  );
 }
 
 function renderToc() {
@@ -1161,7 +1328,12 @@ function renderToc() {
   let shown = 0;
   tocSections().forEach((section, sectionNumber) => {
     // 按章节标题或序号（第几节）过滤。
-    if (query && !section.label.toLowerCase().includes(query) && String(sectionNumber + 1) !== query) return;
+    if (
+      query &&
+      !section.label.toLowerCase().includes(query) &&
+      String(sectionNumber + 1) !== query
+    )
+      return;
     shown += 1;
     const item = document.createElement("li");
     const button = document.createElement("button");
@@ -1170,12 +1342,16 @@ function renderToc() {
     appendTocLabel(button, section.label, query);
     let sectionEnd = state.chunks.length - 1;
     for (let i = section.index; i < state.chunks.length; i += 1) {
-      if (`${state.chunks[i].sectionIndex}` !== `${state.chunks[section.index].sectionIndex}`) {
+      if (
+        `${state.chunks[i].sectionIndex}` !==
+        `${state.chunks[section.index].sectionIndex}`
+      ) {
         sectionEnd = i - 1;
         break;
       }
     }
-    if (activeOrder >= section.index && activeOrder <= sectionEnd) button.classList.add("active");
+    if (activeOrder >= section.index && activeOrder <= sectionEnd)
+      button.classList.add("active");
     button.addEventListener("click", () => {
       closeToc();
       jumpToChunk(section.chunkId);
@@ -1208,7 +1384,9 @@ function closeToc() {
 }
 
 async function jumpToChunk(chunkId) {
-  const existing = $("flow").querySelector(`.flow-chunk[data-chunk-id="${CSS.escape(chunkId)}"]`);
+  const existing = $("flow").querySelector(
+    `.flow-chunk[data-chunk-id="${CSS.escape(chunkId)}"]`
+  );
   if (existing) {
     window.scrollTo({ top: existing.offsetTop - 64 });
     updateActiveChunk();
@@ -1222,15 +1400,22 @@ async function jumpToChunk(chunkId) {
 /* ---------- Nova 预读历史 ---------- */
 
 function normalizePreReadItem(item = {}) {
-  const result = item.result && typeof item.result === "object" ? item.result : {};
+  const result =
+    item.result && typeof item.result === "object" ? item.result : {};
   const bookId = String(item.bookId || result.bookId || "");
-  const chunkId = String(item.chunkId || result.chunkId || result.chosenChunkId || "");
-  const rawNote = String(item.note || item.text || result.note || result.content || "")
-    .replace(/<!--[\s\S]*?(?:-->|$)/g, "");
+  const chunkId = String(
+    item.chunkId || result.chunkId || result.chosenChunkId || ""
+  );
+  const rawNote = String(
+    item.note || item.text || result.note || result.content || ""
+  ).replace(/<!--[\s\S]*?(?:-->|$)/g, "");
   if (looksLikeEmptySseNovaText(rawNote)) return null;
   const note = compactText(rawNote, 520);
-  if (!bookId || !chunkId || !note || looksLikeEmptySseNovaText(note)) return null;
-  const answeredAt = String(item.answeredAt || item.completedAt || item.updatedAt || "");
+  if (!bookId || !chunkId || !note || looksLikeEmptySseNovaText(note))
+    return null;
+  const answeredAt = String(
+    item.answeredAt || item.completedAt || item.updatedAt || ""
+  );
   return {
     id: String(item.id || item.runId || `nova-pre-${bookId}-${chunkId}`),
     bookId,
@@ -1251,22 +1436,32 @@ function applyNovaAgentRuns(runs) {
 
 function preReadForBook() {
   // 本会话自动预读走 /api/nova/ask，不会出现在快照 agentRuns 里，单独保存后在这里合并。
-  return [...state.sessionPreReads, ...state.preReadHistory]
-    .filter((item) => item.bookId === state.bookId);
+  return [...state.sessionPreReads, ...state.preReadHistory].filter(
+    (item) => item.bookId === state.bookId
+  );
 }
 
 function hasPreReadFor(bookId, chunkId) {
   // 巡读（scope=book）记录的 chunkId 只是 Nova 当时挑中的段，不算这段已被专门预读；
   // 对照旧壳 novaPreReadHistoryForCurrentChunk 的 scope!=="book" 过滤，否则评注层（同样跳过
   // book scope）不显示、新预读又被抑制，这个 chunk 就两头落空。
-  return [...state.sessionPreReads, ...state.preReadHistory]
-    .some((item) => item.scope !== "book" && item.bookId === bookId && item.chunkId === chunkId);
+  return [...state.sessionPreReads, ...state.preReadHistory].some(
+    (item) =>
+      item.scope !== "book" &&
+      item.bookId === bookId &&
+      item.chunkId === chunkId
+  );
 }
 
 function formatHistoryTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function renderNovaHistory() {
@@ -1288,7 +1483,11 @@ function renderNovaHistory() {
     button.className = "nova-history-item";
     if (item.id === state.novaActiveHistoryId) button.classList.add("active");
     // 巡读条目（scope=book）没有 chunkId，标签只剩标题。
-    button.append(document.createTextNode([item.chunkId, item.title].filter(Boolean).join(" · ")));
+    button.append(
+      document.createTextNode(
+        [item.chunkId, item.title].filter(Boolean).join(" · ")
+      )
+    );
     const time = formatHistoryTime(item.answeredAt);
     if (time) {
       const span = document.createElement("span");
@@ -1304,9 +1503,10 @@ function renderNovaHistory() {
 function showPreReadItem(item) {
   state.novaActiveHistoryId = item.id;
   state.novaReply = {
-    meta: item.scope === "book"
-      ? `Nova 巡读 · ${item.title}`
-      : `Nova 预读 · ${item.chunkId} · ${item.title}`,
+    meta:
+      item.scope === "book"
+        ? `Nova 巡读 · ${item.title}`
+        : `Nova 预读 · ${item.chunkId} · ${item.title}`,
     text: item.note,
     bookId: item.bookId,
     bookTitle: state.bookTitle,
@@ -1324,14 +1524,19 @@ function showPreReadItem(item) {
 
 function extractQuoteMatches(text) {
   // 支持中文引号 / 英文双引号 / 反引号 / 直角引号；返回 { quote, start, end }（end 含收尾引号）。
-  const pattern = /“([^“”]{2,200})”|"([^"\n]{2,200})"|`([^`\n]{2,200})`|「([^「」]{2,200})」/g;
+  const pattern =
+    /“([^“”]{2,200})”|"([^"\n]{2,200})"|`([^`\n]{2,200})`|「([^「」]{2,200})」/g;
   const source = String(text || "");
   const matches = [];
   let match;
   while ((match = pattern.exec(source))) {
     const quote = (match[1] || match[2] || match[3] || match[4] || "").trim();
     if (normalizeForMatch(quote).length >= 6) {
-      matches.push({ quote, start: match.index, end: match.index + match[0].length });
+      matches.push({
+        quote,
+        start: match.index,
+        end: match.index + match[0].length,
+      });
     }
   }
   return matches;
@@ -1367,33 +1572,58 @@ function findNormalizedRange(haystack, needle) {
   const hay = buildNormIndex(haystack);
   const index = hay.norm.indexOf(needleNorm);
   if (index < 0) return null;
-  return { start: hay.map[index], end: hay.map[index + needleNorm.length - 1] + 1 };
+  return {
+    start: hay.map[index],
+    end: hay.map[index + needleNorm.length - 1] + 1,
+  };
 }
 
 /* ---------- 评注层：数据模型 ---------- */
 
-function annotationsFromComment({ sourceId, source, chunkId, text, speaker = "Nova", role = "AI 共读", quote = "" }) {
+function annotationsFromComment({
+  sourceId,
+  source,
+  chunkId,
+  text,
+  speaker = "Nova",
+  role = "AI 共读",
+  quote = "",
+}) {
   const base = { speaker, role, text, chunkId, source, sourceId };
   // 书友评论自带服务端逐字校验过的 quote，直接绑句子；其余来源从评论文本里提取引用。
   if (quote) return [{ ...base, id: `${sourceId}#0`, quote }];
   const quotes = extractQuotes(text);
   if (!quotes.length) return [{ ...base, id: `${sourceId}#0`, quote: "" }];
-  return quotes.map((extracted, index) => ({ ...base, id: `${sourceId}#${index}`, quote: extracted }));
+  return quotes.map((extracted, index) => ({
+    ...base,
+    id: `${sourceId}#${index}`,
+    quote: extracted,
+  }));
 }
 
 function rebuildAnnotations() {
   const items = [];
   for (const item of preReadForBook()) {
     if (item.scope === "book") continue;
-    items.push(...annotationsFromComment({
-      sourceId: item.id, source: "nova-preread", chunkId: item.chunkId, text: item.note,
-    }));
+    items.push(
+      ...annotationsFromComment({
+        sourceId: item.id,
+        source: "nova-preread",
+        chunkId: item.chunkId,
+        text: item.note,
+      })
+    );
   }
   for (const reply of state.sessionReplies) {
     if (reply.bookId !== state.bookId) continue;
-    items.push(...annotationsFromComment({
-      sourceId: reply.id, source: "nova-reply", chunkId: reply.chunkId, text: reply.text,
-    }));
+    items.push(
+      ...annotationsFromComment({
+        sourceId: reply.id,
+        source: "nova-reply",
+        chunkId: reply.chunkId,
+        text: reply.text,
+      })
+    );
   }
   for (const entries of state.myNotes.values()) {
     for (const entry of entries) {
@@ -1403,15 +1633,17 @@ function rebuildAnnotations() {
   for (const comments of state.companions.values()) {
     for (const comment of comments) {
       if (comment.bookId !== state.bookId) continue;
-      items.push(...annotationsFromComment({
-        sourceId: comment.id,
-        source: "persona",
-        chunkId: comment.chunkId,
-        text: comment.text,
-        speaker: comment.name,
-        role: comment.role, // 服务端已强制 "AI 演绎 · 身份"
-        quote: comment.quote,
-      }));
+      items.push(
+        ...annotationsFromComment({
+          sourceId: comment.id,
+          source: "persona",
+          chunkId: comment.chunkId,
+          text: comment.text,
+          speaker: comment.name,
+          role: comment.role, // 服务端已强制 "AI 演绎 · 身份"
+          quote: comment.quote,
+        })
+      );
     }
   }
   state.annotations = items;
@@ -1423,10 +1655,24 @@ function annotationsForChunk(chunkId) {
 
 function uniqueComments(annotations) {
   const seen = new Set();
-  return annotations.filter((ann) => !seen.has(ann.sourceId) && seen.add(ann.sourceId));
+  return annotations.filter(
+    (ann) => !seen.has(ann.sourceId) && seen.add(ann.sourceId)
+  );
 }
 
 /* ---------- 评注层：正文虚线 / 段落气泡 / 高亮 ---------- */
+
+function normalizeAnnotationStyle(style) {
+  const value = String(style || "");
+  return value === "highlight" || value === "wavy" ? value : "underline";
+}
+
+function annotationStyleFromTags(tags) {
+  const values = Array.isArray(tags) ? tags : [];
+  if (values.includes("annot-style-wavy")) return "wavy";
+  if (values.includes("annot-style-highlight")) return "highlight";
+  return "underline";
+}
 
 function underlineRangesFor(paragraph) {
   const chunkId = paragraph.closest(".flow-chunk")?.dataset.chunkId || "";
@@ -1435,7 +1681,8 @@ function underlineRangesFor(paragraph) {
   for (const ann of annotationsForChunk(chunkId)) {
     if (!ann.quote) continue;
     const range = findNormalizedRange(text, ann.quote);
-    if (range) ranges.push({ ...range, annId: ann.id });
+    if (range)
+      ranges.push({ ...range, annId: ann.id, style: ann.style || "underline" });
   }
   return ranges;
 }
@@ -1445,21 +1692,42 @@ function renderParagraph(paragraph, ranges, flashRange = null) {
   // 书内查找高亮走同一套切片：内部读全局 find 状态，任何重渲染路径都不破坏查找标记。
   const text = paragraph.textContent;
   const findRanges = findRangesFor(paragraph);
-  if (!ranges.length && !flashRange && !findRanges.length
-    && !paragraph.querySelector(".annot-underline, .quote-flash, .find-mark")) return;
+  if (
+    !ranges.length &&
+    !flashRange &&
+    !findRanges.length &&
+    !paragraph.querySelector(".annot-mark, .quote-flash, .find-mark")
+  )
+    return;
   const points = new Set([0, text.length]);
-  for (const range of ranges) { points.add(range.start); points.add(range.end); }
-  for (const range of findRanges) { points.add(range.start); points.add(range.end); }
-  if (flashRange) { points.add(flashRange.start); points.add(flashRange.end); }
-  const sorted = [...points].filter((p) => p >= 0 && p <= text.length).sort((a, b) => a - b);
+  for (const range of ranges) {
+    points.add(range.start);
+    points.add(range.end);
+  }
+  for (const range of findRanges) {
+    points.add(range.start);
+    points.add(range.end);
+  }
+  if (flashRange) {
+    points.add(flashRange.start);
+    points.add(flashRange.end);
+  }
+  const sorted = [...points]
+    .filter((p) => p >= 0 && p <= text.length)
+    .sort((a, b) => a - b);
   const activeHit = state.find.hits[state.find.active] || null;
   const nodes = [];
   for (let i = 0; i < sorted.length - 1; i += 1) {
     const [a, b] = [sorted[i], sorted[i + 1]];
     const piece = text.slice(a, b);
-    const covering = ranges.filter((range) => range.start <= a && b <= range.end);
-    const inFlash = Boolean(flashRange && flashRange.start <= a && b <= flashRange.end);
-    const inFind = findRanges.find((range) => range.start <= a && b <= range.end) || null;
+    const covering = ranges.filter(
+      (range) => range.start <= a && b <= range.end
+    );
+    const inFlash = Boolean(
+      flashRange && flashRange.start <= a && b <= flashRange.end
+    );
+    const inFind =
+      findRanges.find((range) => range.start <= a && b <= range.end) || null;
     if (!covering.length && !inFlash && !inFind) {
       nodes.push(document.createTextNode(piece));
       continue;
@@ -1469,12 +1737,21 @@ function renderParagraph(paragraph, ranges, flashRange = null) {
     if (inFind) {
       el.classList.add("find-mark");
       // 同一命中可能被评注边界切成多片，按命中区间起点识别当前命中，各片都加深。
-      if (activeHit && activeHit.paragraph === paragraph && activeHit.start === inFind.start) {
+      if (
+        activeHit &&
+        activeHit.paragraph === paragraph &&
+        activeHit.start === inFind.start
+      ) {
         el.classList.add("find-active");
       }
     }
     if (covering.length) {
-      el.classList.add("annot-underline");
+      el.classList.add("annot-mark");
+      for (const style of new Set(
+        covering.map((range) => range.style || "underline")
+      )) {
+        el.classList.add(`annot-${style}`);
+      }
       el.dataset.annotIds = covering.map((range) => range.annId).join(",");
     }
     el.textContent = piece;
@@ -1507,14 +1784,20 @@ function decorateSection(section) {
 }
 
 function redecorateChunk(chunkId) {
-  const section = $("flow").querySelector(`.flow-chunk[data-chunk-id="${CSS.escape(chunkId)}"]`);
+  const section = $("flow").querySelector(
+    `.flow-chunk[data-chunk-id="${CSS.escape(chunkId)}"]`
+  );
   if (section) decorateSection(section);
 }
 
 function findQuoteInFlow(quote, preferChunkId = "") {
   const sections = Array.from($("flow").querySelectorAll(".flow-chunk"));
-  const preferred = sections.find((section) => section.dataset.chunkId === preferChunkId);
-  const ordered = preferred ? [preferred, ...sections.filter((s) => s !== preferred)] : sections;
+  const preferred = sections.find(
+    (section) => section.dataset.chunkId === preferChunkId
+  );
+  const ordered = preferred
+    ? [preferred, ...sections.filter((s) => s !== preferred)]
+    : sections;
   for (const section of ordered) {
     for (const paragraph of section.querySelectorAll(":scope > p")) {
       const range = findNormalizedRange(paragraph.textContent, quote);
@@ -1528,10 +1811,16 @@ function flashQuoteAt(paragraph, range) {
   renderParagraph(paragraph, underlineRangesFor(paragraph), range);
   const mark = paragraph.querySelector(".quote-flash");
   if (mark) {
-    const top = mark.getBoundingClientRect().top + window.scrollY - window.innerHeight * 0.35;
+    const top =
+      mark.getBoundingClientRect().top +
+      window.scrollY -
+      window.innerHeight * 0.35;
     window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   }
-  window.setTimeout(() => renderParagraph(paragraph, underlineRangesFor(paragraph)), 2000);
+  window.setTimeout(
+    () => renderParagraph(paragraph, underlineRangesFor(paragraph)),
+    2000
+  );
 }
 
 async function jumpToQuote(quote, chunkId) {
@@ -1550,7 +1839,11 @@ async function jumpToQuote(quote, chunkId) {
 async function chunkRawText(chunkId) {
   const key = `${state.bookId}:${chunkId}`;
   if (state.chunkTextCache.has(key)) return state.chunkTextCache.get(key);
-  const result = await query({ command: "read_chunk", bookId: state.bookId, chunkId });
+  const result = await query({
+    command: "read_chunk",
+    bookId: state.bookId,
+    chunkId,
+  });
   const text = String(result?.text || result?.chunk?.text || "");
   state.chunkTextCache.set(key, text);
   return text;
@@ -1564,7 +1857,9 @@ function closeCommentCard() {
 
 function showAnnotationInNova(ann) {
   if (ann.source === "nova-preread") {
-    const item = [...state.sessionPreReads, ...state.preReadHistory].find((entry) => entry.id === ann.sourceId);
+    const item = [...state.sessionPreReads, ...state.preReadHistory].find(
+      (entry) => entry.id === ann.sourceId
+    );
     if (item) return showPreReadItem(item);
   }
   state.novaReply = {
@@ -1605,9 +1900,10 @@ function openCommentCard(annotations, anchorEl) {
     }
     const role = document.createElement("span");
     role.className = "comment-role";
-    role.textContent = ann.source === "persona"
-      ? String(ann.role || "").replace(/^AI 演绎\s*·\s*/u, "")
-      : ann.role;
+    role.textContent =
+      ann.source === "persona"
+        ? String(ann.role || "").replace(/^AI 演绎\s*·\s*/u, "")
+        : ann.role;
     head.append(role);
     const body = document.createElement("p");
     body.className = "comment-text";
@@ -1631,7 +1927,9 @@ function openCommentCard(annotations, anchorEl) {
     sink.type = "button";
     sink.className = "text-btn comment-open sink-trigger";
     sink.textContent = "导出";
-    sink.addEventListener("click", () => openSinkTargetPop(sinkDraftFromAnnotation(ann), sink));
+    sink.addEventListener("click", () =>
+      openSinkTargetPop(sinkDraftFromAnnotation(ann), sink)
+    );
     actions.append(sink);
     if (ann.source === "mine") {
       // 二段式确认：第一次点变红“确认删除”，再点才真删。
@@ -1673,10 +1971,13 @@ function openCommentCard(annotations, anchorEl) {
   }
   card.classList.remove("sheet");
   const rect = anchorEl.getBoundingClientRect();
-  const left = Math.max(8, Math.min(
-    rect.left + window.scrollX,
-    document.documentElement.clientWidth - card.offsetWidth - 8
-  ));
+  const left = Math.max(
+    8,
+    Math.min(
+      rect.left + window.scrollX,
+      document.documentElement.clientWidth - card.offsetWidth - 8
+    )
+  );
   card.style.left = `${left}px`;
   card.style.top = `${rect.bottom + window.scrollY + 8}px`;
 }
@@ -1700,12 +2001,16 @@ function myAnnotationFromRecord(record, fallbackRole) {
     bookId: String(record?.bookId || state.bookId),
     source: fromNova ? "nova-saved" : "mine",
     sourceId: id,
+    style: normalizeAnnotationStyle(
+      record?.style || annotationStyleFromTags(record?.tags)
+    ),
   };
 }
 
 function ensureChunkNotes(chunkId) {
   const key = `${state.bookId}:${chunkId}`;
-  if (!state.bookId || state.myNotes.has(key) || state.myNotesPending.has(key)) return;
+  if (!state.bookId || state.myNotes.has(key) || state.myNotesPending.has(key))
+    return;
   state.myNotesPending.add(key);
   void loadChunkNotes(state.bookId, chunkId, key);
 }
@@ -1718,15 +2023,24 @@ async function loadChunkNotes(bookId, chunkId, key) {
       query({ command: "list_annotations", bookId, chunkId, author: "claude" }),
     ]);
     entries = [
-      ...(Array.isArray(noteList?.notes) ? noteList.notes : []).map((note) => myAnnotationFromRecord(note, "笔记")),
-      ...(Array.isArray(annotations) ? annotations : []).map((ann) => myAnnotationFromRecord(ann, "边注")),
+      ...(Array.isArray(noteList?.notes) ? noteList.notes : []).map((note) =>
+        myAnnotationFromRecord(note, "笔记")
+      ),
+      ...(Array.isArray(annotations) ? annotations : []).map((ann) =>
+        myAnnotationFromRecord(ann, "边注")
+      ),
     ].filter(Boolean);
   } catch {
     // 拉取失败按空处理，避免对同一 chunk 反复请求。
   } finally {
     // 合并而非覆盖：列表请求在飞时用户可能刚存了一条，直接 set 会把它冲掉。
     const local = state.myNotes.get(key) || [];
-    const merged = [...entries, ...local.filter((item) => !entries.some((entry) => entry.sourceId === item.sourceId))];
+    const merged = [
+      ...entries,
+      ...local.filter(
+        (item) => !entries.some((entry) => entry.sourceId === item.sourceId)
+      ),
+    ];
     state.myNotes.set(key, merged);
     state.myNotesPending.delete(key);
   }
@@ -1774,7 +2088,13 @@ function openNoteCardFromSelection() {
   } else {
     card.classList.remove("sheet");
     const rect = selection.rect || { left: 64, bottom: window.scrollY + 200 };
-    const left = Math.max(8, Math.min(rect.left, document.documentElement.clientWidth - card.offsetWidth - 8));
+    const left = Math.max(
+      8,
+      Math.min(
+        rect.left,
+        document.documentElement.clientWidth - card.offsetWidth - 8
+      )
+    );
     card.style.left = `${left}px`;
     card.style.top = `${rect.bottom + 8}px`;
   }
@@ -1786,9 +2106,39 @@ function setNoteCardBusy(busy) {
   $("noteSaveAnnotBtn").disabled = busy;
 }
 
-async function saveMyNote(kind) {
+async function quoteOffsetForDraft(draft) {
+  try {
+    const raw = await chunkRawText(draft.chunkId);
+    const index = raw.indexOf(draft.quote);
+    return index >= 0 ? index : null;
+  } catch {
+    // offset 可选，拿不到原文就传 null。
+    return null;
+  }
+}
+
+function addSavedAnnotationRecord(record, fallback) {
+  addMyNoteRecord(
+    myAnnotationFromRecord(
+      {
+        id: record.id || `local-${Date.now()}`,
+        bookId: record.bookId || fallback.bookId,
+        chunkId: record.chunkId || fallback.chunkId,
+        quote: record.quote || fallback.quote,
+        note: record.note || fallback.note,
+        kind: record.kind || fallback.kind,
+        tags: record.tags || fallback.tags,
+        style: record.style || fallback.style,
+      },
+      fallback.role
+    )
+  );
+}
+
+async function saveMyNote(kind, style = "underline") {
   const draft = state.noteDraft;
   const text = $("noteCardText").value.trim();
+  const annotStyle = normalizeAnnotationStyle(style);
   // 同步捕获 bookId：保存途中切书时 state.bookId 会变，不能把旧 chunk 的笔记存进新书。
   const bookId = state.bookId;
   if (!draft?.quote || !bookId || state.noteSaving) return;
@@ -1800,48 +2150,47 @@ async function saveMyNote(kind) {
   setNoteCardBusy(true);
   $("noteCardStatus").textContent = "保存中…";
   try {
-    let quoteOffset = null;
-    try {
-      const raw = await chunkRawText(draft.chunkId);
-      const index = raw.indexOf(draft.quote);
-      quoteOffset = index >= 0 ? index : null;
-    } catch {
-      // offset 可选，拿不到原文就传 null。
-    }
     // payload 形状对照旧壳 saveUserNote / saveAnnotation。
-    const payload = kind === "note"
-      ? {
-        command: "user_note_create",
-        bookId,
-        chunkId: draft.chunkId,
-        quote: draft.quote,
-        quoteOffset,
-        note: text,
-        kind: "note",
-        status: "open",
-        tags: ["co-reading", "sidecar", "user-note"],
-      }
-      : {
-        command: "annotate",
-        bookId,
-        chunkId: draft.chunkId,
-        quote: draft.quote,
-        quoteOffset,
-        note: text,
-        kind: "annotation",
-        tags: ["co-reading", "sidecar"],
-      };
+    const styleTag = `annot-style-${annotStyle}`;
+    const payload =
+      kind === "note"
+        ? {
+            command: "user_note_create",
+            bookId,
+            chunkId: draft.chunkId,
+            quote: draft.quote,
+            quoteOffset: await quoteOffsetForDraft(draft),
+            note: text,
+            kind: "note",
+            status: "open",
+            tags: ["co-reading", "sidecar", "user-note", styleTag],
+          }
+        : {
+            command: "annotate",
+            bookId,
+            chunkId: draft.chunkId,
+            quote: draft.quote,
+            quoteOffset: await quoteOffsetForDraft(draft),
+            note: text,
+            kind: "annotation",
+            tags: ["co-reading", "sidecar", styleTag],
+          };
     const result = await query(payload);
     // user_note_create 返回 { note: {...} }；annotate 直接返回 annotation 对象（其 .note 是正文字符串）。
-    const record = result?.note && typeof result.note === "object" ? result.note : (result || {});
-    addMyNoteRecord(myAnnotationFromRecord({
-      id: record.id || `local-${Date.now()}`,
-      bookId: record.bookId || bookId,
-      chunkId: record.chunkId || draft.chunkId,
-      quote: record.quote || draft.quote,
-      note: record.note || text,
-      kind: record.kind || payload.kind,
-    }, kind === "note" ? "笔记" : "边注"));
+    const record =
+      result?.note && typeof result.note === "object"
+        ? result.note
+        : result || {};
+    addSavedAnnotationRecord(record, {
+      bookId,
+      chunkId: draft.chunkId,
+      quote: draft.quote,
+      note: text,
+      kind: payload.kind,
+      tags: payload.tags,
+      style: annotStyle,
+      role: kind === "note" ? "笔记" : "边注",
+    });
     closeNoteCard();
   } catch (error) {
     $("noteCardStatus").textContent = `保存失败：${error.message || error}`;
@@ -1851,12 +2200,72 @@ async function saveMyNote(kind) {
   }
 }
 
+async function saveAnnotationStyleFromSelection(style) {
+  const selection = state.selection;
+  const annotStyle = normalizeAnnotationStyle(style);
+  const label = { highlight: "高亮", underline: "下划线", wavy: "波浪线" }[
+    annotStyle
+  ];
+  const bookId = state.bookId;
+  if (!selection?.text || !bookId || state.noteSaving) return;
+  state.noteSaving = true;
+  const buttons = Array.from(document.querySelectorAll(".sel-style-btn"));
+  const status = $("selToolStatus");
+  buttons.forEach((button) => {
+    button.disabled = true;
+  });
+  status.textContent = `${label}保存中…`;
+  status.hidden = false;
+  try {
+    const draft = { quote: selection.text, chunkId: selection.chunkId };
+    const styleTag = `annot-style-${annotStyle}`;
+    const payload = {
+      command: "annotate",
+      bookId,
+      chunkId: draft.chunkId,
+      quote: draft.quote,
+      quoteOffset: await quoteOffsetForDraft(draft),
+      note: label,
+      kind: "annotation",
+      tags: ["co-reading", "sidecar", styleTag],
+    };
+    const record = (await query(payload)) || {};
+    addSavedAnnotationRecord(record, {
+      bookId,
+      chunkId: draft.chunkId,
+      quote: draft.quote,
+      note: label,
+      kind: "annotation",
+      tags: payload.tags,
+      style: annotStyle,
+      role: "边注",
+    });
+    hideSelTool();
+  } catch (error) {
+    status.textContent = `${label}保存失败：${compactText(
+      error.message || error,
+      60
+    )}，可重试。`;
+    status.hidden = false;
+  } finally {
+    state.noteSaving = false;
+    buttons.forEach((button) => {
+      button.disabled = false;
+    });
+  }
+}
+
 /* ---------- 删除我的笔记/边注（user_note_delete，二段确认） ---------- */
 
 async function deleteMyNote(ann) {
   await query({ command: "user_note_delete", id: ann.sourceId });
   const key = `${ann.bookId}:${ann.chunkId}`;
-  state.myNotes.set(key, (state.myNotes.get(key) || []).filter((entry) => entry.sourceId !== ann.sourceId));
+  state.myNotes.set(
+    key,
+    (state.myNotes.get(key) || []).filter(
+      (entry) => entry.sourceId !== ann.sourceId
+    )
+  );
   rebuildAnnotations();
   redecorateChunk(ann.chunkId);
 }
@@ -1881,9 +2290,11 @@ function setCompanionConfigured(configured) {
 
 function syncCompanionToggle() {
   const disabled = state.companionConfigured === false;
-  $("companionRow").querySelectorAll("button").forEach((button) => {
-    button.disabled = disabled;
-  });
+  $("companionRow")
+    .querySelectorAll("button")
+    .forEach((button) => {
+      button.disabled = disabled;
+    });
   $("companionHint").hidden = !disabled;
 }
 
@@ -1899,16 +2310,28 @@ async function loadCompanionHealth() {
 /* 与 ensureChunkNotes 同一时机：chunk 懒加载进正文流时拉一次缓存评论（展示不受开关影响）。 */
 function ensureChunkCompanions(chunkId) {
   const key = companionKey(state.bookId, chunkId);
-  if (!state.bookId || state.companions.has(key) || state.companionsPending.has(key)) return;
-  state.companionsPending.set(key, loadChunkCompanions(state.bookId, chunkId, key));
+  if (
+    !state.bookId ||
+    state.companions.has(key) ||
+    state.companionsPending.has(key)
+  )
+    return;
+  state.companionsPending.set(
+    key,
+    loadChunkCompanions(state.bookId, chunkId, key)
+  );
 }
 
 async function loadChunkCompanions(bookId, chunkId, key) {
   try {
     const params = new URLSearchParams({ bookId, chunkId });
     const data = await api(`/api/companions?${params}`);
-    if (typeof data.configured === "boolean") setCompanionConfigured(data.configured);
-    state.companions.set(key, Array.isArray(data.comments) ? data.comments : []);
+    if (typeof data.configured === "boolean")
+      setCompanionConfigured(data.configured);
+    state.companions.set(
+      key,
+      Array.isArray(data.comments) ? data.comments : []
+    );
   } catch {
     // 拉取失败按空处理，避免对同一 chunk 反复请求；后端生成端点自身幂等，不会因此重复生成。
     state.companions.set(key, []);
@@ -1924,7 +2347,8 @@ async function loadChunkCompanions(bookId, chunkId, key) {
 
 /* chunk 首次进入视口：开关开 + 接口已配置（或未知）+ 本会话没试过 → 排队自动生成一次。 */
 function maybeAutoGenerateCompanions(chunkId) {
-  if (!state.bookId || !companionsOn() || state.companionConfigured === false) return;
+  if (!state.bookId || !companionsOn() || state.companionConfigured === false)
+    return;
   const key = companionKey(state.bookId, chunkId);
   if (state.companionTried.has(key)) return;
   state.companionTried.add(key);
@@ -1987,18 +2411,31 @@ function setupCompanionObserver() {
 /* ---------- 沉淀：review_create → sink_preview_create → 批准 → 执行 ---------- */
 
 const SINK_TARGETS_KEY = `${STORE_PREFIX}sinkTargets`;
-const SINK_TARGET_LABELS = { obsidian: "Obsidian", dailyNote: "DailyNote", vcpMemory: "VCPMemory" };
-const SINK_STATUS_LABELS = { pending: "待批准", approved: "已批准", exported: "已写入", rejected: "已拒绝" };
+const SINK_TARGET_LABELS = {
+  obsidian: "Obsidian",
+  dailyNote: "DailyNote",
+  vcpMemory: "VCPMemory",
+};
+const SINK_STATUS_LABELS = {
+  pending: "待批准",
+  approved: "已批准",
+  exported: "已写入",
+  rejected: "已拒绝",
+};
 
 function bookSinkPreviews() {
   return (state.snapshot?.sinkPreviews || [])
     .filter((preview) => preview.bookId === state.bookId)
     .slice()
-    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    .sort((a, b) =>
+      String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+    );
 }
 
 function renderSinkBadge() {
-  const pending = bookSinkPreviews().filter((preview) => preview.status === "pending").length;
+  const pending = bookSinkPreviews().filter(
+    (preview) => preview.status === "pending"
+  ).length;
   const badge = $("sinkBadge");
   badge.textContent = String(pending);
   badge.hidden = pending === 0;
@@ -2034,10 +2471,13 @@ function openSinkTargetPop(draft, anchorEl) {
     return;
   }
   pop.classList.remove("sheet");
-  const left = Math.max(8, Math.min(
-    anchorRect.left + window.scrollX,
-    document.documentElement.clientWidth - pop.offsetWidth - 8
-  ));
+  const left = Math.max(
+    8,
+    Math.min(
+      anchorRect.left + window.scrollX,
+      document.documentElement.clientWidth - pop.offsetWidth - 8
+    )
+  );
   pop.style.left = `${left}px`;
   pop.style.top = `${anchorRect.bottom + window.scrollY + 8}px`;
 }
@@ -2045,8 +2485,9 @@ function openSinkTargetPop(draft, anchorEl) {
 async function confirmSinkCreate() {
   const draft = state.sinkDraft;
   if (!draft || state.sinkCreating) return;
-  const targets = Array.from($("sinkTargetPop").querySelectorAll("input[type=checkbox]:checked"))
-    .map((input) => input.value);
+  const targets = Array.from(
+    $("sinkTargetPop").querySelectorAll("input[type=checkbox]:checked")
+  ).map((input) => input.value);
   if (!targets.length) {
     $("sinkTargetStatus").textContent = "至少选一个导出目标。";
     return;
@@ -2074,7 +2515,7 @@ async function createSinkPreview(draft, targets) {
   const bookTitle = draft.bookTitle || state.bookTitle;
   const chunkId = draft.chunkId;
   // 跨书时 chunkById 查的是当前书的同名 chunk，标题会拿错，直接退回 chunkId。
-  const chunk = bookId === state.bookId ? (chunkById(chunkId) || {}) : {};
+  const chunk = bookId === state.bookId ? chunkById(chunkId) || {} : {};
   const sourceQuote = draft.quote || compactText(draft.text, 200);
   const observations = [
     {
@@ -2101,7 +2542,9 @@ async function createSinkPreview(draft, targets) {
     bookId,
     startChunkId: chunkId,
     endChunkId: chunkId,
-    summary: `${draft.sourceLabel || "评论"}导出预览：${bookTitle} · ${chunkId}`,
+    summary: `${
+      draft.sourceLabel || "评论"
+    }导出预览：${bookTitle} · ${chunkId}`,
     observations,
     tags: ["co-reading", "reader-shell", "comment-sink"],
     sinkPolicy: {
@@ -2136,7 +2579,12 @@ function sinkDraftFromAnnotation(ann) {
     bookId: ann.bookId || state.bookId,
     bookTitle: state.bookTitle,
     chunkId: ann.chunkId,
-    sourceLabel: ann.source === "persona" ? "书友评论" : fromNova ? "Nova 评注" : "我的笔记",
+    sourceLabel:
+      ann.source === "persona"
+        ? "书友评论"
+        : fromNova
+        ? "Nova 评注"
+        : "我的笔记",
     section: fromNova ? "nova_reply" : "user_note",
     source: fromNova ? "nova-reply-current" : "user-note",
     kind: fromNova ? "nova-reply" : "note",
@@ -2172,7 +2620,9 @@ function renderSinkList() {
   const list = $("sinkList");
   list.textContent = "";
   const previews = bookSinkPreviews();
-  $("sinkDrawerStatus").textContent = previews.length ? "" : "本书还没有导出预览。";
+  $("sinkDrawerStatus").textContent = previews.length
+    ? ""
+    : "本书还没有导出预览。";
   for (const preview of previews) {
     list.append(buildSinkItem(preview));
   }
@@ -2192,7 +2642,9 @@ function buildSinkItem(preview) {
   head.append(target, status);
   const meta = document.createElement("p");
   meta.className = "sink-item-meta";
-  meta.textContent = [formatHistoryTime(preview.createdAt), preview.reviewId].filter(Boolean).join(" · ");
+  meta.textContent = [formatHistoryTime(preview.createdAt), preview.reviewId]
+    .filter(Boolean)
+    .join(" · ");
   const body = document.createElement("div");
   body.className = "sink-preview-body";
   body.hidden = true;
@@ -2214,12 +2666,18 @@ function buildSinkItem(preview) {
     if (!body.textContent) {
       toggle.disabled = true;
       try {
-        const result = await query({ command: "sink_preview_get", previewId: preview.previewId });
+        const result = await query({
+          command: "sink_preview_get",
+          previewId: preview.previewId,
+        });
         // vcpMemory 的 content 是对象不是字符串，对照旧壳用 JSON 展示，别渲染成 [object Object]。
         const content = result?.preview?.content ?? result?.content;
-        body.textContent = typeof content === "string" && content
-          ? content
-          : content ? JSON.stringify(content, null, 2) : "（没有预览正文）";
+        body.textContent =
+          typeof content === "string" && content
+            ? content
+            : content
+            ? JSON.stringify(content, null, 2)
+            : "（没有预览正文）";
       } catch (error) {
         body.textContent = `预览读取失败：${error.message || error}`;
       } finally {
@@ -2303,7 +2761,8 @@ async function saveNovaReplyAsNote() {
   try {
     // payload 对照旧壳 novaReplyNotePayload：kind 用 nova-reply / nova-pre-read 约定，还原 Nova 署名。
     // 跨书时 chunkById 查的是当前书，标题会拿错，直接退回 chunkId。
-    const quoteTitle = bookId === state.bookId ? chunkTitle(chunkById(reply.chunkId)) : "";
+    const quoteTitle =
+      bookId === state.bookId ? chunkTitle(chunkById(reply.chunkId)) : "";
     const result = await query({
       command: "user_note_create",
       bookId,
@@ -2315,20 +2774,34 @@ async function saveNovaReplyAsNote() {
         reply.prompt ? `问题: ${reply.prompt}` : "",
         "",
         reply.text,
-      ].filter(Boolean).join("\n"),
+      ]
+        .filter(Boolean)
+        .join("\n"),
       kind: isPreRead ? "nova-pre-read" : "nova-reply",
       status: "open",
-      tags: ["co-reading", "sidecar", isPreRead ? "nova-pre-read" : "nova-reply"],
+      tags: [
+        "co-reading",
+        "sidecar",
+        isPreRead ? "nova-pre-read" : "nova-reply",
+      ],
     });
-    const record = result?.note && typeof result.note === "object" ? result.note : (result || {});
-    addMyNoteRecord(myAnnotationFromRecord({
-      id: record.id || `local-${Date.now()}`,
-      bookId: record.bookId || bookId,
-      chunkId: record.chunkId || reply.chunkId,
-      quote: record.quote || "",
-      note: record.note || reply.text,
-      kind: record.kind || (isPreRead ? "nova-pre-read" : "nova-reply"),
-    }, "笔记"));
+    const record =
+      result?.note && typeof result.note === "object"
+        ? result.note
+        : result || {};
+    addMyNoteRecord(
+      myAnnotationFromRecord(
+        {
+          id: record.id || `local-${Date.now()}`,
+          bookId: record.bookId || bookId,
+          chunkId: record.chunkId || reply.chunkId,
+          quote: record.quote || "",
+          note: record.note || reply.text,
+          kind: record.kind || (isPreRead ? "nova-pre-read" : "nova-reply"),
+        },
+        "笔记"
+      )
+    );
     $("novaActionStatus").textContent = "已存为笔记。";
   } catch (error) {
     $("novaActionStatus").textContent = `保存失败：${error.message || error}`;
@@ -2340,17 +2813,20 @@ async function saveNovaReplyAsNote() {
 function sinkFromNovaReply() {
   const reply = state.novaReply;
   if (!reply?.text || !reply.chunkId || !state.bookId) return;
-  openSinkTargetPop({
-    text: reply.text,
-    quote: "",
-    bookId: reply.bookId || state.bookId,
-    bookTitle: reply.bookTitle || state.bookTitle,
-    chunkId: reply.chunkId,
-    sourceLabel: "Nova 回复",
-    section: "nova_reply",
-    source: "nova-reply-current",
-    kind: "nova-reply",
-  }, $("novaSinkBtn"));
+  openSinkTargetPop(
+    {
+      text: reply.text,
+      quote: "",
+      bookId: reply.bookId || state.bookId,
+      bookTitle: reply.bookTitle || state.bookTitle,
+      chunkId: reply.chunkId,
+      sourceLabel: "Nova 回复",
+      section: "nova_reply",
+      source: "nova-reply-current",
+      kind: "nova-reply",
+    },
+    $("novaSinkBtn")
+  );
 }
 
 /* ---------- Nova 提问 ---------- */
@@ -2374,13 +2850,19 @@ function renderNovaReply() {
   const container = $("novaReply");
   container.textContent = "";
   // 巡读回复（scope=book）没有 chunkId 可归属，存笔记/导出动作不展示。
-  $("novaReplyActions").hidden = !(state.novaReply?.text && state.novaReply?.chunkId);
+  $("novaReplyActions").hidden = !(
+    state.novaReply?.text && state.novaReply?.chunkId
+  );
   $("novaActionStatus").textContent = "";
   if (!state.novaReply?.text) {
     container.textContent = "选中正文文字点「问 Nova」，或直接在下面输入问题。";
     return;
   }
-  renderReplyContent(container, state.novaReply.text, state.novaReply.chunkId || "");
+  renderReplyContent(
+    container,
+    state.novaReply.text,
+    state.novaReply.chunkId || ""
+  );
 }
 
 function renderReplyContent(container, text, chunkId) {
@@ -2455,7 +2937,8 @@ function novaContext() {
     text: compactText(text, 6000),
     selection: selection?.text || "",
     selectionOffset: null,
-    instructionBoundary: "只基于当前 chunk、选区和显式传入的上下文回应；不要依赖服务端主题提示词已加载工具占位符。",
+    instructionBoundary:
+      "只基于当前 chunk、选区和显式传入的上下文回应；不要依赖服务端主题提示词已加载工具占位符。",
   };
 }
 
@@ -2494,7 +2977,9 @@ async function sendNovaPrompt() {
     renderNovaHistory();
   } catch (error) {
     // 失败保留 prompt，可直接重试。
-    setNovaStatus(`Nova 暂时连不上：${error.message || error}。问题已保留，可稍后重试。`);
+    setNovaStatus(
+      `Nova 暂时连不上：${error.message || error}。问题已保留，可稍后重试。`
+    );
   } finally {
     state.novaPending = false;
     $("novaSendBtn").disabled = false;
@@ -2537,12 +3022,17 @@ async function runAutoPreRead() {
   if (state.autoPreReadTried.has(key) || hasPreReadFor(bookId, chunkId)) return;
   state.autoPreReadInFlight = true;
   try {
-    const text = renderedChunkText(chunkId) || await chunkRawText(chunkId).catch(() => "");
+    const text =
+      renderedChunkText(chunkId) ||
+      (await chunkRawText(chunkId).catch(() => ""));
     if (!text.trim() || bookId !== state.bookId) return;
     state.autoPreReadTried.add(key); // 即将真正发请求：每 chunk 会话内只试一次（成败都算）
     const context = await buildAutoPreReadContext(bookId, chunkId, text);
     if (bookId !== state.bookId) return; // 取候选期间切书，放弃本次
-    const result = await askNovaApi({ prompt: buildAutoPreReadPrompt(), context });
+    const result = await askNovaApi({
+      prompt: buildAutoPreReadPrompt(),
+      context,
+    });
     recordAutoPreRead(context, result.content || "");
   } catch (error) {
     // 真实环境 Nova 上游经常 35s+ 超时甚至 502：自动预读失败必须完全静默，不打扰阅读。
@@ -2596,7 +3086,11 @@ async function autoPreReadCandidates(chunkId, currentText) {
       }
     }
     if (!text.trim()) continue;
-    candidates.push({ chunkId: id, title: chunkTitle(chunk) || id, text: compactText(text, 1800) });
+    candidates.push({
+      chunkId: id,
+      title: chunkTitle(chunk) || id,
+      text: compactText(text, 1800),
+    });
   }
   return candidates;
 }
@@ -2619,7 +3113,8 @@ async function buildAutoPreReadContext(bookId, chunkId, text) {
     selectionOffset: null,
     tocPreview: novaTocPreview(),
     autonomousCandidates: await autoPreReadCandidates(chunkId, text),
-    instructionBoundary: "Nova 可以在 autonomousCandidates 中自行选择先读哪里；只能评论传入候选段和当前段，不要假装读完整本书。",
+    instructionBoundary:
+      "Nova 可以在 autonomousCandidates 中自行选择先读哪里；只能评论传入候选段和当前段，不要假装读完整本书。",
   };
 }
 
@@ -2641,7 +3136,11 @@ function recordAutoPreRead(context, replyText) {
   rebuildAnnotations();
   redecorateChunk(item.chunkId);
   // 不抢用户的对话：手动请求在飞、面板正显示手动回复、或用户正回看历史/评论时，只进历史列表和评注层。
-  if (!state.novaPending && !state.novaReply?.prompt && !state.novaReply?.pinned) {
+  if (
+    !state.novaPending &&
+    !state.novaReply?.prompt &&
+    !state.novaReply?.pinned
+  ) {
     state.novaActiveHistoryId = item.id;
     state.novaReply = {
       meta: `Nova 自主预读 · ${item.chunkId} · ${item.title}`,
@@ -2673,7 +3172,11 @@ async function executeTrail(clueText, anchorChunkId) {
   const result = await query({
     command: "interest_backtrack",
     bookId,
-    query: String(clueText || "").replace(/\s+/g, " ").trim().slice(0, 120) || undefined,
+    query:
+      String(clueText || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 120) || undefined,
     anchorChunkId,
     before: 2,
     after: 2,
@@ -2699,7 +3202,10 @@ async function trailFromSelection() {
   try {
     if (await executeTrail(selection.text, selection.chunkId)) hideSelTool();
   } catch (error) {
-    status.textContent = `相关段落查找失败：${compactText(error.message || error, 60)}，可点按钮重试。`;
+    status.textContent = `相关段落查找失败：${compactText(
+      error.message || error,
+      60
+    )}，可点按钮重试。`;
     status.hidden = false;
   } finally {
     state.trailPending = false;
@@ -2710,13 +3216,19 @@ async function trailFromSelection() {
 
 function renderTrailResult(result) {
   const evidence = result?.evidence || {};
-  const ranges = Array.isArray(evidence.rangeSummaries) ? evidence.rangeSummaries : [];
-  const anchors = Array.isArray(evidence.anchorSnippets) ? evidence.anchorSnippets : [];
+  const ranges = Array.isArray(evidence.rangeSummaries)
+    ? evidence.rangeSummaries
+    : [];
+  const anchors = Array.isArray(evidence.anchorSnippets)
+    ? evidence.anchorSnippets
+    : [];
   $("trailSummary").textContent = [
     result?.query ? `「${compactText(result.query, 24)}」` : "",
     `${anchors.length} 个锚点 · ${ranges.length} 组范围`,
     ranges.length ? "" : "没有命中范围",
-  ].filter(Boolean).join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const list = $("trailList");
   list.textContent = "";
   for (const range of ranges) {
@@ -2724,7 +3236,11 @@ function renderTrailResult(result) {
     const order = chunkOrder(anchorChunkId);
     const chunk = chunkById(anchorChunkId);
     // 选区锚点（source=anchor）的 snippet 恒为 null，优先挑同范围里带摘录的搜索锚点。
-    const snippet = anchors.find((anchor) => range.anchorChunkIds?.includes(anchor.chunkId) && anchor.snippet)?.snippet || "";
+    const snippet =
+      anchors.find(
+        (anchor) =>
+          range.anchorChunkIds?.includes(anchor.chunkId) && anchor.snippet
+      )?.snippet || "";
     const item = document.createElement("li");
     const row = document.createElement("button");
     row.type = "button";
@@ -2734,7 +3250,9 @@ function renderTrailResult(result) {
     head.textContent = [
       order === null ? anchorChunkId : `第 ${order + 1} 段`,
       chunk ? sectionLabel(chunk) : "",
-    ].filter(Boolean).join(" · ");
+    ]
+      .filter(Boolean)
+      .join(" · ");
     const body = document.createElement("p");
     body.className = "trail-row-snippet";
     body.textContent = compactText(snippet || range.label, 100);
@@ -2787,14 +3305,17 @@ function paragraphsWithFindMarks(into) {
 
 function closeFindBar() {
   if (!state.find.open) return;
-  const marked = paragraphsWithFindMarks(new Set(state.find.hits.map((hit) => hit.paragraph)));
+  const marked = paragraphsWithFindMarks(
+    new Set(state.find.hits.map((hit) => hit.paragraph))
+  );
   state.find = { open: false, query: "", hits: [], active: -1, capped: false };
   $("findBar").hidden = true;
   $("findInput").value = "";
   window.clearTimeout(state.findInputTimer);
   // 状态清空后重渲染原命中段：findRangesFor 已返回空，所有 find-mark 被还原。
   for (const paragraph of marked) {
-    if (paragraph.isConnected) renderParagraph(paragraph, underlineRangesFor(paragraph));
+    if (paragraph.isConnected)
+      renderParagraph(paragraph, underlineRangesFor(paragraph));
   }
 }
 
@@ -2802,7 +3323,8 @@ function defaultFindActive() {
   // 从视口位置就近开始：第一个不在视口上方的命中；都在上方则回到第一个。
   for (let i = 0; i < state.find.hits.length; i += 1) {
     if (!state.find.hits[i].paragraph.isConnected) continue;
-    if (state.find.hits[i].paragraph.getBoundingClientRect().bottom >= 0) return i;
+    if (state.find.hits[i].paragraph.getBoundingClientRect().bottom >= 0)
+      return i;
   }
   return 0;
 }
@@ -2810,14 +3332,18 @@ function defaultFindActive() {
 function runFind({ keepActive = false } = {}) {
   const raw = $("findInput").value;
   const previousActive = state.find.hits[state.find.active] || null;
-  const touched = paragraphsWithFindMarks(new Set(state.find.hits.map((hit) => hit.paragraph)));
+  const touched = paragraphsWithFindMarks(
+    new Set(state.find.hits.map((hit) => hit.paragraph))
+  );
   state.find.query = raw.trim() ? raw : "";
   state.find.hits = [];
   state.find.active = -1;
   state.find.capped = false;
   if (state.find.query) {
     // 命中数上限：单字高频词在长正文流里可能上万次命中，截断保护渲染。
-    scan: for (const paragraph of $("flow").querySelectorAll(".flow-chunk > p")) {
+    scan: for (const paragraph of $("flow").querySelectorAll(
+      ".flow-chunk > p"
+    )) {
       for (const range of findRangesFor(paragraph)) {
         if (state.find.hits.length >= FIND_HITS_MAX) {
           state.find.capped = true;
@@ -2828,14 +3354,20 @@ function runFind({ keepActive = false } = {}) {
     }
   }
   if (state.find.hits.length) {
-    const kept = keepActive && previousActive
-      ? state.find.hits.findIndex((hit) => hit.paragraph === previousActive.paragraph && hit.start === previousActive.start)
-      : -1;
+    const kept =
+      keepActive && previousActive
+        ? state.find.hits.findIndex(
+            (hit) =>
+              hit.paragraph === previousActive.paragraph &&
+              hit.start === previousActive.start
+          )
+        : -1;
     state.find.active = kept >= 0 ? kept : defaultFindActive();
   }
   for (const hit of state.find.hits) touched.add(hit.paragraph);
   for (const paragraph of touched) {
-    if (paragraph.isConnected) renderParagraph(paragraph, underlineRangesFor(paragraph));
+    if (paragraph.isConnected)
+      renderParagraph(paragraph, underlineRangesFor(paragraph));
   }
   renderFindCount();
 }
@@ -2844,9 +3376,15 @@ function renderFindCount() {
   const { query, hits, active, capped } = state.find;
   $("findCount").textContent = !query
     ? ""
-    : hits.length ? `${active + 1}/${hits.length}${capped ? "+" : ""}` : "0/0";
+    : hits.length
+    ? `${active + 1}/${hits.length}${capped ? "+" : ""}`
+    : "0/0";
   // 已加载部分查不到且后文还有：露出“加载更多”继续找。
-  $("findMoreBtn").hidden = !(query && !hits.length && state.loadedTo < state.chunks.length);
+  $("findMoreBtn").hidden = !(
+    query &&
+    !hits.length &&
+    state.loadedTo < state.chunks.length
+  );
 }
 
 function scrollToActiveFindHit() {
@@ -2854,17 +3392,23 @@ function scrollToActiveFindHit() {
   if (!hit || !hit.paragraph.isConnected) return;
   const mark = hit.paragraph.querySelector("mark.find-active");
   if (!mark) return;
-  const top = mark.getBoundingClientRect().top + window.scrollY - window.innerHeight * 0.4;
+  const top =
+    mark.getBoundingClientRect().top +
+    window.scrollY -
+    window.innerHeight * 0.4;
   window.scrollTo({ top: Math.max(0, top) });
 }
 
 function moveFindActive(delta) {
   if (!state.find.hits.length) return;
   const previous = state.find.hits[state.find.active] || null;
-  state.find.active = (state.find.active + delta + state.find.hits.length) % state.find.hits.length;
+  state.find.active =
+    (state.find.active + delta + state.find.hits.length) %
+    state.find.hits.length;
   const current = state.find.hits[state.find.active];
   for (const paragraph of new Set([previous?.paragraph, current.paragraph])) {
-    if (paragraph?.isConnected) renderParagraph(paragraph, underlineRangesFor(paragraph));
+    if (paragraph?.isConnected)
+      renderParagraph(paragraph, underlineRangesFor(paragraph));
   }
   renderFindCount();
   scrollToActiveFindHit();
@@ -2885,7 +3429,14 @@ async function findLoadMore() {
   button.textContent = "查找中…";
   try {
     // 每次最多再加载 10 批：找到命中、读到书尾或被重锚抢占就停，避免无界长跑。
-    for (let i = 0; i < 10 && state.find.open && !state.find.hits.length && state.loadedTo < state.chunks.length; i += 1) {
+    for (
+      let i = 0;
+      i < 10 &&
+      state.find.open &&
+      !state.find.hits.length &&
+      state.loadedTo < state.chunks.length;
+      i += 1
+    ) {
       while (state.flowLoadPromise) await state.flowLoadPromise.catch(() => {});
       const before = state.loadedTo;
       await loadMoreChunks();
@@ -2921,7 +3472,10 @@ function addBookmark() {
     chunkId,
     // 与阅读位置持久化同一套段内偏移公式，恢复走 anchorFlowAt 的 restoreOffset。
     offset: Math.max(0, Math.round(window.scrollY - section.offsetTop + 64)),
-    percent: order === null || !state.chunks.length ? 0 : Math.round(((order + 1) / state.chunks.length) * 100),
+    percent:
+      order === null || !state.chunks.length
+        ? 0
+        : Math.round(((order + 1) / state.chunks.length) * 100),
     createdAt: new Date().toISOString(),
   });
   while (bookmarks.length > BOOKMARKS_MAX) bookmarks.shift();
@@ -2935,7 +3489,10 @@ function addBookmark() {
 }
 
 function deleteBookmark(id) {
-  writeJson(BOOKMARKS_KEY(state.bookId), readBookmarks().filter((item) => item.id !== id));
+  writeJson(
+    BOOKMARKS_KEY(state.bookId),
+    readBookmarks().filter((item) => item.id !== id)
+  );
   renderTocBookmarks();
 }
 
@@ -2943,7 +3500,9 @@ async function openBookmark(bookmark) {
   const order = chunkOrder(bookmark.chunkId);
   if (order === null) return;
   const offset = Math.max(0, Number(bookmark.offset || 0));
-  const existing = $("flow").querySelector(`.flow-chunk[data-chunk-id="${CSS.escape(bookmark.chunkId)}"]`);
+  const existing = $("flow").querySelector(
+    `.flow-chunk[data-chunk-id="${CSS.escape(bookmark.chunkId)}"]`
+  );
   if (existing) {
     window.scrollTo(0, existing.offsetTop + offset - 64);
     updateActiveChunk();
@@ -2969,13 +3528,16 @@ function renderTocBookmarks() {
     open.className = "toc-bookmark-open";
     const title = document.createElement("span");
     title.className = "toc-bookmark-title";
-    title.textContent = sectionLabel(chunkById(bookmark.chunkId) || {}) || bookmark.chunkId;
+    title.textContent =
+      sectionLabel(chunkById(bookmark.chunkId) || {}) || bookmark.chunkId;
     const meta = document.createElement("span");
     meta.className = "toc-bookmark-meta";
     meta.textContent = [
       `${Number(bookmark.percent || 0)}%`,
       formatHistoryTime(bookmark.createdAt),
-    ].filter(Boolean).join(" · ");
+    ]
+      .filter(Boolean)
+      .join(" · ");
     open.append(title, meta);
     open.addEventListener("click", () => {
       closeToc();
@@ -3008,10 +3570,13 @@ function syncFullscreenButton() {
 function enterImmersive() {
   state.novaOpenBeforeImmersive = !$("novaPanel").hidden;
   document.body.classList.add("immersive");
-  closeNova();                          // Nova 侧栏折叠（点 Nova 竖条随时唤回）
-  $("topbar").classList.add("hidden");  // 顶栏初始隐藏：上滚或鼠标到顶部边缘出现
+  closeNova(); // Nova 侧栏折叠（点 Nova 竖条随时唤回）
+  $("topbar").classList.add("hidden"); // 顶栏初始隐藏：上滚或鼠标到顶部边缘出现
   syncFullscreenButton();
-  if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+  if (
+    !document.fullscreenElement &&
+    document.documentElement.requestFullscreen
+  ) {
     // 请求被拒（无手势/受限环境）时仍保留 immersive class，体验降级为隐藏 chrome。
     document.documentElement.requestFullscreen().catch(() => {});
   }
@@ -3047,15 +3612,25 @@ function onImmersiveMouseMove(event) {
 /* ---------- Nova 面板：可折叠阅读计划小节 ---------- */
 
 function activePlanSummary() {
-  return (state.snapshot?.plans || [])
-    .filter((plan) => plan.bookId === state.bookId && plan.status === "active")
-    .slice()
-    .sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))[0] || null;
+  return (
+    (state.snapshot?.plans || [])
+      .filter(
+        (plan) => plan.bookId === state.bookId && plan.status === "active"
+      )
+      .slice()
+      .sort((a, b) =>
+        String(b.updatedAt || b.createdAt || "").localeCompare(
+          String(a.updatedAt || a.createdAt || "")
+        )
+      )[0] || null
+  );
 }
 
 function planStepRange(step) {
   const range = step?.range || {};
-  const ids = Array.isArray(step?.chunkIds) ? step.chunkIds.filter(Boolean) : [];
+  const ids = Array.isArray(step?.chunkIds)
+    ? step.chunkIds.filter(Boolean)
+    : [];
   const start = range.startChunkId || ids[0] || "";
   const end = range.endChunkId || ids[ids.length - 1] || start;
   return start ? { start, end } : null;
@@ -3066,7 +3641,10 @@ function planStepLabel(step) {
   // 没有范围（如兴趣搜索步）退回步骤标题。
   const range = planStepRange(step);
   const chunk = range ? chunkById(range.start) : null;
-  return (chunk ? compactText(sectionLabel(chunk), 18) : "") || compactText(step?.title || "", 18);
+  return (
+    (chunk ? compactText(sectionLabel(chunk), 18) : "") ||
+    compactText(step?.title || "", 18)
+  );
 }
 
 function currentSectionRange() {
@@ -3075,7 +3653,9 @@ function currentSectionRange() {
   const order = chunkOrder(state.activeChunkId);
   const current = order === null ? null : state.chunks[order];
   if (!current) return null;
-  const sameSection = state.chunks.filter((chunk) => Number(chunk.sectionIndex) === Number(current.sectionIndex));
+  const sameSection = state.chunks.filter(
+    (chunk) => Number(chunk.sectionIndex) === Number(current.sectionIndex)
+  );
   const sectionChunks = sameSection.length ? sameSection : [current];
   const startChunkId = getChunkId(sectionChunks[0]);
   const endChunkId = getChunkId(sectionChunks[sectionChunks.length - 1]);
@@ -3092,7 +3672,8 @@ function planCacheFromResult(planId, summary, nextStep, fallback = {}) {
     planId,
     title: summary?.title || fallback.title || planId,
     status: summary?.status || fallback.status || "active",
-    stepCount: summary?.stepCount ?? summary?.steps?.length ?? fallback.stepCount ?? 0,
+    stepCount:
+      summary?.stepCount ?? summary?.steps?.length ?? fallback.stepCount ?? 0,
     doneCount: doneFromCounts ?? doneFromSteps ?? fallback.doneCount ?? 0,
     nextStep: nextStep || null,
     hydrated: true,
@@ -3111,14 +3692,29 @@ async function hydratePlanNext() {
     renderPlanSection();
     return;
   }
-  state.plan = { planId: summary.planId, title: summary.title, status: summary.status, stepCount: summary.stepCount ?? 0, doneCount: summary.statusCounts?.done ?? 0, nextStep: null, hydrated: false };
+  state.plan = {
+    planId: summary.planId,
+    title: summary.title,
+    status: summary.status,
+    stepCount: summary.stepCount ?? 0,
+    doneCount: summary.statusCounts?.done ?? 0,
+    nextStep: null,
+    hydrated: false,
+  };
   renderPlanSection();
   try {
     const result = await query({ command: "plan_get", planId: summary.planId });
-    if (state.bookId !== bookId || state.plan?.planId !== summary.planId) return;
-    state.plan = planCacheFromResult(summary.planId, result?.plan, result?.nextStep, state.plan);
+    if (state.bookId !== bookId || state.plan?.planId !== summary.planId)
+      return;
+    state.plan = planCacheFromResult(
+      summary.planId,
+      result?.plan,
+      result?.nextStep,
+      state.plan
+    );
   } catch {
-    if (state.bookId !== bookId || state.plan?.planId !== summary.planId) return;
+    if (state.bookId !== bookId || state.plan?.planId !== summary.planId)
+      return;
     state.plan = { ...state.plan, hydrated: true }; // 下一步读不到时按摘要降级展示
   }
   renderPlanSection();
@@ -3130,7 +3726,8 @@ function renderPlanSection() {
   if (!plan) label.textContent = "为本书建个计划";
   else if (!plan.hydrated) label.textContent = "计划 · 读取下一步…";
   else if (!plan.nextStep) label.textContent = "计划 · 已全部完成";
-  else label.textContent = `计划 · 下一步 ${planStepLabel(plan.nextStep)}`.trim();
+  else
+    label.textContent = `计划 · 下一步 ${planStepLabel(plan.nextStep)}`.trim();
   renderSkillCards(); // 计划忙闲影响“计划本章”技能卡
   if (!state.planOpen) return;
   const step = plan?.hydrated ? plan.nextStep : null;
@@ -3138,13 +3735,21 @@ function renderPlanSection() {
   $("planStepMeta").textContent = !plan
     ? "本书还没有阅读计划，可从当前章节建一个。"
     : !plan.hydrated
-      ? "读取计划中…"
-      : !step
-        ? `${plan.title || plan.planId} · ${plan.doneCount}/${plan.stepCount} 步 · 已完成`
-        : [
-          `${plan.doneCount}/${plan.stepCount} 步`,
-          range ? (range.start === range.end ? range.start : `${range.start} → ${range.end}`) : "",
-        ].filter(Boolean).join(" · ");
+    ? "读取计划中…"
+    : !step
+    ? `${plan.title || plan.planId} · ${plan.doneCount}/${
+        plan.stepCount
+      } 步 · 已完成`
+    : [
+        `${plan.doneCount}/${plan.stepCount} 步`,
+        range
+          ? range.start === range.end
+            ? range.start
+            : `${range.start} → ${range.end}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
   $("planStepTitle").textContent = step?.title || "";
   $("planReadStepBtn").disabled = !range;
   $("planDoneStepBtn").disabled = !step || state.planBusy;
@@ -3178,9 +3783,17 @@ async function completePlanStep() {
   $("planStatus").textContent = "执行这一步中…";
   try {
     // 对照旧壳 executePlanGuideStep：plan_execute_step 一发完成，响应自带推进后的 plan 摘要与 nextStep。
-    const result = await query({ command: "plan_execute_step", planId: plan.planId });
+    const result = await query({
+      command: "plan_execute_step",
+      planId: plan.planId,
+    });
     if (state.bookId !== bookId) return;
-    state.plan = planCacheFromResult(plan.planId, result?.plan, result?.nextStep, plan);
+    state.plan = planCacheFromResult(
+      plan.planId,
+      result?.plan,
+      result?.nextStep,
+      plan
+    );
     renderPlanSection(); // 先刷新步骤卡，再补快照角标，最后报完成，避免“已完成”配旧步骤
     try {
       await loadSnapshot();
@@ -3189,11 +3802,16 @@ async function completePlanStep() {
     }
     renderSinkBadge(); // 评价步会产生待批准沉淀预览
     if (state.bookId !== bookId) return;
-    $("planStatus").textContent = result?.completed || !result?.nextStep
-      ? "这一步完成，本计划读完了。"
-      : "这一步完成，下一步已带出。";
+    $("planStatus").textContent =
+      result?.completed || !result?.nextStep
+        ? "这一步完成，本计划读完了。"
+        : "这一步完成，下一步已带出。";
   } catch (error) {
-    if (state.bookId === bookId) $("planStatus").textContent = `执行失败：${compactText(error.message || error, 80)}`;
+    if (state.bookId === bookId)
+      $("planStatus").textContent = `执行失败：${compactText(
+        error.message || error,
+        80
+      )}`;
   } finally {
     state.planBusy = false;
     if (state.bookId === bookId) renderPlanSection();
@@ -3234,7 +3852,11 @@ async function planCurrentSection() {
     if (state.bookId !== bookId) return;
     $("planStatus").textContent = `已创建本章计划：${section.title}`;
   } catch (error) {
-    if (state.bookId === bookId) $("planStatus").textContent = `创建失败：${compactText(error.message || error, 80)}`;
+    if (state.bookId === bookId)
+      $("planStatus").textContent = `创建失败：${compactText(
+        error.message || error,
+        80
+      )}`;
   } finally {
     state.planBusy = false;
     if (state.bookId === bookId) renderPlanSection();
@@ -3253,9 +3875,11 @@ function renderSkillCards() {
   const pending = state.skillPending;
   $("skillPreReadBtn").disabled = !hasChunk || pending.has("preread");
   $("skillScoutBtn").disabled = !hasBook || pending.has("scout");
-  $("skillTrailBtn").disabled = !hasChunk || pending.has("trail") || state.trailPending;
+  $("skillTrailBtn").disabled =
+    !hasChunk || pending.has("trail") || state.trailPending;
   $("skillReviewBtn").disabled = !hasChunk || pending.has("review");
-  $("skillPlanBtn").disabled = !hasBook || state.planBusy || pending.has("plan") || !currentSectionRange();
+  $("skillPlanBtn").disabled =
+    !hasBook || state.planBusy || pending.has("plan") || !currentSectionRange();
   $("skillSinkBtn").disabled = !hasChunk || state.sinkCreating;
 }
 
@@ -3297,16 +3921,25 @@ function skillPreRead() {
     state.autoPreReadInFlight = true;
     setSkillStatus("Nova 预读本段中…（单次请求，最长等 6 分钟）");
     try {
-      const text = renderedChunkText(chunkId) || await chunkRawText(chunkId).catch(() => "");
+      const text =
+        renderedChunkText(chunkId) ||
+        (await chunkRawText(chunkId).catch(() => ""));
       if (!text.trim()) throw new Error("这一段还没有可读正文");
       // 手动发出后占掉本 chunk 的自动预读名额，避免自动调度再发一次。
       state.autoPreReadTried.add(`${bookId}:${chunkId}`);
       const context = await buildAutoPreReadContext(bookId, chunkId, text);
-      const result = await askNovaApi({ prompt: buildAutoPreReadPrompt(), context });
+      const result = await askNovaApi({
+        prompt: buildAutoPreReadPrompt(),
+        context,
+      });
       const before = state.sessionPreReads.length;
       recordAutoPreRead(context, result.content || "");
       const item = state.sessionPreReads[0];
-      if (state.sessionPreReads.length > before && item && item.bookId === state.bookId) {
+      if (
+        state.sessionPreReads.length > before &&
+        item &&
+        item.bookId === state.bookId
+      ) {
         showPreReadItem(item); // 用户主动点的卡：直接展示，不让位
         setSkillStatus("预读完成，回复已在 Nova 面板。");
       } else if (state.sessionPreReads.length > before) {
@@ -3325,7 +3958,9 @@ function skillPreRead() {
 /* 先看全书：book-scope 巡读，payload 对照旧壳 bookScout（scope:"book"，候选上限 4）。 */
 function buildBookScoutPrompt() {
   return [
-    `请你作为 Nova 在我继续读《${state.bookTitle || "这本书"}》之前，先自主巡读一次。`,
+    `请你作为 Nova 在我继续读《${
+      state.bookTitle || "这本书"
+    }》之前，先自主巡读一次。`,
     "你可以从系统传入的目录和候选正文里自己挑一个最值得停留的位置。",
     "输出保持短而有用：",
     "1. 你先看了哪里，为什么选这里；",
@@ -3339,7 +3974,11 @@ function buildBookScoutPrompt() {
 async function bookScoutCandidates(maxCandidates = 4) {
   // 从第一个正文章节起取若干候选段（跳过封面/版权等前置页），交给 Nova 自己挑。
   const candidates = [];
-  for (let i = preferredAnchorIndex(); i < state.chunks.length && candidates.length < maxCandidates; i += 1) {
+  for (
+    let i = preferredAnchorIndex();
+    i < state.chunks.length && candidates.length < maxCandidates;
+    i += 1
+  ) {
     const chunk = state.chunks[i];
     const chunkId = getChunkId(chunk);
     let text = renderedChunkText(chunkId);
@@ -3351,7 +3990,11 @@ async function bookScoutCandidates(maxCandidates = 4) {
       }
     }
     if (!text.trim()) continue;
-    candidates.push({ chunkId, title: chunkTitle(chunk) || chunkId, text: compactText(text, 1800) });
+    candidates.push({
+      chunkId,
+      title: chunkTitle(chunk) || chunkId,
+      text: compactText(text, 1800),
+    });
   }
   return candidates;
 }
@@ -3384,10 +4027,14 @@ function skillBookScout() {
         selectionOffset: null,
         tocPreview: novaTocPreview(),
         autonomousCandidates: await bookScoutCandidates(),
-        instructionBoundary: "Nova 在 autonomousCandidates 里自行挑一个最值得停留的位置；只能评论传入候选段，不要假装读完整本书。",
+        instructionBoundary:
+          "Nova 在 autonomousCandidates 里自行挑一个最值得停留的位置；只能评论传入候选段，不要假装读完整本书。",
       };
       if (bookId !== state.bookId) return; // 取候选期间切书，放弃本次
-      const result = await askNovaApi({ prompt: buildBookScoutPrompt(), context });
+      const result = await askNovaApi({
+        prompt: buildBookScoutPrompt(),
+        context,
+      });
       const note = compactText(result.content || "", 520);
       if (!note) {
         setSkillStatus("Nova 没有返回内容，可稍后再试。");
@@ -3419,7 +4066,8 @@ function skillTrail() {
   const chunkId = state.activeChunkId;
   if (!state.bookId || !chunkId || state.trailPending) return;
   void withSkillPending("trail", async () => {
-    const clue = state.selection?.text || sectionLabel(chunkById(chunkId) || {});
+    const clue =
+      state.selection?.text || sectionLabel(chunkById(chunkId) || {});
     if (!clue.trim()) {
       setSkillStatus("先选中一段文字，或等本段标题加载好再试。");
       return;
@@ -3431,7 +4079,9 @@ function skillTrail() {
         setSkillStatus("相关段落已在右侧抽屉展开。");
       }
     } catch (error) {
-      setSkillStatus(`相关段落查找失败：${compactText(error.message || error, 80)}`);
+      setSkillStatus(
+        `相关段落查找失败：${compactText(error.message || error, 80)}`
+      );
     } finally {
       state.trailPending = false;
     }
@@ -3445,13 +4095,23 @@ function chunkCommentObservations(chunkId) {
   for (const ann of uniqueComments(annotationsForChunk(chunkId))) {
     if (ann.source === "mine") {
       observations.push({
-        section: "user_note", source: "user-note", kind: "note",
-        chunkId, quote: ann.quote || "", note: ann.text, text: ann.text,
+        section: "user_note",
+        source: "user-note",
+        kind: "note",
+        chunkId,
+        quote: ann.quote || "",
+        note: ann.text,
+        text: ann.text,
       });
     } else if (String(ann.source).startsWith("nova")) {
       observations.push({
-        section: "nova_reply", source: "nova-reply-current", kind: "nova-reply",
-        chunkId, quote: ann.quote || "", note: ann.text, text: ann.text,
+        section: "nova_reply",
+        source: "nova-reply-current",
+        kind: "nova-reply",
+        chunkId,
+        quote: ann.quote || "",
+        note: ann.text,
+        text: ann.text,
       });
     }
   }
@@ -3467,7 +4127,9 @@ function skillReview() {
     try {
       const chunk = chunkById(chunkId) || {};
       // 刚打开书时 activeChunkId 先于正文渲染就位：DOM 取不到就回退原文，避免生成空摘录评价。
-      const source = renderedChunkText(chunkId) || await chunkRawText(chunkId).catch(() => "");
+      const source =
+        renderedChunkText(chunkId) ||
+        (await chunkRawText(chunkId).catch(() => ""));
       const excerpt = compactText(source, 200);
       if (!excerpt.trim()) throw new Error("这一段还没有可读正文");
       await query({
@@ -3514,27 +4176,34 @@ function skillPlanSection() {
 function skillSinkCurrent() {
   const chunkId = state.activeChunkId;
   if (!state.bookId || !chunkId) return;
-  const comments = uniqueComments(annotationsForChunk(chunkId))
-    .filter((ann) => ann.source === "mine" || String(ann.source).startsWith("nova"));
+  const comments = uniqueComments(annotationsForChunk(chunkId)).filter(
+    (ann) => ann.source === "mine" || String(ann.source).startsWith("nova")
+  );
   const text = comments.length
-    ? comments.slice(0, 4).map((ann) => `${ann.speaker}：${compactText(ann.text, 120)}`).join("\n")
+    ? comments
+        .slice(0, 4)
+        .map((ann) => `${ann.speaker}：${compactText(ann.text, 120)}`)
+        .join("\n")
     : compactText(renderedChunkText(chunkId), 200);
   if (!text.trim()) {
     setSkillStatus("这一段还没有可导出的内容。");
     return;
   }
   setSkillStatus("");
-  openSinkTargetPop({
-    text,
-    quote: "",
-    bookId: state.bookId,
-    bookTitle: state.bookTitle,
-    chunkId,
-    sourceLabel: "本段",
-    section: "user_note",
-    source: "user-note",
-    kind: "note",
-  }, $("skillSinkBtn"));
+  openSinkTargetPop(
+    {
+      text,
+      quote: "",
+      bookId: state.bookId,
+      bookTitle: state.bookTitle,
+      chunkId,
+      sourceLabel: "本段",
+      section: "user_note",
+      source: "user-note",
+      kind: "note",
+    },
+    $("skillSinkBtn")
+  );
 }
 
 /* ---------- 选区工具条 ---------- */
@@ -3573,10 +4242,13 @@ function onSelectionEnd() {
   const tool = $("selTool");
   $("selToolStatus").hidden = true; // 新选区时清掉上一次的内联错误
   tool.hidden = false;
-  const left = Math.max(8, Math.min(
-    rect.left + window.scrollX + rect.width / 2 - tool.offsetWidth / 2,
-    document.documentElement.clientWidth - tool.offsetWidth - 8
-  ));
+  const left = Math.max(
+    8,
+    Math.min(
+      rect.left + window.scrollX + rect.width / 2 - tool.offsetWidth / 2,
+      document.documentElement.clientWidth - tool.offsetWidth - 8
+    )
+  );
   tool.style.left = `${left}px`;
   tool.style.top = `${rect.top + window.scrollY - tool.offsetHeight - 8}px`;
 }
@@ -3589,6 +4261,55 @@ function askNovaFromSelection() {
   const prompt = $("novaPrompt");
   prompt.value = `「${compactText(selection.text, 600)}」\n这段怎么理解？`;
   prompt.focus();
+}
+
+async function locateWereadSelection() {
+  const selection = state.selection;
+  const button = $("selWereadBtn");
+  const status = $("selToolStatus");
+  const bookId = state.bookId;
+  if (!selection?.text || !state.bookTitle || !bookId) return;
+  button.disabled = true;
+  button.textContent = "定位中…";
+  status.hidden = true;
+  try {
+    const result = await query({
+      command: "reading_find_weread_context",
+      wereadTitle: state.bookTitle,
+      markText: selection.text,
+      includeChunk: false,
+    });
+    if (bookId !== state.bookId || $("readView").hidden) return;
+    const candidates = Array.isArray(result?.candidates)
+      ? result.candidates
+      : Array.isArray(result?.matches)
+      ? result.matches
+      : Array.isArray(result)
+      ? result
+      : [];
+    const chosen =
+      candidates.find((item) => item?.chunkId === selection.chunkId) ||
+      candidates[0] ||
+      null;
+    if (!chosen) {
+      const reason = result?.reason || result?.error || "未找到微信划线候选。";
+      status.textContent = `微信定位失败：${compactText(reason, 80)}`;
+      status.hidden = false;
+      return;
+    }
+    await jumpToQuote(chosen.quote || selection.text, chosen.chunkId);
+    status.textContent = `已定位微信划线：${candidates.length} 个候选`;
+    status.hidden = false;
+  } catch (error) {
+    status.textContent = `微信定位失败：${compactText(
+      error.message || error,
+      80
+    )}`;
+    status.hidden = false;
+  } finally {
+    button.disabled = false;
+    button.textContent = "微信定位";
+  }
 }
 
 /* ---------- 初始化 ---------- */
@@ -3606,8 +4327,16 @@ function setupEvents() {
   $("selAskBtn").addEventListener("click", askNovaFromSelection);
   $("selNoteBtn").addEventListener("click", openNoteCardFromSelection);
   $("selTrailBtn").addEventListener("click", trailFromSelection);
+  $("selWereadBtn").addEventListener("click", locateWereadSelection);
+  document.querySelectorAll(".sel-style-btn").forEach((button) => {
+    button.addEventListener("click", () =>
+      saveAnnotationStyleFromSelection(button.dataset.annotStyle)
+    );
+  });
   $("noteSaveNoteBtn").addEventListener("click", () => saveMyNote("note"));
-  $("noteSaveAnnotBtn").addEventListener("click", () => saveMyNote("annotation"));
+  $("noteSaveAnnotBtn").addEventListener("click", () =>
+    saveMyNote("annotation")
+  );
   $("sinkBtn").addEventListener("click", openSinkDrawer);
   $("sinkCloseBtn").addEventListener("click", closeSinkDrawer);
   $("sinkBackdrop").addEventListener("click", closeSinkDrawer);
@@ -3636,7 +4365,10 @@ function setupEvents() {
   $("planToggleBtn").addEventListener("click", togglePlanSection);
   $("planReadStepBtn").addEventListener("click", readPlanStep);
   $("planDoneStepBtn").addEventListener("click", () => void completePlanStep());
-  $("planSectionBtn").addEventListener("click", () => void planCurrentSection());
+  $("planSectionBtn").addEventListener(
+    "click",
+    () => void planCurrentSection()
+  );
   $("skillToggleBtn").addEventListener("click", toggleSkillSection);
   $("skillPreReadBtn").addEventListener("click", skillPreRead);
   $("skillScoutBtn").addEventListener("click", skillBookScout);
@@ -3652,7 +4384,9 @@ function setupEvents() {
     const input = event.target.closest?.("input.setting-range");
     if (input) applySettingChange(input.dataset.field, input.value);
   });
-  $("fontImportBtn").addEventListener("click", () => $("fontImportInput").click());
+  $("fontImportBtn").addEventListener("click", () =>
+    $("fontImportInput").click()
+  );
   $("fontImportInput").addEventListener("change", () => {
     const file = $("fontImportInput").files?.[0];
     $("fontImportInput").value = "";
@@ -3661,8 +4395,12 @@ function setupEvents() {
   document.querySelectorAll("input.sink-default").forEach((input) => {
     input.addEventListener("change", () => onSinkDefaultChange(input));
   });
-  setupClearButton("clearPositionsBtn", () => removeLocalKeys(DATA_GROUPS.positions));
-  setupClearButton("clearBookmarksBtn", () => removeLocalKeys(DATA_GROUPS.bookmarks));
+  setupClearButton("clearPositionsBtn", () =>
+    removeLocalKeys(DATA_GROUPS.positions)
+  );
+  setupClearButton("clearBookmarksBtn", () =>
+    removeLocalKeys(DATA_GROUPS.bookmarks)
+  );
   setupClearButton("clearSettingsBtn", () => clearSettingsData());
   setupClearButton("clearFontsBtn", () => clearFontData());
   setupClearButton("clearAllBtn", async () => {
@@ -3672,16 +4410,23 @@ function setupEvents() {
     clearSettingsData();
   });
   document.addEventListener("fullscreenchange", onFullscreenChange);
-  document.addEventListener("mousemove", onImmersiveMouseMove, { passive: true });
+  document.addEventListener("mousemove", onImmersiveMouseMove, {
+    passive: true,
+  });
   document.addEventListener("keydown", (event) => {
-    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      event.key.toLowerCase() === "f"
+    ) {
       if ($("readView").hidden) return; // 书架视图保留浏览器原生查找
       event.preventDefault();
       openFindBar();
     }
   });
   $("flow").addEventListener("click", (event) => {
-    const span = event.target.closest(".annot-underline");
+    const span = event.target.closest(".annot-mark");
     if (!span) return;
     // 划选结束的 click 不弹评论卡，避免评论卡叠在选区工具条上。
     const selection = window.getSelection();
@@ -3691,11 +4436,17 @@ function setupEvents() {
     if (annotations.length) openCommentCard(annotations, span);
   });
   document.addEventListener("click", (event) => {
-    if (!event.target.closest?.("#commentCard, .annot-underline, .annot-bubble")) closeCommentCard();
+    if (!event.target.closest?.("#commentCard, .annot-mark, .annot-bubble"))
+      closeCommentCard();
     // 沉淀目标弹层：触发按钮（.sink-trigger）刚把它打开时不要立刻关掉。
-    if (!event.target.closest?.("#sinkTargetPop, .sink-trigger")) closeSinkTargetPop();
+    if (!event.target.closest?.("#sinkTargetPop, .sink-trigger"))
+      closeSinkTargetPop();
     // 已经打了字的输入卡不随便被外点关掉，避免误点丢稿；Esc / 保存 / 切章仍会关闭。
-    if (!event.target.closest?.("#noteCard, #selTool") && !$("noteCardText").value.trim()) closeNoteCard();
+    if (
+      !event.target.closest?.("#noteCard, #selTool") &&
+      !$("noteCardText").value.trim()
+    )
+      closeNoteCard();
   });
   setupTypoPop();
   window.addEventListener("scroll", onScroll, { passive: true });
@@ -3718,7 +4469,8 @@ function setupEvents() {
       if (immersiveOn()) exitImmersive();
       return;
     }
-    if (event.target.closest?.("#novaPanel, #noteCard, #findBar, #tocDrawer")) return;
+    if (event.target.closest?.("#novaPanel, #noteCard, #findBar, #tocDrawer"))
+      return;
     window.setTimeout(onSelectionEnd, 0);
   });
   window.addEventListener("beforeunload", savePositionNow);
